@@ -4,6 +4,8 @@ use wingfc_core::pid::{PidController, PidConfig};
 use wingfc_core::mixer::{AirframeMixer, AirframeType};
 use wingfc_core::dshot::DshotEncoder;
 use wingfc_core::protocol::crsf::{CrsfParser, calculate_crc8_dvb_s2, CRSF_SYNC_BYTE, CRSF_FRAMETYPE_RC_CHANNELS};
+use wingfc_core::protocol::ibus::{IbusParser, IBUS_HEADER1, IBUS_HEADER2, IBUS_PACKET_SIZE};
+use wingfc_core::protocol::RcChannels;
 
 #[test]
 fn test_vector_and_quaternion_math() {
@@ -23,7 +25,6 @@ fn test_madgwick_ahrs_convergence() {
     let mut ahrs = MadgwickAHRS::new(0.5);
     let dt = 0.005; // 200 Hz
     let gyro = Vector3::ZERO;
-    // Stationary flat on table: Accel = 1G pointing straight up Z axis (0, 0, 9.81)
     let accel = Vector3::new(0.0, 0.0, 9.81);
 
     for _ in 0..200 {
@@ -46,15 +47,12 @@ fn test_pid_anti_windup() {
     };
     let mut pid = PidController::new(config, 0.005);
 
-    // Provide large continuous error (setpoint = 10.0, measurement = 0.0)
     for _ in 0..1000 {
         let _ = pid.update(10.0, 0.0, 0.005);
     }
 
-    // Integral must be clamped to max_integral (0.5)
     assert!((pid.integral() - 0.5).abs() < 1e-4, "PID integral should be clamped at 0.5, got {}", pid.integral());
 
-    // When error goes to 0 (setpoint = 0.0, measurement = 0.0), output should reflect integral
     let output = pid.update(0.0, 0.0, 0.005);
     assert!((output - 0.5).abs() < 1e-4, "Output with 0 error should equal clamped integral 0.5, got {}", output);
 }
@@ -63,18 +61,15 @@ fn test_pid_anti_windup() {
 fn test_airframe_mixer_elevon() {
     let mixer = AirframeMixer::new(AirframeType::Elevon);
     
-    // Neutral sticks
     let out = mixer.mix(0.0, 0.0, 0.0, 1000);
     assert_eq!(out.servo1_us, 1500);
     assert_eq!(out.servo2_us, 1500);
     assert_eq!(out.motor1_throttle, 1000);
 
-    // Full Pitch up (+1.0)
     let pitch_up = mixer.mix(1.0, 0.0, 0.0, 1000);
     assert_eq!(pitch_up.servo1_us, 1750);
     assert_eq!(pitch_up.servo2_us, 1250);
 
-    // Full Roll right (+1.0)
     let roll_right = mixer.mix(0.0, 1.0, 0.0, 1000);
     assert_eq!(roll_right.servo1_us, 1750);
     assert_eq!(roll_right.servo2_us, 1750);
@@ -84,10 +79,9 @@ fn test_airframe_mixer_elevon() {
 fn test_crsf_protocol_parsing() {
     let mut parser = CrsfParser::new();
 
-    // Construct a synthetic 26-byte CRSF packet
     let mut packet = [0u8; 26];
     packet[0] = CRSF_SYNC_BYTE;
-    packet[1] = 24; // Length (type + 22 bytes payload + crc)
+    packet[1] = 24;
     packet[2] = CRSF_FRAMETYPE_RC_CHANNELS;
     
     for i in 3..25 {
@@ -104,11 +98,52 @@ fn test_crsf_protocol_parsing() {
     }
 
     assert!(frame.is_some(), "CRSF parser should successfully decode valid packet");
+    let rc: RcChannels = frame.unwrap().into();
+    assert_eq!(rc.channels[0], 1020);
+}
+
+#[test]
+fn test_ibus_protocol_parsing() {
+    let mut parser = IbusParser::new();
+
+    // Construct valid 32-byte iBus frame
+    let mut packet = [0u8; IBUS_PACKET_SIZE];
+    packet[0] = IBUS_HEADER1; // 0x20
+    packet[1] = IBUS_HEADER2; // 0x40
+
+    // Set 14 channels to 1500 us (0x05DC in little endian: [0xDC, 0x05])
+    for ch in 0..14 {
+        packet[2 + ch * 2] = 0xDC;
+        packet[2 + ch * 2 + 1] = 0x05;
+    }
+
+    // Compute checksum: 0xFFFF - sum(bytes[0..30])
+    let mut sum: u32 = 0;
+    for &b in &packet[0..30] {
+        sum += b as u32;
+    }
+    let checksum = (0xFFFF - (sum & 0xFFFF)) as u16;
+    packet[30] = (checksum & 0xFF) as u8;
+    packet[31] = (checksum >> 8) as u8;
+
+    let mut frame = None;
+    for &b in &packet {
+        if let Some(f) = parser.parse_byte(b) {
+            frame = Some(f);
+        }
+    }
+
+    assert!(frame.is_some(), "iBus parser should successfully decode valid packet");
+    let f = frame.unwrap();
+    assert_eq!(f.channels[0], 1500);
+    assert_eq!(f.channels[13], 1500);
+
+    let rc: RcChannels = f.into();
+    assert_eq!(rc.channels[0], 1500);
 }
 
 #[test]
 fn test_dshot_checksum() {
-    // 1000 throttle, no telemetry
     let packet = DshotEncoder::encode_packet(1000, false);
     let throttle_back = packet >> 5;
     assert_eq!(throttle_back, 1000);
