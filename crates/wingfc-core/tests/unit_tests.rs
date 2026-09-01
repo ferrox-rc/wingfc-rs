@@ -1,9 +1,11 @@
-use wingfc_core::math::{Vector3, Quaternion, RAD_TO_DEG};
 use wingfc_core::ahrs::MadgwickAHRS;
-use wingfc_core::pid::{PidController, PidConfig};
-use wingfc_core::mixer::{AirframeMixer, AirframeType};
 use wingfc_core::dshot::DshotEncoder;
-use wingfc_core::protocol::crsf::{CrsfParser, calculate_crc8_dvb_s2, CRSF_SYNC_BYTE, CRSF_FRAMETYPE_RC_CHANNELS};
+use wingfc_core::math::{Quaternion, Vector3, RAD_TO_DEG};
+use wingfc_core::mixer::{AirframeMixer, AirframeType};
+use wingfc_core::pid::{PidConfig, PidController};
+use wingfc_core::protocol::crsf::{
+    calculate_crc8_dvb_s2, CrsfParser, CRSF_FRAMETYPE_RC_CHANNELS, CRSF_SYNC_BYTE,
+};
 use wingfc_core::protocol::ibus::{IbusParser, IBUS_HEADER1, IBUS_HEADER2, IBUS_PACKET_SIZE};
 use wingfc_core::protocol::RcChannels;
 
@@ -32,8 +34,16 @@ fn test_madgwick_ahrs_convergence() {
     }
 
     let (pitch, roll, _yaw) = ahrs.get_euler_angles();
-    assert!(pitch.abs() * RAD_TO_DEG < 1.0, "Pitch should converge to 0 deg, got {}", pitch * RAD_TO_DEG);
-    assert!(roll.abs() * RAD_TO_DEG < 1.0, "Roll should converge to 0 deg, got {}", roll * RAD_TO_DEG);
+    assert!(
+        pitch.abs() * RAD_TO_DEG < 1.0,
+        "Pitch should converge to 0 deg, got {}",
+        pitch * RAD_TO_DEG
+    );
+    assert!(
+        roll.abs() * RAD_TO_DEG < 1.0,
+        "Roll should converge to 0 deg, got {}",
+        roll * RAD_TO_DEG
+    );
 }
 
 #[test]
@@ -51,16 +61,24 @@ fn test_pid_anti_windup() {
         let _ = pid.update(10.0, 0.0, 0.005);
     }
 
-    assert!((pid.integral() - 0.5).abs() < 1e-4, "PID integral should be clamped at 0.5, got {}", pid.integral());
+    assert!(
+        (pid.integral() - 0.5).abs() < 1e-4,
+        "PID integral should be clamped at 0.5, got {}",
+        pid.integral()
+    );
 
     let output = pid.update(0.0, 0.0, 0.005);
-    assert!((output - 0.5).abs() < 1e-4, "Output with 0 error should equal clamped integral 0.5, got {}", output);
+    assert!(
+        (output - 0.5).abs() < 1e-4,
+        "Output with 0 error should equal clamped integral 0.5, got {}",
+        output
+    );
 }
 
 #[test]
 fn test_airframe_mixer_elevon() {
     let mixer = AirframeMixer::new(AirframeType::Elevon);
-    
+
     let out = mixer.mix(0.0, 0.0, 0.0, 1000);
     assert_eq!(out.servo1_us, 1500);
     assert_eq!(out.servo2_us, 1500);
@@ -83,7 +101,7 @@ fn test_crsf_protocol_parsing() {
     packet[0] = CRSF_SYNC_BYTE;
     packet[1] = 24;
     packet[2] = CRSF_FRAMETYPE_RC_CHANNELS;
-    
+
     for i in 3..25 {
         packet[i] = 0b11100000;
     }
@@ -97,7 +115,10 @@ fn test_crsf_protocol_parsing() {
         }
     }
 
-    assert!(frame.is_some(), "CRSF parser should successfully decode valid packet");
+    assert!(
+        frame.is_some(),
+        "CRSF parser should successfully decode valid packet"
+    );
     let rc: RcChannels = frame.unwrap().into();
     assert_eq!(rc.channels[0], 1020);
 }
@@ -133,7 +154,10 @@ fn test_ibus_protocol_parsing() {
         }
     }
 
-    assert!(frame.is_some(), "iBus parser should successfully decode valid packet");
+    assert!(
+        frame.is_some(),
+        "iBus parser should successfully decode valid packet"
+    );
     let f = frame.unwrap();
     assert_eq!(f.channels[0], 1500);
     assert_eq!(f.channels[13], 1500);
