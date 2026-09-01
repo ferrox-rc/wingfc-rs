@@ -1,0 +1,15 @@
+[package]
+name = "wingfc-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Bryan Souza"]
+license = "MIT"
+description = "High-performance #![no_std] flight controller core with Madgwick AHRS, Rate/Angle PID, and Airframe Mixers"
+
+[dependencies]
+libm = "0.2"
+defmt = { version = "0.3", optional = true }
+
+[features]
+default = []
+defmt-03 = ["dep:defmt"]
