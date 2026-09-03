@@ -6,6 +6,12 @@ authors = ["Bryan Souza"]
 license = "MIT"
 description = "Embedded flight controller firmware for Seeed Studio XIAO nRF52840 Sense"
 
+[features]
+default = ["crsf"]
+crsf = []
+ibus = []
+dshot = []
+
 [dependencies]
 wingfc-core = { path = "../wingfc-core", features = ["defmt-03"] }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }

@@ -21,7 +21,7 @@ mod drivers;
 mod tasks;
 
 use drivers::{EscPwmDriver, Lsm6ds3Driver, ServoPwmDriver};
-use tasks::{flight_loop::FlightLoopState, receiver_task, ReceiverProtocol};
+use tasks::{flight_loop::FlightLoopState, receiver_task};
 
 bind_interrupts!(struct Irqs {
     TWISPI0 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI0>;
@@ -30,6 +30,7 @@ bind_interrupts!(struct Irqs {
 
 static RC_CHANNEL: Channel<CriticalSectionRawMutex, RcChannels, 2> = Channel::new();
 
+#[cfg(feature = "crsf")]
 // CRSF standard baud rate is 420,000 baud: (420000 * 2^32) / 16000000 = 0x06BA4000
 const BAUD_420K: Baudrate = Baudrate(0x06BA4000);
 
@@ -38,6 +39,10 @@ async fn main(spawner: Spawner) {
     info!("=========================================");
     info!(" WingFC-rs: Next-Gen Flight Controller   ");
     info!(" Architecture: Cortex-M4F (nRF52840)     ");
+    #[cfg(feature = "crsf")]
+    info!(" Receiver Protocol: CRSF / ExpressLRS    ");
+    #[cfg(feature = "ibus")]
+    info!(" Receiver Protocol: FlySky iBus          ");
     info!("=========================================");
 
     let p = embassy_nrf::init(Default::default());
@@ -52,19 +57,22 @@ async fn main(spawner: Spawner) {
     let twim = Twim::new(p.TWISPI0, Irqs, p.P0_27, p.P0_07, twim_config);
     let imu_driver = Lsm6ds3Driver::new(twim);
 
-    // 2. Configure EasyDMA UART (UARTE0) for CRSF / ELRS Link (420k baud) or iBus (115.2k)
-    let protocol = ReceiverProtocol::Crsf;
+    // 2. Configure EasyDMA UART (UARTE0) matching the selected build-time protocol
     let mut uarte_config = uarte::Config::default();
-    uarte_config.baudrate = match protocol {
-        ReceiverProtocol::Crsf => BAUD_420K,
-        ReceiverProtocol::Ibus => Baudrate::BAUD115200,
-    };
+    #[cfg(feature = "crsf")]
+    {
+        uarte_config.baudrate = BAUD_420K;
+    }
+    #[cfg(feature = "ibus")]
+    {
+        uarte_config.baudrate = Baudrate::BAUD115200;
+    }
     uarte_config.parity = uarte::Parity::EXCLUDED;
     let rx = UarteRx::new(p.UARTE0, Irqs, p.P1_00, uarte_config);
 
     // Spawn EasyDMA receiver task
     spawner
-        .spawn(receiver_task(rx, RC_CHANNEL.sender(), protocol))
+        .spawn(receiver_task(rx, RC_CHANNEL.sender()))
         .unwrap();
 
     // 3. Configure Multi-Frequency PWM Drivers:
