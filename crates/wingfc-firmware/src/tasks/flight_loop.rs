@@ -1,6 +1,7 @@
 use embassy_nrf::twim;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Receiver;
+use embassy_sync::watch::Sender;
 use embassy_time::{Duration, Instant};
 use wingfc_core::ahrs::MadgwickAHRS;
 use wingfc_core::filter::Pt1Filter;
@@ -8,8 +9,10 @@ use wingfc_core::math::{map_range, Vector3, DEG_TO_RAD};
 use wingfc_core::mixer::{AirframeMixer, AirframeOutputs, AirframeType};
 use wingfc_core::pid::{PidConfig, PidController};
 use wingfc_core::protocol::RcChannels;
+use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::drivers::Lsm6ds3Driver;
+use crate::tasks::telemetry::VisualStatus;
 
 const DT: f32 = 0.002; // 500 Hz control loop (2ms)
 const FAILSAFE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -23,15 +26,6 @@ const MAX_ROLL_ANGLE: f32 = 60.0 * DEG_TO_RAD;   // 60 deg max bank in Angle mod
 
 const GYRO_LPF_CUTOFF_HZ: f32 = 90.0; // 90 Hz low-pass filter to reject motor/prop vibration
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FlightState {
-    Calibration,
-    Disarmed,
-    ArmedAcro,
-    ArmedAngle,
-    Failsafe,
-}
-
 pub struct FlightLoopState<'d, T: twim::Instance> {
     pub imu: Lsm6ds3Driver<'d, T>,
     pub ahrs: MadgwickAHRS,
@@ -42,9 +36,10 @@ pub struct FlightLoopState<'d, T: twim::Instance> {
     pub roll_pid: PidController,
     pub yaw_pid: PidController,
     pub mixer: AirframeMixer,
-    pub state: FlightState,
+    pub safety: ArmingSafety,
     pub last_packet_time: Instant,
     pub latest_rc: RcChannels,
+    pub status: ArmingStatus,
 }
 
 impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
@@ -74,44 +69,69 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
             roll_pid: PidController::new(rate_pid_cfg, DT),
             yaw_pid: PidController::new(rate_pid_cfg, DT),
             mixer: AirframeMixer::new(AirframeType::Elevon),
-            state: FlightState::Calibration,
+            safety: ArmingSafety::new(),
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
+            status: ArmingStatus::Disarmed,
         }
     }
 
-    pub async fn init(&mut self) {
+    pub async fn init(&mut self, status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>) {
+        status_tx.send(VisualStatus::Calibration);
+
         if let Err(e) = self.imu.init().await {
             defmt::error!("IMU init failed: {:?}", e);
-            self.state = FlightState::Failsafe;
+            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
             return;
         }
 
         if let Err(e) = self.imu.calibrate_gyro(250).await {
             defmt::error!("Gyro calib failed: {:?}", e);
-            self.state = FlightState::Failsafe;
+            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
             return;
         }
 
-        self.state = FlightState::Disarmed;
+        self.status = ArmingStatus::Disarmed;
+        status_tx.send(VisualStatus::Status(ArmingStatus::Disarmed));
         defmt::info!("Flight controller initialized and ready!");
     }
 
     /// Execute one 500Hz flight cycle
-    pub async fn step(&mut self, rc_rx: &Receiver<'static, CriticalSectionRawMutex, RcChannels, 2>) -> AirframeOutputs {
+    pub async fn step(
+        &mut self,
+        rc_rx: &Receiver<'static, CriticalSectionRawMutex, RcChannels, 2>,
+        status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>,
+    ) -> AirframeOutputs {
         // 1. Drain latest RC packet
         while let Ok(channels) = rc_rx.try_receive() {
             self.latest_rc = channels;
             self.last_packet_time = Instant::now();
         }
 
-        // 2. Failsafe check
-        let is_signal_lost = Instant::now().duration_since(self.last_packet_time) > FAILSAFE_TIMEOUT;
-        if is_signal_lost && self.state != FlightState::Calibration {
-            self.state = FlightState::Failsafe;
+        // 2. Failsafe timeout check
+        let signal_lost = Instant::now().duration_since(self.last_packet_time) > FAILSAFE_TIMEOUT;
+
+        // 3. Channel Mapping:
+        // CH1: Roll (0), CH2: Pitch (1), CH3: Throttle (2), CH4: Yaw (3), CH5: Arm (4), CH6: Mode (5)
+        let roll_stick = map_range(self.latest_rc.channels[0] as f32, 988.0, 2012.0, -1.0, 1.0);
+        let pitch_stick = map_range(self.latest_rc.channels[1] as f32, 988.0, 2012.0, -1.0, 1.0);
+        let throttle_raw = self.latest_rc.channels[2].clamp(1000, 2000);
+        let yaw_stick = map_range(self.latest_rc.channels[3] as f32, 988.0, 2012.0, -1.0, 1.0);
+
+        // 4. Update Arming Safety State Machine
+        let new_status = self.safety.update(
+            self.latest_rc.channels[4],
+            self.latest_rc.channels[5],
+            throttle_raw,
+            signal_lost,
+        );
+
+        if new_status != self.status {
+            self.status = new_status;
+            status_tx.send(VisualStatus::Status(new_status));
         }
 
-        // 3. Read IMU
+        // 5. Read IMU
         let (raw_gyro, accel) = match self.imu.read().await {
             Ok(data) => data,
             Err(_) => {
@@ -126,45 +146,19 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
             self.gyro_lpf_z.update(raw_gyro.z),
         );
 
-        // 4. Update Attitude Estimation (Madgwick AHRS)
+        // 6. Update Attitude Estimation (Madgwick AHRS)
         self.ahrs.update_6dof(gyro, accel, DT);
         let (est_pitch, est_roll, _est_yaw) = self.ahrs.get_euler_angles();
-
-        // 5. Channel Mapping:
-        // CH1: Roll (0), CH2: Pitch (1), CH3: Throttle (2), CH4: Yaw (3), CH5: Arm (4), CH6: Mode (5)
-        let roll_stick = map_range(self.latest_rc.channels[0] as f32, 988.0, 2012.0, -1.0, 1.0);
-        let pitch_stick = map_range(self.latest_rc.channels[1] as f32, 988.0, 2012.0, -1.0, 1.0);
-        let throttle_raw = self.latest_rc.channels[2].clamp(1000, 2000);
-        let yaw_stick = map_range(self.latest_rc.channels[3] as f32, 988.0, 2012.0, -1.0, 1.0);
-        let is_armed = self.latest_rc.channels[4] > 1800;
-        let is_angle_mode = self.latest_rc.channels[5] < 1500; // CH6 low = Angle, high = Acro
-
-        // State Transition Logic
-        if !is_signal_lost && self.state != FlightState::Calibration {
-            if is_armed {
-                if is_angle_mode {
-                    self.state = FlightState::ArmedAngle;
-                } else {
-                    self.state = FlightState::ArmedAcro;
-                }
-            } else {
-                self.state = FlightState::Disarmed;
-            }
-        }
 
         let pitch_mix;
         let roll_mix;
         let yaw_mix;
         let throttle_out;
 
-        match self.state {
-            FlightState::Calibration => {
-                pitch_mix = 0.0;
-                roll_mix = 0.0;
-                yaw_mix = 0.0;
-                throttle_out = 1000;
-            }
-            FlightState::Disarmed => {
+        match self.status {
+            ArmingStatus::Disarmed
+            | ArmingStatus::RefusedThrottleRaised
+            | ArmingStatus::RefusedSwitchArmedAtBoot => {
                 // Servos follow stick inputs directly for ground pre-flight check
                 pitch_mix = pitch_stick;
                 roll_mix = roll_stick;
@@ -175,7 +169,7 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
                 self.roll_pid.reset();
                 self.yaw_pid.reset();
             }
-            FlightState::ArmedAcro => {
+            ArmingStatus::ArmedAcro => {
                 // ACRO / RATES MODE: Stick commands desired angular rate directly
                 let target_roll_rate = roll_stick * MAX_ROLL_RATE;
                 let target_pitch_rate = pitch_stick * MAX_PITCH_RATE;
@@ -186,7 +180,7 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
                 throttle_out = throttle_raw;
             }
-            FlightState::ArmedAngle => {
+            ArmingStatus::ArmedAngle => {
                 // ANGLE / STABILIZED MODE: Stick commands target pitch/roll angle
                 let target_pitch = pitch_stick * MAX_PITCH_ANGLE;
                 let target_roll = roll_stick * MAX_ROLL_ANGLE;
@@ -201,8 +195,8 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
                 throttle_out = throttle_raw;
             }
-            FlightState::Failsafe => {
-                // Motor cut + level flight surface default
+            ArmingStatus::Failsafe => {
+                // Motor cut + level flight surfaces neutralized
                 pitch_mix = 0.0;
                 roll_mix = 0.0;
                 yaw_mix = 0.0;

@@ -172,3 +172,50 @@ fn test_dshot_checksum() {
     let throttle_back = packet >> 5;
     assert_eq!(throttle_back, 1000);
 }
+
+#[test]
+fn test_arming_safety_logic() {
+    use wingfc_core::safety::{ArmingSafety, ArmingStatus};
+
+    let mut safety = ArmingSafety::new();
+
+    // 1. Boot with arm switch already HIGH -> must be REFUSED
+    let status = safety.update(1900, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::RefusedSwitchArmedAtBoot);
+    assert!(!safety.is_armed());
+
+    // 2. Toggle switch to DISARM -> should now be Disarmed and unlocked
+    let status = safety.update(1000, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 3. Try to arm while throttle is raised (e.g. 1300us) -> must be REFUSED
+    let status = safety.update(1900, 1000, 1300, false);
+    assert_eq!(status, ArmingStatus::RefusedThrottleRaised);
+    assert!(!safety.is_armed());
+
+    // 4. Arm with throttle at zero (1000us) and mode < 1500 (Angle mode) -> ARMED ANGLE
+    let status = safety.update(1900, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::ArmedAngle);
+    assert!(safety.is_armed());
+
+    // 5. While armed, throttle raised to full (2000us) -> stays armed
+    let status = safety.update(1900, 1000, 2000, false);
+    assert_eq!(status, ArmingStatus::ArmedAngle);
+    assert!(safety.is_armed());
+
+    // 6. Switch mode to Acro (mode >= 1500) -> ARMED ACRO
+    let status = safety.update(1900, 1800, 1500, false);
+    assert_eq!(status, ArmingStatus::ArmedAcro);
+    assert!(safety.is_armed());
+
+    // 7. Signal lost -> enters FAILSAFE immediately and disarms
+    let status = safety.update(1900, 1800, 1500, true);
+    assert_eq!(status, ArmingStatus::Failsafe);
+    assert!(!safety.is_armed());
+
+    // 8. Signal restored but switch still HIGH and throttle raised -> rejected
+    let status = safety.update(1900, 1800, 1500, false);
+    assert_eq!(status, ArmingStatus::RefusedThrottleRaised);
+    assert!(!safety.is_armed());
+}
