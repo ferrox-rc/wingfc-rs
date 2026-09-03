@@ -6,46 +6,102 @@ use defmt_rtt as _;
 use panic_probe as _;
 
 use embassy_executor::Spawner;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::pwm::SimplePwm;
+use embassy_nrf::twim::{self, Twim};
+use embassy_nrf::uarte::{self, Baudrate, UarteRx};
+use embassy_nrf::bind_interrupts;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
-use wingfc_core::{MadgwickAHRS, PidController, PidConfig, AirframeMixer, AirframeType, Vector3};
+
+use wingfc_core::protocol::RcChannels;
+
+mod drivers;
+mod tasks;
+
+use drivers::{EscPwmDriver, Lsm6ds3Driver, ServoPwmDriver};
+use tasks::{flight_loop::FlightLoopState, receiver_task, ReceiverProtocol};
+
+bind_interrupts!(struct Irqs {
+    TWISPI0 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI0>;
+    UARTE0 => uarte::InterruptHandler<embassy_nrf::peripherals::UARTE0>;
+});
+
+static RC_CHANNEL: Channel<CriticalSectionRawMutex, RcChannels, 2> = Channel::new();
+
+// CRSF standard baud rate is 420,000 baud: (420000 * 2^32) / 16000000 = 0x06BA4000
+const BAUD_420K: Baudrate = Baudrate(0x06BA4000);
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     info!("=========================================");
     info!(" WingFC-rs: Next-Gen Flight Controller   ");
     info!(" Architecture: Cortex-M4F (nRF52840)     ");
     info!("=========================================");
 
-    let _p = embassy_nrf::init(Default::default());
+    let p = embassy_nrf::init(Default::default());
 
-    let mut ahrs = MadgwickAHRS::new(0.04);
-    let mut roll_rate_pid = PidController::new(PidConfig {
-        kp: 0.15,
-        ki: 0.05,
-        kd: 0.008,
-        max_integral: 0.4,
-        dterm_lpf_hz: 40.0,
-    }, 0.002);
+    // Enable IMU Power Rail on Seeed XIAO Sense (P0.15 set HIGH)
+    let _imu_power = Output::new(p.P0_15, Level::High, OutputDrive::Standard);
 
-    let mixer = AirframeMixer::new(AirframeType::Elevon);
+    // 1. Configure I2C (TWISPI0) for LSM6DS3TR IMU (400 kHz)
+    let mut twim_config = twim::Config::default();
+    twim_config.frequency = twim::Frequency::K400;
+    // XIAO Sense internal IMU wiring: SCL = P0.07, SDA = P0.27
+    let twim = Twim::new(p.TWISPI0, Irqs, p.P0_27, p.P0_07, twim_config);
+    let imu_driver = Lsm6ds3Driver::new(twim);
 
-    // 500 Hz control loop (2ms)
-    let mut ticker = Ticker::every(Duration::from_hz(500));
-    info!("Starting 500Hz Flight Control Loop...");
+    // 2. Configure EasyDMA UART (UARTE0) for CRSF / ELRS Link (420k baud) or iBus (115.2k)
+    let protocol = ReceiverProtocol::Crsf;
+    let mut uarte_config = uarte::Config::default();
+    uarte_config.baudrate = match protocol {
+        ReceiverProtocol::Crsf => BAUD_420K,
+        ReceiverProtocol::Ibus => Baudrate::BAUD115200,
+    };
+    uarte_config.parity = uarte::Parity::EXCLUDED;
+    let rx = UarteRx::new(p.UARTE0, Irqs, p.P1_00, uarte_config);
+
+    // Spawn EasyDMA receiver task
+    spawner
+        .spawn(receiver_task(rx, RC_CHANNEL.sender(), protocol))
+        .unwrap();
+
+    // 3. Configure Multi-Frequency PWM Drivers:
+    // Instance 0 (PWM0): 50Hz for Servos (20ms frame)
+    let servo_pwm_hw = SimplePwm::new_3ch(
+        p.PWM0,
+        p.P0_02, // D0 (Servo 1: Left Elevon)
+        p.P0_03, // D1 (Servo 2: Right Elevon)
+        p.P0_28, // D2 (Servo 4: Aux)
+    );
+    let mut servo_pwm = ServoPwmDriver::new(servo_pwm_hw);
+
+    // Instance 1 (PWM1): 400Hz High-Speed PWM for Motor ESC (2.5ms frame - 8x faster response)
+    let esc_pwm_hw = SimplePwm::new_1ch(
+        p.PWM1,
+        p.P0_29, // D3 (Motor 1: ESC)
+    );
+    let mut esc_pwm = EscPwmDriver::new(esc_pwm_hw);
+
+    // 4. Initialize Flight Loop & State Machine
+    let mut flight_loop = FlightLoopState::new(imu_driver);
+    flight_loop.init().await;
+
+    let mut ticker = Ticker::every(Duration::from_hz(500)); // 500 Hz hard real-time loop (2ms)
+    info!("Starting 500Hz Real-Time Flight Loop...");
+
+    let rc_receiver = RC_CHANNEL.receiver();
 
     loop {
         ticker.next().await;
 
-        // Mock IMU readings for initial bring-up
-        let gyro = Vector3::new(0.0, 0.0, 0.0);
-        let accel = Vector3::new(0.0, 0.0, 9.81);
+        let outputs = flight_loop.step(&rc_receiver).await;
 
-        ahrs.update_6dof(gyro, accel, 0.002);
-        let (pitch_rad, roll_rad, yaw_rad) = ahrs.get_euler_angles();
-
-        let _roll_mix = roll_rate_pid.update(0.0, gyro.x, 0.002);
-        let outputs = mixer.mix(pitch_rad, roll_rad, yaw_rad, 1000);
-
-        defmt::trace!("S1: {} us, S2: {} us", outputs.servo1_us, outputs.servo2_us);
+        // Apply physical PWM output updates via EasyDMA
+        servo_pwm.set_channel_us(0, outputs.servo1_us);
+        servo_pwm.set_channel_us(1, outputs.servo2_us);
+        servo_pwm.set_channel_us(2, outputs.servo4_us);
+        esc_pwm.set_throttle_us(outputs.motor1_throttle);
     }
 }
