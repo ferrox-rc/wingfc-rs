@@ -48,8 +48,10 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
             kp: 0.15,
             ki: 0.05,
             kd: 0.008,
+            kff: 0.04,
             max_integral: 0.4,
             dterm_lpf_hz: 40.0,
+            ff_lpf_hz: 45.0,
         };
 
         let mut gyro_lpf_x = Pt1Filter::new();

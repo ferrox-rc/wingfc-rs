@@ -52,8 +52,10 @@ fn test_pid_anti_windup() {
         kp: 0.2,
         ki: 0.1,
         kd: 0.01,
+        kff: 0.0,
         max_integral: 0.5,
         dterm_lpf_hz: 30.0,
+        ff_lpf_hz: 45.0,
     };
     let mut pid = PidController::new(config, 0.005);
 
@@ -218,4 +220,133 @@ fn test_arming_safety_logic() {
     let status = safety.update(1900, 1800, 1500, false);
     assert_eq!(status, ArmingStatus::RefusedThrottleRaised);
     assert!(!safety.is_armed());
+}
+
+#[test]
+fn test_feedforward_response() {
+    let mut cfg = PidConfig::default();
+    cfg.kff = 0.10;
+    cfg.kp = 0.0;
+    cfg.ki = 0.0;
+    cfg.kd = 0.0;
+    let mut pid = PidController::new(cfg, 0.002);
+
+    // Rapid stick movement: setpoint steps from 0.0 to 10.0
+    let out_step = pid.update(10.0, 0.0, 0.002);
+    assert!(out_step > 0.0, "Feedforward should immediately produce positive output on stick step");
+
+    // Hold stick steady at 10.0 for 50 cycles: Feedforward must decay to zero
+    let mut out_steady = 0.0;
+    for _ in 0..50 {
+        out_steady = pid.update(10.0, 0.0, 0.002);
+    }
+    assert!(out_steady.abs() < 0.01, "Feedforward must return to zero while stick is held steady");
+}
+
+#[test]
+fn test_hand_autolaunch_flow() {
+    use wingfc_core::autolaunch::{AutolaunchController, AutolaunchState};
+
+    let mut launcher = AutolaunchController::default();
+    launcher.prime();
+    assert_eq!(launcher.state(), AutolaunchState::WaitingForThrow);
+
+    // 1. In pilot hand: normal handling (accel < threshold)
+    let (_, _, throttle) = launcher.update(5.0, 0.0, 0.0, 0.01);
+    assert_eq!(throttle, 1000);
+    assert_eq!(launcher.state(), AutolaunchState::WaitingForThrow);
+
+    // 2. Forward throw detected (>13.5 m/s^2 for >0.05s)
+    for _ in 0..6 {
+        let _ = launcher.update(15.0, 0.0, 0.0, 0.01);
+    }
+    assert_eq!(launcher.state(), AutolaunchState::MotorDelay);
+
+    // 3. Finger-safe motor delay (200ms) - throttle MUST remain 1000us
+    for _ in 0..15 {
+        let (_, _, throttle) = launcher.update(0.0, 0.0, 0.0, 0.01);
+        assert_eq!(throttle, 1000);
+    }
+
+    // 4. Delay passes -> enters Climbing mode and ramps throttle
+    for _ in 0..10 {
+        let (_, _, _) = launcher.update(0.0, 0.0, 0.0, 0.01);
+    }
+    assert_eq!(launcher.state(), AutolaunchState::Climbing);
+
+    // 5. Pilot moves stick to abort autolaunch -> returns to Completed
+    let (_, _, _) = launcher.update(0.0, 0.50, 0.0, 0.01);
+    assert_eq!(launcher.state(), AutolaunchState::Completed);
+}
+
+#[test]
+fn test_9dof_madgwick_heading() {
+    let mut ahrs = MadgwickAHRS::new(0.5);
+    let dt = 0.005;
+    let gyro = Vector3::ZERO;
+    let accel = Vector3::new(0.0, 0.0, 9.81);
+    // Magnetic North vector pointing purely along X axis
+    let mag = Vector3::new(30.0, 0.0, 0.0);
+
+    for _ in 0..200 {
+        ahrs.update_9dof(gyro, accel, mag, dt);
+    }
+
+    let (pitch, roll, yaw) = ahrs.get_euler_angles();
+    assert!(pitch.abs() * RAD_TO_DEG < 1.0);
+    assert!(roll.abs() * RAD_TO_DEG < 1.0);
+    assert!(yaw.abs() * RAD_TO_DEG < 2.0, "Heading should converge to North (0 deg)");
+}
+
+#[test]
+fn test_vertical_kalman_filter() {
+    use wingfc_core::vertical_kf::VerticalKalmanFilter;
+
+    let mut vkf = VerticalKalmanFilter::default();
+    vkf.reset(0.0);
+
+    // Simulate ascending at +2.0 m/s for 1 second (500Hz control loop)
+    for step in 0..500 {
+        vkf.predict(0.0, 0.002);
+
+        // Inject barometer measurement at 50Hz (every 10 steps)
+        if step % 10 == 0 {
+            let true_alt = (step as f32) * 0.002 * 2.0;
+            vkf.update_baro(true_alt);
+        }
+    }
+
+    assert!((vkf.altitude_m - 2.0).abs() < 0.15, "Estimated altitude should be ~2.0m, got {}", vkf.altitude_m);
+    assert!((vkf.velocity_ms - 2.0).abs() < 0.25, "Estimated climb rate should be ~2.0 m/s, got {}", vkf.velocity_ms);
+}
+
+#[test]
+fn test_altitude_safety_interventions() {
+    use wingfc_core::altitude_safety::{AltitudeSafetyController, AltitudeIntervention};
+
+    let controller = AltitudeSafetyController::default();
+
+    // 1. Normal cruising flight at 50m AGL
+    let (action, pitch, throttle) = controller.evaluate(50.0, 0.0, 0.0, 0.0, 1500);
+    assert_eq!(action, AltitudeIntervention::None);
+    assert_eq!(pitch, 0.0);
+    assert_eq!(throttle, 1500);
+
+    // 2. Hard Deck breach: Plane drops below 15m (10m AGL) with negative sink rate
+    let (action, pitch, throttle) = controller.evaluate(10.0, -2.0, -0.10, -0.10, 1300);
+    assert_eq!(action, AltitudeIntervention::HardDeckPullUp);
+    assert!(pitch > 0.30, "Hard Deck must command positive pitch pull-up");
+    assert!(throttle >= 1650, "Hard Deck must command safe climb throttle");
+
+    // 3. Legal Ceiling: Plane climbs above 120m (125m AGL)
+    let (action, pitch, throttle) = controller.evaluate(125.0, 2.0, 0.20, 0.20, 1800);
+    assert_eq!(action, AltitudeIntervention::CeilingPitchDown);
+    assert!(pitch <= -0.20, "Ceiling limiter must pitch down");
+    assert!(throttle <= 1450, "Ceiling limiter must reduce throttle");
+
+    // 4. Stall detect: Plane is level (0.0 pitch) but sinking rapidly (-4.5 m/s)
+    let (action, pitch, throttle) = controller.evaluate(60.0, -4.5, 0.0, 0.10, 1500);
+    assert_eq!(action, AltitudeIntervention::StallRecovery);
+    assert!(pitch < 0.0, "Stall recovery must drop nose to regain airspeed");
+    assert_eq!(throttle, 1900, "Stall recovery must command full throttle");
 }
