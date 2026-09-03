@@ -2,7 +2,7 @@ use embassy_nrf::twim;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Receiver;
 use embassy_sync::watch::Sender;
-use embassy_time::{Duration, Instant};
+use embassy_time::{Duration, Instant, Timer};
 use wingfc_core::ahrs::MadgwickAHRS;
 use wingfc_core::filter::Pt1Filter;
 use wingfc_core::math::{map_range, Vector3, DEG_TO_RAD};
@@ -11,7 +11,7 @@ use wingfc_core::pid::{PidConfig, PidController};
 use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
-use crate::drivers::Lsm6ds3Driver;
+use crate::drivers::{EscPwmDriver, Lsm6ds3Driver};
 use crate::tasks::telemetry::VisualStatus;
 
 const DT: f32 = 0.002; // 500 Hz control loop (2ms)
@@ -76,7 +76,53 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
         }
     }
 
-    pub async fn init(&mut self, status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>) {
+    /// Initializes hardware, checks for ESC Throttle Calibration, and runs Gyro Calibration
+    pub async fn init<E: embassy_nrf::pwm::Instance>(
+        &mut self,
+        rc_rx: &Receiver<'static, CriticalSectionRawMutex, RcChannels, 2>,
+        status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>,
+        esc_pwm: &mut EscPwmDriver<'_, E>,
+    ) {
+        // Step 1: Wait briefly (~500ms) to check if pilot powered on with Throttle HIGH for ESC Calibration
+        let start = Instant::now();
+        let mut in_esc_calib = false;
+
+        while start.elapsed() < Duration::from_millis(600) {
+            if let Ok(rc) = rc_rx.try_receive() {
+                self.latest_rc = rc;
+                self.last_packet_time = Instant::now();
+                if rc.channels[2] > 1900 {
+                    in_esc_calib = true;
+                    break;
+                }
+            }
+            Timer::after(Duration::from_millis(20)).await;
+        }
+
+        // ESC Throttle Range Calibration Mode (Universal Rule #3)
+        if in_esc_calib {
+            defmt::warn!(">>> ESC Throttle Calibration Mode Requested! Pass-through active <<<");
+            status_tx.send(VisualStatus::EscCalibration);
+
+            loop {
+                if let Ok(rc) = rc_rx.try_receive() {
+                    self.latest_rc = rc;
+                    let throttle = rc.channels[2].clamp(1000, 2000);
+                    esc_pwm.set_throttle_us(throttle);
+
+                    // Pilot lowered stick to zero: exit calibration
+                    if throttle <= 1050 {
+                        defmt::info!("ESC Throttle Minimum reached. Finalizing ESC calibration.");
+                        esc_pwm.set_throttle_us(1000);
+                        Timer::after(Duration::from_millis(500)).await;
+                        break;
+                    }
+                }
+                Timer::after(Duration::from_millis(10)).await;
+            }
+        }
+
+        // Step 2: Gyro Stationary Calibration
         status_tx.send(VisualStatus::Calibration);
 
         if let Err(e) = self.imu.init().await {

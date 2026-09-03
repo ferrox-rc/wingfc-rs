@@ -49,6 +49,25 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_nrf::init(Default::default());
 
+    // =========================================================================
+    // STEP 0: Universal ESC Startup Rule #1 & #2: IMMEDIATE LOW SIGNAL ON BOOT
+    // Initialize hardware PWM before any I2C/IMU/UART processing begins so the
+    // ESC immediately sees a clean 1000us pulse and begins its arming countdown.
+    // =========================================================================
+    let esc_pwm_hw = SimplePwm::new_1ch(
+        p.PWM1,
+        p.P0_29, // D3 (Motor 1: ESC) - 400Hz High Speed PWM (2.5ms frame)
+    );
+    let mut esc_pwm = EscPwmDriver::new(esc_pwm_hw);
+
+    let servo_pwm_hw = SimplePwm::new_3ch(
+        p.PWM0,
+        p.P0_02, // D0 (Servo 1: Left Elevon) - 50Hz (20ms frame)
+        p.P0_03, // D1 (Servo 2: Right Elevon)
+        p.P0_28, // D2 (Servo 4: Aux)
+    );
+    let mut servo_pwm = ServoPwmDriver::new(servo_pwm_hw);
+
     // 1. Initialize Tri-Color Visual Telemetry (RGB LED) on Seeed XIAO
     let led_driver = RgbLedDriver::new(p.P0_26, p.P0_30, p.P0_06);
     let status_sender = STATUS_WATCH.sender();
@@ -84,31 +103,13 @@ async fn main(spawner: Spawner) {
         .spawn(receiver_task(rx, RC_CHANNEL.sender()))
         .unwrap();
 
-    // 4. Configure Multi-Frequency PWM Drivers:
-    // Instance 0 (PWM0): 50Hz for Servos (20ms frame)
-    let servo_pwm_hw = SimplePwm::new_3ch(
-        p.PWM0,
-        p.P0_02, // D0 (Servo 1: Left Elevon)
-        p.P0_03, // D1 (Servo 2: Right Elevon)
-        p.P0_28, // D2 (Servo 4: Aux)
-    );
-    let mut servo_pwm = ServoPwmDriver::new(servo_pwm_hw);
-
-    // Instance 1 (PWM1): 400Hz High-Speed PWM for Motor ESC (2.5ms frame - 8x faster response)
-    let esc_pwm_hw = SimplePwm::new_1ch(
-        p.PWM1,
-        p.P0_29, // D3 (Motor 1: ESC)
-    );
-    let mut esc_pwm = EscPwmDriver::new(esc_pwm_hw);
-
-    // 5. Initialize Flight Loop & Pre-Arm Safety State Machine
+    // 4. Initialize Flight Loop, check for ESC Throttle Range Calibration, and calibrate Gyro
+    let rc_receiver = RC_CHANNEL.receiver();
     let mut flight_loop = FlightLoopState::new(imu_driver);
-    flight_loop.init(&status_sender).await;
+    flight_loop.init(&rc_receiver, &status_sender, &mut esc_pwm).await;
 
     let mut ticker = Ticker::every(Duration::from_hz(500)); // 500 Hz hard real-time loop (2ms)
     info!("Starting 500Hz Real-Time Flight Loop...");
-
-    let rc_receiver = RC_CHANNEL.receiver();
 
     loop {
         ticker.next().await;
