@@ -112,6 +112,6 @@ nrfjprog --program dist/wingfc-firmware-crsf-dshot-nav.hex --chiperase --reset
 ### Flashing via UF2 Bootloader (Seeed XIAO):
 Convert `.hex` to `.uf2` using `uf2conv.py`:
 ```bash
-python3 uf2conv.py -c -b 0x1000 -f 0xADA52840 dist/wingfc-firmware-crsf-dshot-nav.hex -o firmware.uf2
+python3 scripts/uf2conv/uf2conv.py -c -b 0x1000 -f 0xADA52840 dist/wingfc-firmware-crsf-dshot-nav.hex -o firmware.uf2
 ```
 Copy `firmware.uf2` to the mounted USB drive (`XIAO-SENSE`).
