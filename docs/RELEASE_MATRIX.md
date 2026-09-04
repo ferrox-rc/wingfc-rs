@@ -9,18 +9,18 @@ This document defines the production release matrix, build-time feature combinat
 Firmware releases compose into 8 discrete, mutually exclusive production binaries based on three core dimensions:
 1. **Receiver Protocol (Required Either/Or):** `crsf` (CRSF / ELRS @ 420kBaud) or `ibus` (FlySky iBus @ 115.2kBaud).
 2. **Motor Output Protocol:** `dshot` (Digital packet with CRC) or `pwm` (400Hz analog PWM).
-3. **Navigation Sensor Suite:** `nav` (fusing Barometer Vertical Kalman Filter & 9-DoF Compass AHRS) or baseline (6-DoF IMU).
+3. **Navigation Sensor Suite:** `nav` (fusing Barometer Vertical Kalman Filter, 9-DoF Compass AHRS, and GPS Return-to-Home) or baseline (6-DoF IMU).
 
 | Artifact Target Name | Receiver | Motor | Navigation (`nav`) | Features Flag | Flash Size | RAM Size |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `wingfc-firmware-crsf-pwm` | CRSF | PWM 400Hz | Baseline (6-DoF) | `--features crsf` | 32.8 KB (3.2%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-crsf-pwm-nav` | CRSF | PWM 400Hz | **Nav (Baro + Compass)** | `--features crsf,nav` | 32.8 KB (3.2%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-crsf-pwm-nav` | CRSF | PWM 400Hz | **Nav (Baro + Compass + GPS)** | `--features crsf,nav` | 32.8 KB (3.2%) | 5.7 KB (2.2%) |
 | `wingfc-firmware-crsf-dshot` | CRSF | DShot | Baseline (6-DoF) | `--features crsf,dshot` | 31.5 KB (3.1%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-crsf-dshot-nav` | CRSF | DShot | **Nav (Baro + Compass)** | `--features crsf,dshot,nav` | 31.5 KB (3.1%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-crsf-dshot-nav` | CRSF | DShot | **Nav (Baro + Compass + GPS)** | `--features crsf,dshot,nav` | 31.5 KB (3.1%) | 5.7 KB (2.2%) |
 | `wingfc-firmware-ibus-pwm` | iBus | PWM 400Hz | Baseline (6-DoF) | `--features ibus` | 32.2 KB (3.1%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-ibus-pwm-nav` | iBus | PWM 400Hz | **Nav (Baro + Compass)** | `--features ibus,nav` | 32.2 KB (3.1%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-ibus-pwm-nav` | iBus | PWM 400Hz | **Nav (Baro + Compass + GPS)** | `--features ibus,nav` | 32.2 KB (3.1%) | 5.7 KB (2.2%) |
 | `wingfc-firmware-ibus-dshot` | iBus | DShot | Baseline (6-DoF) | `--features ibus,dshot` | 30.8 KB (3.0%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-ibus-dshot-nav` | iBus | DShot | **Nav (Baro + Compass)** | `--features ibus,dshot,nav` | 30.8 KB (3.0%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-ibus-dshot-nav` | iBus | DShot | **Nav (Baro + Compass + GPS)** | `--features ibus,dshot,nav` | 30.8 KB (3.0%) | 5.7 KB (2.2%) |
 
 > **Note on Resource Footprint:** Total nRF52840 resources are 1,024 KB Flash and 256 KB RAM. The entire firmware consumes less than **3.3% of Flash** and **2.3% of RAM**, leaving &gt;96% available for future onboard logging, telemetry displays, and mission scripts.
 >

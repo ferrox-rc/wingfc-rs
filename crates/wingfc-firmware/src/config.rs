@@ -39,6 +39,12 @@ pub const MAX_PITCH_ANGLE: f32 = 45.0 * DEG_TO_RAD;
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = 15.0;
 
+/// GPS autonomous navigation and Return-to-Home parameters
+pub const GPS_ENABLED: bool = false;
+pub const RTH_MIN_SATS: u8 = 6;
+pub const RTH_MAX_HDOP: f32 = 2.50;
+pub const RTH_SAFE_ALTITUDE_M: f32 = 30.0;
+
 /// Statutory operational ceiling limiter in meters Above Ground Level (AGL)
 /// Note: FAA / EASA standard legal limit is 120.0 meters (400 ft) AGL.
 pub const MAX_CEILING_AGL_M: f32 = 120.0;

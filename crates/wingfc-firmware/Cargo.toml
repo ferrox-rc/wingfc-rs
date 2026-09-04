@@ -13,7 +13,8 @@ ibus = []
 dshot = []
 baro = ["wingfc-core/baro"]
 compass = ["wingfc-core/compass"]
-nav = ["wingfc-core/nav", "baro", "compass"]
+gps = ["wingfc-core/gps"]
+nav = ["wingfc-core/nav", "baro", "compass", "gps"]
 
 [dependencies]
 wingfc-core = { path = "../wingfc-core", features = ["defmt-03"] }
@@ -21,7 +22,7 @@ cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 embassy-executor = { version = "0.7", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.4", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.3", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote"] }
+embassy-nrf = { version = "0.3", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "nfc-pins-as-gpio"] }
 embassy-sync = { version = "0.6", features = ["defmt"] }
 defmt = "0.3"
 defmt-rtt = "0.4"

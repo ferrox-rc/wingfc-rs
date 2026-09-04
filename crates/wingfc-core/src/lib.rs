@@ -1,27 +1,31 @@
 #![no_std]
 
-pub mod math;
-pub mod filter;
 pub mod ahrs;
-pub mod pid;
-pub mod mixer;
-pub mod dshot;
-pub mod protocol;
-pub mod safety;
-pub mod autolaunch;
-#[cfg(feature = "baro")]
-pub mod vertical_kf;
 #[cfg(feature = "baro")]
 pub mod altitude_safety;
+pub mod autolaunch;
+pub mod dshot;
+pub mod filter;
+#[cfg(feature = "gps")]
+pub mod gps;
+pub mod math;
+pub mod mixer;
+pub mod pid;
+pub mod protocol;
+pub mod safety;
+#[cfg(feature = "baro")]
+pub mod vertical_kf;
 
-pub use math::{Vector3, Quaternion};
-pub use filter::{Pt1Filter, BiquadFilter};
 pub use ahrs::MadgwickAHRS;
-pub use pid::{PidController, PidConfig};
-pub use mixer::{AirframeMixer, AirframeType, ServoConfig, AirframeOutputs};
+#[cfg(feature = "baro")]
+pub use altitude_safety::{AltitudeIntervention, AltitudeSafetyConfig, AltitudeSafetyController};
+pub use autolaunch::{AutolaunchConfig, AutolaunchController, AutolaunchState};
+pub use filter::{BiquadFilter, Pt1Filter};
+#[cfg(feature = "gps")]
+pub use gps::{GpsData, GpsFixType, GpsNavigation, NmeaParser, RthGuidance};
+pub use math::{Quaternion, Vector3};
+pub use mixer::{AirframeMixer, AirframeOutputs, AirframeType, ServoConfig};
+pub use pid::{PidConfig, PidController};
 pub use safety::{ArmingSafety, ArmingStatus};
-pub use autolaunch::{AutolaunchController, AutolaunchConfig, AutolaunchState};
 #[cfg(feature = "baro")]
 pub use vertical_kf::VerticalKalmanFilter;
-#[cfg(feature = "baro")]
-pub use altitude_safety::{AltitudeSafetyController, AltitudeSafetyConfig, AltitudeIntervention};

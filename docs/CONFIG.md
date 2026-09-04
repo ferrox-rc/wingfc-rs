@@ -104,12 +104,22 @@ navigation:
   enabled: false
   barometer: false
   compass: false
+  gps: false
+  rth:
+    min_satellites: 6
+    max_hdop: 2.5
+    safe_altitude_agl_m: 30.0
   hard_deck_agl_m: 15.0
   max_ceiling_agl_m: 120.0
 ```
-* `enabled`: Master switch for the autonomous navigation suite.
+* `enabled`: Master switch for the autonomous navigation suite (enables barometer, compass, and GPS).
 * `barometer`: Enables the 500Hz Vertical Kalman Filter fusing vertical accelerometer data with barometric altitude.
 * `compass`: Enables 9-DoF Madgwick AHRS attitude fusion for drift-free magnetic heading lock.
+* `gps`: Enables NMEA GPS parsing and autonomous Return-to-Home guidance. **Requires `board: xiao-sense-plus`** to access `UARTE1` serial pins (`D9`/`D10`).
+* `rth`:
+  * `min_satellites`: Minimum satellites tracked before the flight controller latches the home waypoint (default 6).
+  * `max_hdop`: Maximum horizontal dilution of precision required to validate home latching (default 2.5).
+  * `safe_altitude_agl_m`: Safe climb altitude Above Ground Level during autonomous return (default 30.0 m).
 * `hard_deck_agl_m`: Emergency altitude floor (meters Above Ground Level). If breached with a negative sink rate, the flight controller overrides pilot pitch and applies climb throttle.
 * `max_ceiling_agl_m`: Statutory regulatory ceiling limiter (meters Above Ground Level).
 

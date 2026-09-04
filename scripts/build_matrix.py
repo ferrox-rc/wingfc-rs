@@ -119,7 +119,8 @@ def run_host_core_tests():
         ("Base (no nav)", []),
         ("Barometer only", ["baro"]),
         ("Compass only", ["compass"]),
-        ("Nav Suite (nav: baro + compass)", ["nav"]),
+        ("GPS only", ["gps"]),
+        ("Nav Suite (nav: baro + compass + gps)", ["nav"]),
     ]
 
     all_passed = True

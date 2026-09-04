@@ -353,3 +353,116 @@ fn test_altitude_safety_interventions() {
     assert!(pitch < 0.0, "Stall recovery must drop nose to regain airspeed");
     assert_eq!(throttle, 1900, "Stall recovery must command full throttle");
 }
+
+#[cfg(feature = "gps")]
+#[test]
+fn test_nmea_gga_rmc_parsing() {
+    use wingfc_core::gps::{GpsFixType, NmeaParser};
+
+    let mut parser = NmeaParser::new();
+
+    // Standard GGA sentence: 48 deg 07.038 min N, 11 deg 31.000 min E, Fix=1, 8 sats, HDOP 0.9, Alt 545.4m
+    let gga_payload = b"GNGGA,123519.00,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,";
+    let mut gga_cs: u8 = 0;
+    for &b in gga_payload {
+        gga_cs ^= b;
+    }
+    let gga_str = format!("${}*{:02X}
+", std::str::from_utf8(gga_payload).unwrap(), gga_cs);
+    let mut updated = false;
+    for &b in gga_str.as_bytes() {
+        if parser.feed_byte(b).is_some() {
+            updated = true;
+        }
+    }
+    assert!(updated, "NMEA parser should return updated GPS fix for valid GGA");
+
+    let data = parser.data();
+    // 48 + 07.038/60 = 48.1173 deg
+    assert!((data.latitude_deg - 48.1173).abs() < 0.001);
+    // 11 + 31.0/60 = 11.51667 deg
+    assert!((data.longitude_deg - 11.5166).abs() < 0.001);
+    assert_eq!(data.satellites, 8);
+    assert_eq!(data.fix_type, GpsFixType::Fix3D);
+    assert!((data.altitude_msl_m - 545.4).abs() < 0.1);
+    assert!((data.hdop - 0.9).abs() < 0.05);
+
+    // Standard RMC sentence: Status A, 22.4 knots ground speed, 84.4 deg course
+    let rmc_payload = b"GNRMC,123519.00,A,4807.038,N,01131.000,E,022.4,084.4,230394,003.1,W";
+    let mut cs: u8 = 0;
+    for &b in rmc_payload {
+        cs ^= b;
+    }
+    let rmc_str = format!("${}*{:02X}
+", std::str::from_utf8(rmc_payload).unwrap(), cs);
+    updated = false;
+    for &b in rmc_str.as_bytes() {
+        if parser.feed_byte(b).is_some() {
+            updated = true;
+        }
+    }
+    assert!(updated, "NMEA parser should return updated GPS fix for valid RMC");
+
+    let data2 = parser.data();
+    // 22.4 knots * 0.514444 = 11.52 m/s
+    assert!((data2.ground_speed_m_s - 11.52).abs() < 0.1);
+    assert!((data2.course_deg - 84.4).abs() < 0.1);
+}
+
+#[cfg(feature = "gps")]
+#[test]
+fn test_gps_navigation_home_latching_and_rth() {
+    use wingfc_core::gps::{GpsData, GpsFixType, GpsNavigation};
+
+    let mut nav = GpsNavigation::new(6, 2.5, 30.0);
+    assert!(!nav.is_home_latched());
+
+    // 1. Initial 2D fix with low satellite count -> must NOT latch home
+    let mut gps = GpsData {
+        latitude_deg: 37.7749,
+        longitude_deg: -122.4194,
+        altitude_msl_m: 10.0,
+        ground_speed_m_s: 0.0,
+        course_deg: 0.0,
+        satellites: 4,
+        hdop: 3.5,
+        fix_type: GpsFixType::Fix2D,
+    };
+    assert!(!nav.try_latch_home(&gps));
+    assert!(!nav.is_home_latched());
+
+    // 2. High quality 3D fix (8 satellites, HDOP 1.1) -> latches home
+    gps.satellites = 8;
+    gps.hdop = 1.1;
+    gps.fix_type = GpsFixType::Fix3D;
+    assert!(nav.try_latch_home(&gps));
+    assert!(nav.is_home_latched());
+
+    // 3. Aircraft flies North-East (e.g. +1.0km North, +1.0km East)
+    let current_pos = GpsData {
+        latitude_deg: 37.7839,
+        longitude_deg: -122.4080,
+        altitude_msl_m: 50.0,
+        ground_speed_m_s: 15.0,
+        course_deg: 45.0,
+        satellites: 10,
+        hdop: 0.9,
+        fix_type: GpsFixType::Fix3D,
+    };
+
+    let guidance = nav.calculate_rth_guidance(&current_pos).expect("RTH guidance must be available when home is latched");
+    
+    // Bearing to home should be South-West (~225 degrees)
+    assert!(guidance.bearing_to_home_deg > 210.0 && guidance.bearing_to_home_deg < 240.0,
+        "Bearing to home should be ~225 deg, got {}", guidance.bearing_to_home_deg);
+
+    // Distance should be approximately 1.4 km (1414 m)
+    assert!(guidance.distance_to_home_m > 1200.0 && guidance.distance_to_home_m < 1600.0,
+        "Distance to home should be ~1400m, got {}", guidance.distance_to_home_m);
+
+    // Heading error relative to current track (flying at 45 deg, needs to turn to ~225 deg): error should be ~ -180 / +180 deg
+    assert!(guidance.heading_error_deg.abs() > 160.0);
+
+    // Target altitude should be home altitude (10.0m) + safe RTH climb margin (30.0m) = 40.0m
+    assert!((guidance.target_altitude_m - 40.0).abs() < 0.1);
+}

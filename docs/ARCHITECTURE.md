@@ -161,6 +161,15 @@ Fuses high-rate (500Hz) vertical accelerometer predictions with lower-rate (20-5
 * Rotates measured magnetic vectors to the Earth frame (h = q &otimes; [0, m] &otimes; q<sup>*</sup>) and calculates gradient descent corrections against Earth magnetic field components b<sub>x</sub>, b<sub>z</sub>.
 * Guarantees true heading lock with zero drift during prolonged straight-line navigation.
 
+### D. Autonomous GPS Navigation & Return-to-Home (`gps`)
+* **Zero-Allocation NMEA 0183 Parser:** High-efficiency, `#![no_std]` streaming parser consuming GGA and RMC sentences byte-by-byte with XOR checksum verification.
+* **Telemetry Decoded:** Latitude, longitude, altitude MSL, speed over ground (SOG), course over ground (COG), satellite count, HDOP, and fix quality (2D, 3D, DGPS).
+* **Automatic Home Point Latching:** Latches initial launch coordinates and baseline altitude upon achieving a high-precision 3D lock (&ge; 6 satellites, HDOP &le; 2.5).
+* **Equirectangular Flat-Earth Projection:** Calculates real-time distance and bearing to the latched home point with &lt;0.1% distortion over tactical flight ranges (&lt;100 km).
+* **Return-to-Home (RTH) Guidance Vector:** Emits continuous bearing-to-home, heading error relative to ground track (&plusmn;180&deg;), and safe climb altitude targets (Home MSL + 30m AGL).
+* **Hardware Requirement:** Demands the **Seeed Studio XIAO nRF52840 Sense Plus** variant with secondary asynchronous serial engine (`UARTE1` on pins `D9`/`D10`), as standard XIAO exhausts all 8 GPIOs.
+* **Dedicated Specification:** For full protocol parsing specifications, mathematical models, and wiring diagrams, see the [GPS Navigation & Return-to-Home Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/GPS_NAVIGATION.md).
+
 ---
 
 ## 6. Visual Telemetry (RGB LED) States
@@ -185,3 +194,15 @@ Visual telemetry is driven by an asynchronous 20Hz task monitoring the global `S
 2. **Throttle Zero Interlock:** Arming is refused (`RefusedThrottleRaised`) if throttle is &gt;1050 &mu;s when attempting to arm.
 3. **Zero-Surge Failsafe Recovery:** When link recovery occurs following a failsafe, the controller will NOT re-arm mid-air if the pilot's throttle stick is high; it requires safe, intentional pilot input to clear.
 4. **Hand Autolaunch Safety:** Finger-safety motor delay (200ms) ensures the motor does not spin until the aircraft has physically left the pilot's hand, followed by a 400ms throttle ramp to prevent torque roll.
+
+---
+
+## 8. Real-Time Telemetry & Blackbox Logging Architecture
+
+1. **Bench & In-Flight Debugging (SEGGER RTT):**
+   * Operates over SWD (`SWDIO`/`SWDCLK`) directly into host tools (`probe-rs`) with sub-microsecond RAM write overhead, avoiding UART buffer stalls in the 500Hz loop.
+   * Multi-channel RTT ring buffers isolate string logs (`defmt`), raw binary telemetry (Channel 1: 500Hz 28-byte blackbox struct), and command injection.
+2. **Autonomous Onboard Blackbox & Companion Co-Processor:**
+   * Because the bare Seeed XIAO nRF52840 lacks onboard high-speed NOR flash, an SD slot, and available GPIOs, custom derivative PCBs incorporate a companion co-processor (RP2040 / ESP32) linked via SPI or SWD.
+   * The companion chip handles FatFS SD card block writes and wear-leveling asynchronously, preserving the nRF52840 500Hz flight loop jitter-free (<1 &mu;s timing variation).
+   * For complete hardware layouts, packet binary structures, and flight log analysis tools, see the [SEGGER RTT & Blackbox Logging Architecture Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/RTT_BLACKBOX_LOGGING.md).

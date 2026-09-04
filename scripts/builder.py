@@ -133,6 +133,18 @@ def validate_config(cfg):
     nav_enabled = bool(nav_cfg.get("enabled", False))
     baro_enabled = bool(nav_cfg.get("barometer", False)) or nav_enabled
     compass_enabled = bool(nav_cfg.get("compass", False)) or nav_enabled
+    gps_enabled = bool(nav_cfg.get("gps", False)) or nav_enabled
+
+    rth_cfg = nav_cfg.get("rth", {})
+    rth_min_sats = int(rth_cfg.get("min_satellites", 6))
+    rth_max_hdop = float(rth_cfg.get("max_hdop", 2.5))
+    rth_safe_alt = float(rth_cfg.get("safe_altitude_agl_m", 30.0))
+
+    if gps_enabled and board != "xiao-sense-plus":
+        errors.append(
+            f"GPS navigation (navigation.gps: true or navigation.enabled: true) requires board: 'xiao-sense-plus'. "
+            f"The standard '{board}' board lacks the secondary UART (UARTE1) broken out on pins D9/D10."
+        )
 
     hard_deck_m = float(nav_cfg.get("hard_deck_agl_m", 15.0))
     max_ceiling_m = float(nav_cfg.get("max_ceiling_agl_m", 120.0))
@@ -214,6 +226,8 @@ def validate_config(cfg):
             features.append("baro")
         if compass_enabled:
             features.append("compass")
+        if gps_enabled:
+            features.append("gps")
 
     variant_name = f"{proto}-{motor_proto}"
     if nav_enabled:
@@ -233,6 +247,10 @@ def validate_config(cfg):
         "motor_proto": motor_proto,
         "motor_pwm_hz": motor_pwm_hz,
         "nav_enabled": nav_enabled,
+        "gps_enabled": gps_enabled,
+        "rth_min_sats": rth_min_sats,
+        "rth_max_hdop": rth_max_hdop,
+        "rth_safe_alt": rth_safe_alt,
         "hard_deck_m": hard_deck_m,
         "max_ceiling_m": max_ceiling_m,
         "advisories": advisories,
@@ -298,6 +316,12 @@ pub const MAX_PITCH_ANGLE: f32 = {cfg_vals['max_pitch_deg']:.1f} * DEG_TO_RAD;
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};
+
+/// GPS autonomous navigation and Return-to-Home parameters
+pub const GPS_ENABLED: bool = {str(cfg_vals['gps_enabled']).lower()};
+pub const RTH_MIN_SATS: u8 = {cfg_vals['rth_min_sats']};
+pub const RTH_MAX_HDOP: f32 = {cfg_vals['rth_max_hdop']:.2f};
+pub const RTH_SAFE_ALTITUDE_M: f32 = {cfg_vals['rth_safe_alt']:.1f};
 
 /// Statutory operational ceiling limiter in meters Above Ground Level (AGL)
 /// Note: FAA / EASA standard legal limit is 120.0 meters (400 ft) AGL.
@@ -381,6 +405,7 @@ def cmd_check(cfg_vals):
     else:
         print(f"Motor Protocol   : PWM ({cfg_vals['motor_pwm_hz']} Hz)")
     print(f"Navigation       : {'ENABLED' if cfg_vals['nav_enabled'] else 'DISABLED'}")
+    print(f"GPS Navigation   : {'ENABLED (Sense Plus UARTE1 @ 115.2k)' if cfg_vals['gps_enabled'] else 'DISABLED'}")
     print(f"Altitude Ceiling : {cfg_vals['max_ceiling_m']:.1f} m AGL (Hard deck: {cfg_vals['hard_deck_m']:.1f} m AGL)")
     print(f"Cargo Features   : --features {cfg_vals['features_str']}")
     print("-" * 70)
@@ -427,6 +452,7 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     else:
         print(f"Motor Protocol   : PWM ({cfg_vals['motor_pwm_hz']} Hz)")
     print(f"Navigation       : {'ENABLED' if cfg_vals['nav_enabled'] else 'DISABLED'}")
+    print(f"GPS Navigation   : {'ENABLED (Sense Plus UARTE1 @ 115.2k)' if cfg_vals['gps_enabled'] else 'DISABLED'}")
     print(f"Altitude Ceiling : {cfg_vals['max_ceiling_m']:.1f} m AGL (Hard deck: {cfg_vals['hard_deck_m']:.1f} m AGL)")
     print(f"Cargo Features   : --features {cfg_vals['features_str']}")
     print(f"Output Directory : {out_dir}")

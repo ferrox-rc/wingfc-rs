@@ -136,15 +136,18 @@ The standard Seeed Studio XIAO nRF52840 exposes only 8 usable GPIO header pins (
    - Dedicated Piezo buzzer transistor drive.
 
 ```
-                           Sense Plus Expansion Map (Future GPS)
+                           Sense Plus Expansion Map (GPS Navigation)
                          +---------------------------------------+
    Standard 14-Pin XIAO -| D0 .. D7 Header (Servos, ESC, RC, I2C)|
    Expanded Pins (Plus) -| D8  (P0.12) - Battery Voltage ADC AIN |
-                         | D9  (P0.13) - GPS UARTE1 RX (UBX)     |
-                         | D10 (P0.14) - GPS UARTE1 TX (Config)  |
+                         | D9  (P0.09) - GPS UARTE1 RX (NMEA)    |
+                         | D10 (P0.10) - GPS UARTE1 TX (NMEA)    |
                          | D11 (P0.16) - Piezo Alarm Buzzer Out  |
                          +---------------------------------------+
 ```
+
+> [!NOTE]
+> **nRF52840 NFC Pin Reconfiguration:** Physical pins `P0.09` and `P0.10` are routed to the nRF52840 internal NFC antenna module by default. To repurpose them as standard high-speed digital GPIOs for `UARTE1`, `wingfc-firmware` enables the `nfc-pins-as-gpio` feature in `embassy-nrf`, disabling the internal NFC resonance circuitry at hardware boot.
 
 ---
 

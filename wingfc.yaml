@@ -31,7 +31,7 @@ receiver:
 # Servo Actuator Output Configuration
 servos:
   # PWM frame refresh frequency in Hertz (Hz) for servo outputs (D0, D1, D2).
-  # Supported range: 50 Hz to 400 Hz.
+  # Supported range: 50 Hz to 400 Hz (Default: 50 Hz).
   #
   # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   # HARDWARE WARNING - SERVO OVERHEATING & MOTOR BURNOUT:
@@ -52,12 +52,12 @@ servos:
 # Motor ESC Output Protocol & Configuration
 motor:
   # Options:
-  #   - 'pwm'   : Analog PWM (includes throttle calibration pass-through detection)
-  #   - 'dshot' : Digital DShot packet with CRC (zero calibration delay)
+  #   - 'pwm'   : Standard analog servo-style PWM pulses (Default: 400 Hz)
+  #   - 'dshot' : Digital DShot packet stream (Zero latency, no calibration needed)
   protocol: pwm
 
   # PWM frame frequency in Hertz (Hz) when protocol: 'pwm'.
-  # Supported range: 50 Hz to 400 Hz.
+  # Supported range: 50 Hz to 400 Hz (Default: 400 Hz).
   #
   # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   # HARDWARE WARNING - ESC COMPATIBILITY & ARMING:
@@ -72,18 +72,24 @@ motor:
   # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   pwm_frequency_hz: 400
 
-  # Throttle signal ranges in microseconds (for analog PWM)
   min_throttle_us: 1000
   max_throttle_us: 2000
 
-# Autonomous Navigation Suite (Barometer & 9-DoF Compass)
+# Navigation, Sensor Fusion & Altitude Safety
 navigation:
   # Set to true to enable autonomous navigation algorithms and sensors
   enabled: false
 
-  # Individual sensor toggles (when enabled: true, both baro and compass are fused)
+  # Individual sensor toggles (when enabled: true, baro, compass, and gps are activated)
   barometer: false             # Vertical Kalman filter altitude fusion (BMP280/DPS310)
   compass: false               # 9-DoF tilt-compensated heading lock (QMC5883L/IST8310)
+  gps: false                   # NMEA GPS navigation & Return-to-Home (Requires board: xiao-sense-plus)
+
+  # Return-to-Home (RTH) Guidance Parameters (when gps is active)
+  rth:
+    min_satellites: 6          # Minimum satellites required to latch home position
+    max_hdop: 2.5              # Maximum horizontal dilution of precision for valid lock
+    safe_altitude_agl_m: 30.0  # Safe climb altitude AGL during autonomous return
 
   # ----------------------------------------------------------------------------
   # Altitude Safety Boundaries & Regulatory Legality Limits
@@ -119,25 +125,19 @@ tuning:
     max_roll_deg: 60.0         # Maximum bank angle
     max_pitch_deg: 45.0        # Maximum pitch climb/dive angle
 
-  # Signal Filtering & Noise Rejection
+  # Low-Pass Filter Cutoffs (Hertz)
   filters:
-    gyro_lpf_hz: 90.0          # PT1 low-pass cutoff for gyro harmonic motor vibration
-    dterm_lpf_hz: 40.0         # PT1 low-pass cutoff for PID D-term derivative
-    feedforward_lpf_hz: 45.0   # PT1 low-pass cutoff for FeedForward stick derivative
+    gyro_lpf_hz: 90.0          # Primary gyro PT1 low-pass filter
+    dterm_lpf_hz: 40.0         # PID D-term PT1 low-pass filter
+    feedforward_lpf_hz: 45.0   # Feedforward stick derivative filter
 
-  # Inner Rate PID + FeedForward Controller Gains
+  # Flight Controller PID Gains (Roll & Pitch Elevon Axes)
   rate_pid:
-    kp: 0.15                   # Proportional gain
-    ki: 0.05                   # Integral gain
+    kp: 0.150                  # Proportional gain
+    ki: 0.050                  # Integral gain
     kd: 0.008                  # Derivative gain
-    kff: 0.04                  # FeedForward gain (eliminates stick phase lag)
-    max_integral: 0.40         # Anti-windup accumulator clamp threshold
+    kff: 0.040                 # Feedforward stick velocity boost
+    max_integral: 0.400        # Anti-windup clamping threshold
 
-  # Madgwick AHRS filter convergence gain
-  ahrs_beta: 0.04
-
-# Safety & Launch Interlocks
-safety:
-  max_arm_throttle_us: 1050    # Interlock: arming refused if throttle stick is above this value
-  finger_delay_ms: 200         # Hand autolaunch: delay before motor spins after throw
-  throttle_ramp_ms: 400        # Hand autolaunch: soft-start throttle ramp duration
+  # Madgwick AHRS Filter Convergence Gain (higher = faster accel alignment)
+  ahrs_beta: 0.040

@@ -6,7 +6,7 @@
 
 use embassy_nrf::peripherals;
 
-/// Centralized board pin and peripheral container for the Seeed Studio XIAO nRF52840 Sense.
+/// Centralized board pin and peripheral container for the Seeed Studio XIAO nRF52840 Sense / Sense Plus.
 ///
 /// Encapsulates all physical GPIOs and on-chip peripheral blocks allocated to flight
 /// control functions, motor ESC outputs, servo linkages, IMU buses, and telemetry.
@@ -57,6 +57,19 @@ pub struct BoardPins {
     pub uarte_rc: peripherals::UARTE0,
     /// Physical Pin: P1.00 (Silkscreen: D6) - RC Receiver RX (CRSF @ 420kBaud / iBus @ 115.2kBaud)
     pub pin_rc_rx: peripherals::P1_00,
+
+    // ==========================================
+    // GPS Receiver (EasyDMA UARTE1 - XIAO Sense Plus)
+    // ==========================================
+    #[cfg(feature = "gps")]
+    /// UARTE1 hardware peripheral for GPS communication (Sense Plus variant)
+    pub uarte_gps: peripherals::UARTE1,
+    #[cfg(feature = "gps")]
+    /// Physical Pin: P0.09 (Silkscreen: D9) - GPS UART RX
+    pub pin_gps_rx: peripherals::P0_09,
+    #[cfg(feature = "gps")]
+    /// Physical Pin: P0.10 (Silkscreen: D10) - GPS UART TX
+    pub pin_gps_tx: peripherals::P0_10,
 }
 
 impl BoardPins {
@@ -78,6 +91,12 @@ impl BoardPins {
             pin_imu_pwr: p.P0_15,
             uarte_rc: p.UARTE0,
             pin_rc_rx: p.P1_00,
+            #[cfg(feature = "gps")]
+            uarte_gps: p.UARTE1,
+            #[cfg(feature = "gps")]
+            pin_gps_rx: p.P0_09,
+            #[cfg(feature = "gps")]
+            pin_gps_tx: p.P0_10,
         }
     }
 }
