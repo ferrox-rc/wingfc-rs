@@ -1,5 +1,5 @@
-/// Arming and Failsafe Safety State Manager
-/// Enforces physical safety interlocks to prevent unintended motor spin-up.
+//! Arming and Failsafe Safety State Manager
+//! Enforces physical safety interlocks to prevent unintended motor spin-up.
 
 pub const DEFAULT_THROTTLE_ZERO_THRESHOLD: u16 = 1050; // Throttle must be <= 1050us to arm
 pub const DEFAULT_ARM_SWITCH_THRESHOLD: u16 = 1800; // Switch value > 1800 considered "ARM"

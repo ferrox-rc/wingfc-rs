@@ -36,9 +36,9 @@ impl DshotEncoder {
 
     /// Converts a 16-bit packet into 16 SPI MOSI bytes for bitbanging
     pub fn to_spi_buffer(packet: u16, buffer: &mut [u8; 16]) {
-        for i in 0..16 {
+        for (i, cell) in buffer.iter_mut().enumerate() {
             let bit = (packet >> (15 - i)) & 0x01;
-            buffer[i] = if bit == 1 {
+            *cell = if bit == 1 {
                 DSHOT_ONE_PATTERN
             } else {
                 DSHOT_ZERO_PATTERN

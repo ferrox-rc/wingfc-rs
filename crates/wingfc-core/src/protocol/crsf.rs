@@ -76,7 +76,7 @@ impl CrsfParser {
                 self.buffer[self.index] = byte;
                 self.index += 1;
                 // expected_len includes type + payload + crc
-                if self.index >= self.expected_len + 1 {
+                if self.index > self.expected_len {
                     self.state = State::Checksum;
                 }
             }

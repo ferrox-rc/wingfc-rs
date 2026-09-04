@@ -106,12 +106,11 @@ impl AutolaunchController {
         dt: f32,
     ) -> (Option<f32>, Option<f32>, u16) {
         // Stick abort check: Any significant pilot stick input cancels autolaunch immediately
-        if pitch_stick.abs() > self.config.stick_abort_threshold
-            || roll_stick.abs() > self.config.stick_abort_threshold
+        if self.is_active()
+            && (pitch_stick.abs() > self.config.stick_abort_threshold
+                || roll_stick.abs() > self.config.stick_abort_threshold)
         {
-            if self.is_active() {
-                self.abort();
-            }
+            self.abort();
         }
 
         match self.state {
