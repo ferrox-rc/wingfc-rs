@@ -1,8 +1,8 @@
 pub mod crsf;
 pub mod ibus;
 
-pub use crsf::{CrsfParser, CrsfFrame, CRSF_PACKET_SIZE, CRSF_NUM_CHANNELS};
-pub use ibus::{IbusParser, IbusFrame, IBUS_PACKET_SIZE, IBUS_NUM_CHANNELS};
+pub use crsf::{CrsfFrame, CrsfParser, CRSF_NUM_CHANNELS, CRSF_PACKET_SIZE};
+pub use ibus::{IbusFrame, IbusParser, IBUS_NUM_CHANNELS, IBUS_PACKET_SIZE};
 
 pub const MAX_RC_CHANNELS: usize = 16;
 

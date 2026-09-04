@@ -86,7 +86,10 @@ impl CrsfParser {
                 let is_valid = crc == byte;
                 let frame_type = self.buffer[2];
 
-                let result = if is_valid && frame_type == CRSF_FRAMETYPE_RC_CHANNELS && self.index == CRSF_PACKET_SIZE - 1 {
+                let result = if is_valid
+                    && frame_type == CRSF_FRAMETYPE_RC_CHANNELS
+                    && self.index == CRSF_PACKET_SIZE - 1
+                {
                     Some(decode_rc_channels(&self.buffer[3..self.index]))
                 } else {
                     None

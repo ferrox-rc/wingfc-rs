@@ -12,10 +12,10 @@ pub enum AltitudeIntervention {
 #[derive(Debug, Clone, Copy)]
 pub struct AltitudeSafetyConfig {
     pub hard_deck_altitude_m: f32, // Minimum floor altitude AGL (e.g. 15.0 meters)
-    pub legal_ceiling_m: f32,       // Maximum legal ceiling AGL (e.g. 120.0 meters / 400 ft)
-    pub stall_sink_rate_ms: f32,    // Vertical sink rate threshold for stall detect (e.g. -3.5 m/s)
-    pub hard_deck_pull_pitch: f32,  // Commanded pitch mix during Hard Deck pull-up (e.g. +0.45)
-    pub stall_recovery_pitch: f32,  // Commanded pitch mix during Stall Recovery (e.g. -0.25 pitch down)
+    pub legal_ceiling_m: f32,      // Maximum legal ceiling AGL (e.g. 120.0 meters / 400 ft)
+    pub stall_sink_rate_ms: f32,   // Vertical sink rate threshold for stall detect (e.g. -3.5 m/s)
+    pub hard_deck_pull_pitch: f32, // Commanded pitch mix during Hard Deck pull-up (e.g. +0.45)
+    pub stall_recovery_pitch: f32, // Commanded pitch mix during Stall Recovery (e.g. -0.25 pitch down)
 }
 
 impl Default for AltitudeSafetyConfig {
@@ -97,6 +97,10 @@ impl AltitudeSafetyController {
         }
 
         // Normal flight: No intervention needed
-        (AltitudeIntervention::None, pilot_pitch_cmd, pilot_throttle_us)
+        (
+            AltitudeIntervention::None,
+            pilot_pitch_cmd,
+            pilot_throttle_us,
+        )
     }
 }

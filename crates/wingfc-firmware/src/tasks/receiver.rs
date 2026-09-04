@@ -4,7 +4,9 @@ use embassy_sync::channel::Sender;
 use wingfc_core::protocol::RcChannels;
 
 #[cfg(all(feature = "crsf", feature = "ibus"))]
-compile_error!("Features `crsf` and `ibus` are mutually exclusive. Please enable only one receiver protocol.");
+compile_error!(
+    "Features `crsf` and `ibus` are mutually exclusive. Please enable only one receiver protocol."
+);
 
 #[cfg(not(any(feature = "crsf", feature = "ibus")))]
 compile_error!("Either feature `crsf` or `ibus` must be enabled.");

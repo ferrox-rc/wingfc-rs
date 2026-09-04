@@ -14,8 +14,9 @@ use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::{
-    AHRS_BETA, DT, FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ, MAX_PITCH_ANGLE, MAX_PITCH_RATE,
-    MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG,
+    AHRS_BETA, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ, MAX_PITCH_ANGLE,
+    MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG,
+    THROTTLE_ZERO_THRESHOLD,
 };
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
@@ -57,7 +58,7 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
             roll_pid: PidController::new(RATE_PID_CONFIG, DT),
             yaw_pid: PidController::new(RATE_PID_CONFIG, DT),
             mixer: AirframeMixer::new(AirframeType::Elevon),
-            safety: ArmingSafety::new(),
+            safety: ArmingSafety::with_thresholds(ARM_SWITCH_THRESHOLD, THROTTLE_ZERO_THRESHOLD),
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
             status: ArmingStatus::Disarmed,

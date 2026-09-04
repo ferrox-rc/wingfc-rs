@@ -16,7 +16,6 @@ Usage:
 
 import argparse
 import hashlib
-import os
 import shutil
 import subprocess
 import sys
@@ -88,6 +87,30 @@ def validate_config(cfg):
     failsafe_ms = rc_cfg.get("failsafe_timeout_ms", 500)
     if not isinstance(failsafe_ms, (int, float)) or failsafe_ms < 50 or failsafe_ms > 5000:
         errors.append(f"receiver.failsafe_timeout_ms ({failsafe_ms}) must be between 50 and 5000 ms.")
+
+    # Safety Interlocks & Thresholds
+    safety_cfg = cfg.get("safety", {})
+    arm_switch_threshold_us = int(safety_cfg.get("arm_switch_threshold_us", 1800))
+    throttle_zero_threshold_us = int(safety_cfg.get("throttle_zero_threshold_us", 1050))
+
+    if arm_switch_threshold_us < 1200 or arm_switch_threshold_us > 1900:
+        errors.append("safety.arm_switch_threshold_us must be between 1200 and 1900 us.")
+    elif arm_switch_threshold_us < 1400:
+        advisories.append(
+            f"SAFETY WARNING: arm_switch_threshold_us ({arm_switch_threshold_us} us) is configured below 1400 us!\n"
+            f"    * This creates severe risk of accidental arming on 2-position or 3-position switches.\n"
+            f"    * Recommended threshold is 1800 us."
+        )
+
+    if throttle_zero_threshold_us < 1000 or throttle_zero_threshold_us > 1200:
+        errors.append("safety.throttle_zero_threshold_us must be between 1000 and 1200 us.")
+    elif throttle_zero_threshold_us > 1080:
+        advisories.append(
+            f"CRITICAL SAFETY WARNING: throttle_zero_threshold_us ({throttle_zero_threshold_us} us) is set above 1080 us!\n"
+            f"    * Permitting arming at elevated throttle stick positions poses extreme risk of violent propeller spin-up upon arming!\n"
+            f"    * High throttle arming causes instant motor engagement, leading to catastrophic laceration injuries or runaway aircraft.\n"
+            f"    * Keep strictly at 1050 us unless your transmitter idle trim requires small adjustments."
+        )
 
     # 3. Servo Actuator Configuration
     servos_cfg = cfg.get("servos", {})
@@ -243,6 +266,8 @@ def validate_config(cfg):
         "board": board,
         "protocol": proto,
         "failsafe_ms": int(failsafe_ms),
+        "arm_switch_threshold_us": arm_switch_threshold_us,
+        "throttle_zero_threshold_us": throttle_zero_threshold_us,
         "servo_pwm_hz": servo_pwm_hz,
         "motor_proto": motor_proto,
         "motor_pwm_hz": motor_pwm_hz,
@@ -290,6 +315,12 @@ pub const DT: f32 = 0.002;
 
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis({cfg_vals['failsafe_ms']});
+
+/// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
+pub const ARM_SWITCH_THRESHOLD: u16 = {cfg_vals['arm_switch_threshold_us']};
+
+/// Maximum allowable throttle pulse in microseconds to permit arming
+pub const THROTTLE_ZERO_THRESHOLD: u16 = {cfg_vals['throttle_zero_threshold_us']};
 
 /// Configured PWM frame frequency for servo outputs in Hz ({MIN_PWM_HZ}Hz - {MAX_PWM_HZ}Hz).
 /// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
@@ -399,6 +430,7 @@ def cmd_check(cfg_vals):
     print("=" * 70)
     print(f"Target Board     : {cfg_vals['board']}")
     print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
+    print(f"Arm Thresholds   : Arm Switch > {cfg_vals['arm_switch_threshold_us']} μs, Throttle <= {cfg_vals['throttle_zero_threshold_us']} μs")
     print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
     if cfg_vals["motor_proto"] == "dshot":
         print(f"Motor Protocol   : DSHOT (Digital)")
@@ -446,6 +478,7 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     print("=" * 70)
     print(f"Target Board     : {cfg_vals['board']}")
     print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
+    print(f"Arm Thresholds   : Arm Switch > {cfg_vals['arm_switch_threshold_us']} μs, Throttle <= {cfg_vals['throttle_zero_threshold_us']} μs")
     print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
     if cfg_vals["motor_proto"] == "dshot":
         print(f"Motor Protocol   : DSHOT (Digital)")

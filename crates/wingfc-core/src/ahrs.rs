@@ -1,4 +1,4 @@
-use crate::math::{Vector3, Quaternion};
+use crate::math::{Quaternion, Vector3};
 use libm::sqrtf;
 
 /// Madgwick 6-DoF and 9-DoF AHRS with Dynamic G-Rejection
@@ -31,15 +31,19 @@ impl MadgwickAHRS {
         // Rate of change of quaternion from gyroscope
         let q_dot_omega = Quaternion::new(
             0.5 * (-q.x * gyro.x - q.y * gyro.y - q.z * gyro.z),
-            0.5 * ( q.w * gyro.x + q.y * gyro.z - q.z * gyro.y),
-            0.5 * ( q.w * gyro.y - q.x * gyro.z + q.z * gyro.x),
-            0.5 * ( q.w * gyro.z + q.x * gyro.y - q.y * gyro.x),
+            0.5 * (q.w * gyro.x + q.y * gyro.z - q.z * gyro.y),
+            0.5 * (q.w * gyro.y - q.x * gyro.z + q.z * gyro.x),
+            0.5 * (q.w * gyro.z + q.x * gyro.y - q.y * gyro.x),
         );
 
         let accel_norm_sq = accel.norm_sq();
         let is_accel_valid = if accel_norm_sq > 0.01 {
             let a_norm = sqrtf(accel_norm_sq);
-            let a_g = if a_norm > 5.0 { a_norm / 9.80665 } else { a_norm };
+            let a_g = if a_norm > 5.0 {
+                a_norm / 9.80665
+            } else {
+                a_norm
+            };
             (a_g >= (1.0 - self.g_window)) && (a_g <= (1.0 + self.g_window))
         } else {
             false
@@ -55,9 +59,9 @@ impl MadgwickAHRS {
 
             // Jacobian transposed J_g^T * f_g
             let s_w = -2.0 * q.y * f1 + 2.0 * q.x * f2;
-            let s_x =  2.0 * q.z * f1 + 2.0 * q.w * f2 - 4.0 * q.x * f3;
+            let s_x = 2.0 * q.z * f1 + 2.0 * q.w * f2 - 4.0 * q.x * f3;
             let s_y = -2.0 * q.w * f1 + 2.0 * q.z * f2 - 4.0 * q.y * f3;
-            let s_z =  2.0 * q.x * f1 + 2.0 * q.y * f2;
+            let s_z = 2.0 * q.x * f1 + 2.0 * q.y * f2;
 
             // Normalize gradient step
             let s_norm = sqrtf(s_w * s_w + s_x * s_x + s_y * s_y + s_z * s_z);
@@ -104,16 +108,18 @@ impl MadgwickAHRS {
         // Rate of change of quaternion from gyroscope
         let q_dot_omega = Quaternion::new(
             0.5 * (-q.x * gyro.x - q.y * gyro.y - q.z * gyro.z),
-            0.5 * ( q.w * gyro.x + q.y * gyro.z - q.z * gyro.y),
-            0.5 * ( q.w * gyro.y - q.x * gyro.z + q.z * gyro.x),
-            0.5 * ( q.w * gyro.z + q.x * gyro.y - q.y * gyro.x),
+            0.5 * (q.w * gyro.x + q.y * gyro.z - q.z * gyro.y),
+            0.5 * (q.w * gyro.y - q.x * gyro.z + q.z * gyro.x),
+            0.5 * (q.w * gyro.z + q.x * gyro.y - q.y * gyro.x),
         );
 
         let a = accel.normalize();
         let m = mag.normalize();
 
         // Rotate magnetic field measurement to Earth frame: h = q * [0, m] * q*
-        let h = q.multiply(Quaternion::new(0.0, m.x, m.y, m.z)).multiply(q.conjugate());
+        let h = q
+            .multiply(Quaternion::new(0.0, m.x, m.y, m.z))
+            .multiply(q.conjugate());
         let bx = sqrtf(h.x * h.x + h.y * h.y);
         let bz = h.z;
 
@@ -123,22 +129,32 @@ impl MadgwickAHRS {
         let fg3 = 2.0 * (0.5 - q.x * q.x - q.y * q.y) - a.z;
 
         // Objective function for magnetic field: f_b
-        let fb1 = 2.0 * bx * (0.5 - q.y * q.y - q.z * q.z) + 2.0 * bz * (q.x * q.z - q.w * q.y) - m.x;
+        let fb1 =
+            2.0 * bx * (0.5 - q.y * q.y - q.z * q.z) + 2.0 * bz * (q.x * q.z - q.w * q.y) - m.x;
         let fb2 = 2.0 * bx * (q.x * q.y - q.w * q.z) + 2.0 * bz * (q.w * q.x + q.y * q.z) - m.y;
-        let fb3 = 2.0 * bx * (q.w * q.y + q.x * q.z) + 2.0 * bz * (0.5 - q.x * q.x - q.y * q.y) - m.z;
+        let fb3 =
+            2.0 * bx * (q.w * q.y + q.x * q.z) + 2.0 * bz * (0.5 - q.x * q.x - q.y * q.y) - m.z;
 
         // Combined gradient: s = J_g^T * f_g + J_b^T * f_b
-        let s_w = -2.0 * q.y * fg1 + 2.0 * q.x * fg2
-            - 2.0 * bz * q.y * fb1 + (-2.0 * bx * q.z + 2.0 * bz * q.x) * fb2 + 2.0 * bx * q.y * fb3;
+        let s_w = -2.0 * q.y * fg1 + 2.0 * q.x * fg2 - 2.0 * bz * q.y * fb1
+            + (-2.0 * bx * q.z + 2.0 * bz * q.x) * fb2
+            + 2.0 * bx * q.y * fb3;
 
         let s_x = 2.0 * q.z * fg1 + 2.0 * q.w * fg2 - 4.0 * q.x * fg3
-            + 2.0 * bz * q.z * fb1 + (2.0 * bx * q.y + 2.0 * bz * q.w) * fb2 + (2.0 * bx * q.z - 4.0 * bz * q.x) * fb3;
+            + 2.0 * bz * q.z * fb1
+            + (2.0 * bx * q.y + 2.0 * bz * q.w) * fb2
+            + (2.0 * bx * q.z - 4.0 * bz * q.x) * fb3;
 
         let s_y = -2.0 * q.w * fg1 + 2.0 * q.z * fg2 - 4.0 * q.y * fg3
-            + (-4.0 * bx * q.y - 2.0 * bz * q.w) * fb1 + (2.0 * bx * q.x + 2.0 * bz * q.z) * fb2 + (2.0 * bx * q.w - 4.0 * bz * q.y) * fb3;
+            + (-4.0 * bx * q.y - 2.0 * bz * q.w) * fb1
+            + (2.0 * bx * q.x + 2.0 * bz * q.z) * fb2
+            + (2.0 * bx * q.w - 4.0 * bz * q.y) * fb3;
 
-        let s_z = 2.0 * q.x * fg1 + 2.0 * q.y * fg2
-            + (-4.0 * bx * q.z + 2.0 * bz * q.x) * fb1 + (-2.0 * bx * q.w + 2.0 * bz * q.y) * fb2 + 2.0 * bx * q.x * fb3;
+        let s_z = 2.0 * q.x * fg1
+            + 2.0 * q.y * fg2
+            + (-4.0 * bx * q.z + 2.0 * bz * q.x) * fb1
+            + (-2.0 * bx * q.w + 2.0 * bz * q.y) * fb2
+            + 2.0 * bx * q.x * fb3;
 
         let s_norm = sqrtf(s_w * s_w + s_x * s_x + s_y * s_y + s_z * s_z);
         if s_norm > 1e-6 {

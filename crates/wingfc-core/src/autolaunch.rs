@@ -12,13 +12,13 @@ pub enum AutolaunchState {
 #[derive(Debug, Clone, Copy)]
 pub struct AutolaunchConfig {
     pub throw_accel_threshold_ms2: f32, // Forward acceleration threshold in m/s^2 (e.g. 14.0 m/s^2 ~ 1.43g)
-    pub throw_detect_time: f32,          // Duration accel must be sustained (e.g. 0.06s)
-    pub motor_delay_time: f32,           // Finger safety delay before motor spinup (e.g. 0.20s)
-    pub throttle_ramp_time: f32,         // Ramp up duration to prevent torque roll (e.g. 0.40s)
-    pub climb_throttle_us: u16,          // Target climb throttle in microseconds (e.g. 1750us)
-    pub climb_pitch_rad: f32,            // Target climb pitch angle in radians (e.g. 15 deg)
-    pub stick_abort_threshold: f32,      // Stick deflection threshold to cancel autolaunch (e.g. 0.20)
-    pub max_climb_duration: f32,         // Maximum autolaunch duration before auto-exit (e.g. 5.0s)
+    pub throw_detect_time: f32,         // Duration accel must be sustained (e.g. 0.06s)
+    pub motor_delay_time: f32,          // Finger safety delay before motor spinup (e.g. 0.20s)
+    pub throttle_ramp_time: f32,        // Ramp up duration to prevent torque roll (e.g. 0.40s)
+    pub climb_throttle_us: u16,         // Target climb throttle in microseconds (e.g. 1750us)
+    pub climb_pitch_rad: f32,           // Target climb pitch angle in radians (e.g. 15 deg)
+    pub stick_abort_threshold: f32, // Stick deflection threshold to cancel autolaunch (e.g. 0.20)
+    pub max_climb_duration: f32,    // Maximum autolaunch duration before auto-exit (e.g. 5.0s)
 }
 
 impl Default for AutolaunchConfig {
@@ -153,7 +153,8 @@ impl AutolaunchController {
                 self.state_timer += dt;
 
                 // Smoothly ramp throttle to climb throttle
-                let ramp_fraction = clamp(self.state_timer / self.config.throttle_ramp_time, 0.0, 1.0);
+                let ramp_fraction =
+                    clamp(self.state_timer / self.config.throttle_ramp_time, 0.0, 1.0);
                 self.current_throttle_us = map_range(
                     ramp_fraction,
                     0.0,

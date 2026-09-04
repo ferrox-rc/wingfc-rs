@@ -83,7 +83,11 @@ impl PidController {
 
         // Integral term with anti-windup clamp
         self.integral += self.config.ki * error * dt;
-        self.integral = clamp(self.integral, -self.config.max_integral, self.config.max_integral);
+        self.integral = clamp(
+            self.integral,
+            -self.config.max_integral,
+            self.config.max_integral,
+        );
 
         // Derivative on Measurement (with sign inverted: -d(measurement)/dt)
         let raw_d_measurement = if dt > 0.0 {

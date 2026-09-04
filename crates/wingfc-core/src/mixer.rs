@@ -2,10 +2,10 @@ use crate::math::{clamp, map_range};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AirframeType {
-    Elevon,                 // Traditional Flying Wing (Left & Right elevons)
-    ElevonWithDiffThrust,   // Flying Wing with Twin Motors for Yaw authority
-    StandardFixedWing,      // Aileron, Elevator, Rudder
-    VTail,                  // Left & Right V-Tail surfaces + Ailerons
+    Elevon,               // Traditional Flying Wing (Left & Right elevons)
+    ElevonWithDiffThrust, // Flying Wing with Twin Motors for Yaw authority
+    StandardFixedWing,    // Aileron, Elevator, Rudder
+    VTail,                // Left & Right V-Tail surfaces + Ailerons
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,7 +31,13 @@ impl ServoConfig {
     #[inline(always)]
     pub fn apply(&self, normalized: f32) -> u16 {
         // map [-1.0, 1.0] to [min_us, max_us]
-        let mut pulse = map_range(normalized, -1.0, 1.0, self.min_us as f32, self.max_us as f32);
+        let mut pulse = map_range(
+            normalized,
+            -1.0,
+            1.0,
+            self.min_us as f32,
+            self.max_us as f32,
+        );
         if self.reversed {
             pulse = (self.min_us + self.max_us) as f32 - pulse;
         }
@@ -42,11 +48,11 @@ impl ServoConfig {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AirframeOutputs {
-    pub servo1_us: u16, // Left Elevon / Aileron
-    pub servo2_us: u16, // Right Elevon / Elevator
-    pub servo4_us: u16, // Flap / Aux Servo
-    pub servo5_us: u16, // Flap / Aux Servo
-    pub servo6_us: u16, // Rudder / Aux Servo
+    pub servo1_us: u16,       // Left Elevon / Aileron
+    pub servo2_us: u16,       // Right Elevon / Elevator
+    pub servo4_us: u16,       // Flap / Aux Servo
+    pub servo5_us: u16,       // Flap / Aux Servo
+    pub servo6_us: u16,       // Rudder / Aux Servo
     pub motor1_throttle: u16, // 1000..2000 us (or DShot 0..2047)
     pub motor2_throttle: u16, // Twin motor if configured
 }
@@ -93,8 +99,10 @@ impl AirframeMixer {
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
 
                 let diff = (yaw * 150.0) as i16;
-                outputs.motor1_throttle = clamp((throttle_us as i16 - diff) as f32, 1000.0, 2000.0) as u16;
-                outputs.motor2_throttle = clamp((throttle_us as i16 + diff) as f32, 1000.0, 2000.0) as u16;
+                outputs.motor1_throttle =
+                    clamp((throttle_us as i16 - diff) as f32, 1000.0, 2000.0) as u16;
+                outputs.motor2_throttle =
+                    clamp((throttle_us as i16 + diff) as f32, 1000.0, 2000.0) as u16;
             }
             AirframeType::StandardFixedWing => {
                 outputs.servo1_us = self.servos[0].apply(roll);

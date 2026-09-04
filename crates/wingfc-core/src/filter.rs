@@ -1,5 +1,5 @@
 use core::f32::consts::PI;
-use libm::{tanf, sqrtf};
+use libm::{sqrtf, tanf};
 
 /// PT1 1st-Order Low-Pass Filter
 #[derive(Debug, Clone, Copy, Default)]
@@ -57,10 +57,15 @@ pub struct BiquadFilter {
 impl BiquadFilter {
     pub const fn new() -> Self {
         Self {
-            b0: 1.0, b1: 0.0, b2: 0.0,
-            a1: 0.0, a2: 0.0,
-            x1: 0.0, x2: 0.0,
-            y1: 0.0, y2: 0.0,
+            b0: 1.0,
+            b1: 0.0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
+            x1: 0.0,
+            x2: 0.0,
+            y1: 0.0,
+            y2: 0.0,
         }
     }
 
@@ -83,7 +88,9 @@ impl BiquadFilter {
 
     #[inline(always)]
     pub fn update(&mut self, input: f32) -> f32 {
-        let result = self.b0 * input + self.b1 * self.x1 + self.b2 * self.x2 - self.a1 * self.y1 - self.a2 * self.y2;
+        let result = self.b0 * input + self.b1 * self.x1 + self.b2 * self.x2
+            - self.a1 * self.y1
+            - self.a2 * self.y2;
         self.x2 = self.x1;
         self.x1 = input;
         self.y2 = self.y1;

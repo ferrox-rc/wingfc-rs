@@ -190,8 +190,8 @@ Visual telemetry is driven by an asynchronous 20Hz task monitoring the global `S
 
 ## 7. Safety Interlocks & Pre-Arm Rules
 
-1. **Pre-Arm Switch Interlock:** If the arm switch (CH5) is already in the armed position when the flight controller powers on, arming is refused (`RefusedSwitchArmedAtBoot`) until the pilot cycles the switch to DISARM.
-2. **Throttle Zero Interlock:** Arming is refused (`RefusedThrottleRaised`) if throttle is &gt;1050 &mu;s when attempting to arm.
+1. **Pre-Arm Switch Interlock:** If the arm switch (CH5) is already in the armed position (&gt;`ARM_SWITCH_THRESHOLD`, user-configurable in `wingfc.yaml`, default 1800 &mu;s) when the flight controller powers on, arming is refused (`RefusedSwitchArmedAtBoot`) until the pilot cycles the switch to DISARM.
+2. **Throttle Zero Interlock:** Arming is refused (`RefusedThrottleRaised`) if throttle stick is &gt;`THROTTLE_ZERO_THRESHOLD` (user-configurable in `wingfc.yaml`, default 1050 &mu;s) when attempting to arm, preventing violent unexpected propeller spin-up.
 3. **Zero-Surge Failsafe Recovery:** When link recovery occurs following a failsafe, the controller will NOT re-arm mid-air if the pilot's throttle stick is high; it requires safe, intentional pilot input to clear.
 4. **Hand Autolaunch Safety:** Finger-safety motor delay (200ms) ensures the motor does not spin until the aircraft has physically left the pilot's hand, followed by a 400ms throttle ramp to prevent torque roll.
 

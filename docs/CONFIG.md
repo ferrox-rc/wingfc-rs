@@ -66,6 +66,20 @@ receiver:
   * `ibus`: FlySky iBus protocol (115,200 baud).
 * `failsafe_timeout_ms`: Maximum allowed duration without valid RC packets before failsafe engages (50 to 5000 ms). When triggered, motor throttle is cut to 0 and elevons neutralize to level flight.
 
+### Safety Interlocks & Arming Thresholds
+```yaml
+safety:
+  arm_switch_threshold_us: 1800
+  throttle_zero_threshold_us: 1050
+```
+* `arm_switch_threshold_us`: Microsecond pulse width threshold for the Arm Channel (CH5 / AUX1). Channel values strictly above this threshold command the aircraft to arm. Supported range: 1200 us to 1900 us (Default: 1800 us).
+* `throttle_zero_threshold_us`: Maximum allowable throttle stick pulse width (microseconds) to permit transitioning from Disarmed to Armed. Throttle stick must be strictly at or below this value to arm. Supported range: 1000 us to 1200 us (Default: 1050 us).
+
+> [!CAUTION]
+> ### ⚠️ Critical Safety Warning: Motor Spin-Up Hazard & Personal Injury
+> - **Accidental Arming Hazard (`arm_switch_threshold_us`):** Setting this threshold too low (&lt;1400 &mu;s) introduces extreme risk of unintended arming on 2-position or 3-position toggle switches. Ensure this matches your transmitter's calibrated channel pulse (typically &approx;1000 &mu;s disarmed, &approx;2000 &mu;s armed).
+> - **Violent Propeller Spin-Up Hazard (`throttle_zero_threshold_us`):** NEVER set this threshold higher than your transmitter's zero-throttle stick position. Setting `throttle_zero_threshold_us` above 1080 &mu;s may allow the flight controller to arm with the throttle raised or motor already spooling up! High-throttle arming causes immediate, violent propeller spin-up, resulting in severe lacerations or runaway aircraft. Keep this setting strictly at 1050 &mu;s unless transmitter trim calibration dictates minor adjustments.
+
 ### Servo Actuator Output Configuration
 ```yaml
 servos:

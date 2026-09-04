@@ -1,5 +1,5 @@
-use core::ops::{Add, Sub, Mul};
-use libm::{atan2f, asinf, sqrtf};
+use core::ops::{Add, Mul, Sub};
+use libm::{asinf, atan2f, sqrtf};
 
 pub const PI: f32 = core::f32::consts::PI;
 pub const DEG_TO_RAD: f32 = PI / 180.0;
@@ -13,7 +13,11 @@ pub struct Vector3 {
 }
 
 impl Vector3 {
-    pub const ZERO: Self = Self { x: 0.0, y: 0.0, z: 0.0 };
+    pub const ZERO: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
 
     #[inline(always)]
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
@@ -64,7 +68,11 @@ impl Add for Vector3 {
     type Output = Self;
     #[inline(always)]
     fn add(self, rhs: Self) -> Self {
-        Self { x: self.x + rhs.x, y: self.y + rhs.y, z: self.z + rhs.z }
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+            z: self.z + rhs.z,
+        }
     }
 }
 
@@ -72,7 +80,11 @@ impl Sub for Vector3 {
     type Output = Self;
     #[inline(always)]
     fn sub(self, rhs: Self) -> Self {
-        Self { x: self.x - rhs.x, y: self.y - rhs.y, z: self.z - rhs.z }
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+            z: self.z - rhs.z,
+        }
     }
 }
 
@@ -80,7 +92,11 @@ impl Mul<f32> for Vector3 {
     type Output = Self;
     #[inline(always)]
     fn mul(self, rhs: f32) -> Self {
-        Self { x: self.x * rhs, y: self.y * rhs, z: self.z * rhs }
+        Self {
+            x: self.x * rhs,
+            y: self.y * rhs,
+            z: self.z * rhs,
+        }
     }
 }
 
@@ -99,7 +115,12 @@ impl Default for Quaternion {
 }
 
 impl Quaternion {
-    pub const IDENTITY: Self = Self { w: 1.0, x: 0.0, y: 0.0, z: 0.0 };
+    pub const IDENTITY: Self = Self {
+        w: 1.0,
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
 
     #[inline(always)]
     pub const fn new(w: f32, x: f32, y: f32, z: f32) -> Self {
@@ -181,7 +202,13 @@ impl Quaternion {
 
 #[inline(always)]
 pub fn clamp(val: f32, min: f32, max: f32) -> f32 {
-    if val < min { min } else if val > max { max } else { val }
+    if val < min {
+        min
+    } else if val > max {
+        max
+    } else {
+        val
+    }
 }
 
 #[inline(always)]

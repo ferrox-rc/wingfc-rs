@@ -17,7 +17,7 @@ graph TD
         PWM1["PWM1 Peripheral (50..400 Hz / DShot)"]
         TWISPI0["TWISPI0 Peripheral (400 kHz I2C)"]
         UARTE0["UARTE0 Peripheral (EasyDMA UART)"]
-        UARTE1["UARTE1 Peripheral (Future GPS UART)"]
+        UARTE1["UARTE1 Peripheral (GPS UART)"]
     end
 
     subgraph "Firmware BoardPins Abstraction"
@@ -35,7 +35,7 @@ graph TD
         LED["Tri-Color RGB LED (P0.26, P0.30, P0.06)"]
         IMU["LSM6DS3TR IMU (P0.07 SCL, P0.27 SDA, P0.15 PWR)"]
         RC["RC Receiver Input (D6 / P1.00)"]
-        GPS["Future GPS Engine (D9 RX, D10 TX - Sense Plus)"]
+        GPS["GPS Engine (D9 RX, D10 TX - Sense Plus)"]
     end
 
     PWM0 --> S1
@@ -113,7 +113,7 @@ The Nordic nRF52840 contains several shared hardware register blocks where multi
 | **`TWISPI0`** | Internal LSM6DS3TR IMU | `P0.07`, `P0.27` | Dedicated to internal I2C bus. Cannot be used for SPI. |
 | **`UARTE0`** | RC Receiver (DMA) | `P1.00` | RX-only EasyDMA serial engine. Pin TX is unrouted. |
 | **`TWISPI1`** | Optional External Sensors | `P0.04`, `P0.05` | Free for external compass/barometer I2C on standard XIAO. |
-| **`UARTE1`** | Future GPS Navigation | Unrouted on standard XIAO | **Conflict:** Requires XIAO Sense Plus for physical pin breakout. |
+| **`UARTE1`** | GPS Navigation (NMEA) | `P0.09`, `P0.10` | Broken out on `D9` (RX) and `D10` (TX) on XIAO Sense Plus (Requires `nfc-pins-as-gpio`). |
 
 ---
 

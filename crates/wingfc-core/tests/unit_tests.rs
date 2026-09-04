@@ -233,14 +233,20 @@ fn test_feedforward_response() {
 
     // Rapid stick movement: setpoint steps from 0.0 to 10.0
     let out_step = pid.update(10.0, 0.0, 0.002);
-    assert!(out_step > 0.0, "Feedforward should immediately produce positive output on stick step");
+    assert!(
+        out_step > 0.0,
+        "Feedforward should immediately produce positive output on stick step"
+    );
 
     // Hold stick steady at 10.0 for 50 cycles: Feedforward must decay to zero
     let mut out_steady = 0.0;
     for _ in 0..50 {
         out_steady = pid.update(10.0, 0.0, 0.002);
     }
-    assert!(out_steady.abs() < 0.01, "Feedforward must return to zero while stick is held steady");
+    assert!(
+        out_steady.abs() < 0.01,
+        "Feedforward must return to zero while stick is held steady"
+    );
 }
 
 #[test]
@@ -296,7 +302,10 @@ fn test_9dof_madgwick_heading() {
     let (pitch, roll, yaw) = ahrs.get_euler_angles();
     assert!(pitch.abs() * RAD_TO_DEG < 1.0);
     assert!(roll.abs() * RAD_TO_DEG < 1.0);
-    assert!(yaw.abs() * RAD_TO_DEG < 2.0, "Heading should converge to North (0 deg)");
+    assert!(
+        yaw.abs() * RAD_TO_DEG < 2.0,
+        "Heading should converge to North (0 deg)"
+    );
 }
 
 #[cfg(feature = "baro")]
@@ -318,14 +327,22 @@ fn test_vertical_kalman_filter() {
         }
     }
 
-    assert!((vkf.altitude_m - 2.0).abs() < 0.15, "Estimated altitude should be ~2.0m, got {}", vkf.altitude_m);
-    assert!((vkf.velocity_ms - 2.0).abs() < 0.25, "Estimated climb rate should be ~2.0 m/s, got {}", vkf.velocity_ms);
+    assert!(
+        (vkf.altitude_m - 2.0).abs() < 0.15,
+        "Estimated altitude should be ~2.0m, got {}",
+        vkf.altitude_m
+    );
+    assert!(
+        (vkf.velocity_ms - 2.0).abs() < 0.25,
+        "Estimated climb rate should be ~2.0 m/s, got {}",
+        vkf.velocity_ms
+    );
 }
 
 #[cfg(feature = "baro")]
 #[test]
 fn test_altitude_safety_interventions() {
-    use wingfc_core::altitude_safety::{AltitudeSafetyController, AltitudeIntervention};
+    use wingfc_core::altitude_safety::{AltitudeIntervention, AltitudeSafetyController};
 
     let controller = AltitudeSafetyController::default();
 
@@ -338,8 +355,14 @@ fn test_altitude_safety_interventions() {
     // 2. Hard Deck breach: Plane drops below 15m (10m AGL) with negative sink rate
     let (action, pitch, throttle) = controller.evaluate(10.0, -2.0, -0.10, -0.10, 1300);
     assert_eq!(action, AltitudeIntervention::HardDeckPullUp);
-    assert!(pitch > 0.30, "Hard Deck must command positive pitch pull-up");
-    assert!(throttle >= 1650, "Hard Deck must command safe climb throttle");
+    assert!(
+        pitch > 0.30,
+        "Hard Deck must command positive pitch pull-up"
+    );
+    assert!(
+        throttle >= 1650,
+        "Hard Deck must command safe climb throttle"
+    );
 
     // 3. Legal Ceiling: Plane climbs above 120m (125m AGL)
     let (action, pitch, throttle) = controller.evaluate(125.0, 2.0, 0.20, 0.20, 1800);
@@ -350,7 +373,10 @@ fn test_altitude_safety_interventions() {
     // 4. Stall detect: Plane is level (0.0 pitch) but sinking rapidly (-4.5 m/s)
     let (action, pitch, throttle) = controller.evaluate(60.0, -4.5, 0.0, 0.10, 1500);
     assert_eq!(action, AltitudeIntervention::StallRecovery);
-    assert!(pitch < 0.0, "Stall recovery must drop nose to regain airspeed");
+    assert!(
+        pitch < 0.0,
+        "Stall recovery must drop nose to regain airspeed"
+    );
     assert_eq!(throttle, 1900, "Stall recovery must command full throttle");
 }
 
@@ -367,15 +393,22 @@ fn test_nmea_gga_rmc_parsing() {
     for &b in gga_payload {
         gga_cs ^= b;
     }
-    let gga_str = format!("${}*{:02X}
-", std::str::from_utf8(gga_payload).unwrap(), gga_cs);
+    let gga_str = format!(
+        "${}*{:02X}
+",
+        std::str::from_utf8(gga_payload).unwrap(),
+        gga_cs
+    );
     let mut updated = false;
     for &b in gga_str.as_bytes() {
         if parser.feed_byte(b).is_some() {
             updated = true;
         }
     }
-    assert!(updated, "NMEA parser should return updated GPS fix for valid GGA");
+    assert!(
+        updated,
+        "NMEA parser should return updated GPS fix for valid GGA"
+    );
 
     let data = parser.data();
     // 48 + 07.038/60 = 48.1173 deg
@@ -393,15 +426,22 @@ fn test_nmea_gga_rmc_parsing() {
     for &b in rmc_payload {
         cs ^= b;
     }
-    let rmc_str = format!("${}*{:02X}
-", std::str::from_utf8(rmc_payload).unwrap(), cs);
+    let rmc_str = format!(
+        "${}*{:02X}
+",
+        std::str::from_utf8(rmc_payload).unwrap(),
+        cs
+    );
     updated = false;
     for &b in rmc_str.as_bytes() {
         if parser.feed_byte(b).is_some() {
             updated = true;
         }
     }
-    assert!(updated, "NMEA parser should return updated GPS fix for valid RMC");
+    assert!(
+        updated,
+        "NMEA parser should return updated GPS fix for valid RMC"
+    );
 
     let data2 = parser.data();
     // 22.4 knots * 0.514444 = 11.52 m/s
@@ -450,19 +490,55 @@ fn test_gps_navigation_home_latching_and_rth() {
         fix_type: GpsFixType::Fix3D,
     };
 
-    let guidance = nav.calculate_rth_guidance(&current_pos).expect("RTH guidance must be available when home is latched");
-    
+    let guidance = nav
+        .calculate_rth_guidance(&current_pos)
+        .expect("RTH guidance must be available when home is latched");
+
     // Bearing to home should be South-West (~225 degrees)
-    assert!(guidance.bearing_to_home_deg > 210.0 && guidance.bearing_to_home_deg < 240.0,
-        "Bearing to home should be ~225 deg, got {}", guidance.bearing_to_home_deg);
+    assert!(
+        guidance.bearing_to_home_deg > 210.0 && guidance.bearing_to_home_deg < 240.0,
+        "Bearing to home should be ~225 deg, got {}",
+        guidance.bearing_to_home_deg
+    );
 
     // Distance should be approximately 1.4 km (1414 m)
-    assert!(guidance.distance_to_home_m > 1200.0 && guidance.distance_to_home_m < 1600.0,
-        "Distance to home should be ~1400m, got {}", guidance.distance_to_home_m);
+    assert!(
+        guidance.distance_to_home_m > 1200.0 && guidance.distance_to_home_m < 1600.0,
+        "Distance to home should be ~1400m, got {}",
+        guidance.distance_to_home_m
+    );
 
     // Heading error relative to current track (flying at 45 deg, needs to turn to ~225 deg): error should be ~ -180 / +180 deg
     assert!(guidance.heading_error_deg.abs() > 160.0);
 
     // Target altitude should be home altitude (10.0m) + safe RTH climb margin (30.0m) = 40.0m
     assert!((guidance.target_altitude_m - 40.0).abs() < 0.1);
+}
+
+#[test]
+fn test_configurable_arming_thresholds() {
+    use wingfc_core::safety::{ArmingSafety, ArmingStatus};
+
+    // Configured with custom thresholds: Arm switch > 1600us, Throttle <= 1100us
+    let mut safety = ArmingSafety::with_thresholds(1600, 1100);
+    assert_eq!(safety.arm_switch_threshold(), 1600);
+    assert_eq!(safety.throttle_zero_threshold(), 1100);
+
+    // Initial disarm pulse to satisfy boot-switch interlock
+    safety.update(1000, 1000, 1000, false);
+
+    // 1. Arm switch at 1550us (below 1600 threshold) -> remains Disarmed
+    let status = safety.update(1550, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 2. Throttle at 1120us (above 1100 threshold) with switch at 1700us -> RefusedThrottleRaised
+    let status = safety.update(1700, 1000, 1120, false);
+    assert_eq!(status, ArmingStatus::RefusedThrottleRaised);
+    assert!(!safety.is_armed());
+
+    // 3. Throttle at 1080us (below 1100 threshold) with switch at 1700us -> successfully arms
+    let status = safety.update(1700, 1000, 1080, false);
+    assert_eq!(status, ArmingStatus::ArmedAngle);
+    assert!(safety.is_armed());
 }

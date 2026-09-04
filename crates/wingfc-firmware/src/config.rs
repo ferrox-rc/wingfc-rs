@@ -13,6 +13,12 @@ pub const DT: f32 = 0.002;
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
+pub const ARM_SWITCH_THRESHOLD: u16 = 1800;
+
+/// Maximum allowable throttle pulse in microseconds to permit arming
+pub const THROTTLE_ZERO_THRESHOLD: u16 = 1050;
+
 /// Configured PWM frame frequency for servo outputs in Hz (50Hz - 400Hz).
 /// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
 pub const SERVO_PWM_HZ: u32 = 50;

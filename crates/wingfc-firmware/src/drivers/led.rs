@@ -18,7 +18,11 @@ pub struct RgbLedDriver {
 }
 
 impl RgbLedDriver {
-    pub fn new(red_pin: embassy_nrf::peripherals::P0_26, green_pin: embassy_nrf::peripherals::P0_30, blue_pin: embassy_nrf::peripherals::P0_06) -> Self {
+    pub fn new(
+        red_pin: embassy_nrf::peripherals::P0_26,
+        green_pin: embassy_nrf::peripherals::P0_30,
+        blue_pin: embassy_nrf::peripherals::P0_06,
+    ) -> Self {
         // Active-low: start with all LEDs OFF (Level::High)
         let red = Output::new(red_pin, Level::High, OutputDrive::Standard);
         let green = Output::new(green_pin, Level::High, OutputDrive::Standard);

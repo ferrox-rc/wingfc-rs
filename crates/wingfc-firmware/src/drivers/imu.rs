@@ -7,8 +7,8 @@ pub const LSM6DS3_ADDR: u8 = 0x6A;
 // Register definitions
 const WHO_AM_I_REG: u8 = 0x0F;
 const CTRL1_XL_REG: u8 = 0x10;
-const CTRL2_G_REG: u8  = 0x11;
-const CTRL3_C_REG: u8  = 0x12;
+const CTRL2_G_REG: u8 = 0x11;
+const CTRL3_C_REG: u8 = 0x12;
 const OUTX_L_G_REG: u8 = 0x22;
 
 // Sensitivity constants
@@ -90,7 +90,12 @@ impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
 
         let inv = 1.0 / (sample_count as f32);
         self.gyro_bias = Vector3::new(sum_x * inv, sum_y * inv, sum_z * inv);
-        defmt::info!("Gyro calibration complete: x={}, y={}, z={}", self.gyro_bias.x, self.gyro_bias.y, self.gyro_bias.z);
+        defmt::info!(
+            "Gyro calibration complete: x={}, y={}, z={}",
+            self.gyro_bias.x,
+            self.gyro_bias.y,
+            self.gyro_bias.z
+        );
         Ok(())
     }
 

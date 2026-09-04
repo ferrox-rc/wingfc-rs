@@ -28,6 +28,35 @@ receiver:
   # In failsafe: motors are cut to 0 and elevons neutralize to level flight
   failsafe_timeout_ms: 500
 
+# Safety Interlocks & Arming Thresholds
+safety:
+  # Microsecond threshold for Arm Switch (CH5 / AUX1).
+  # Channel pulse values above this threshold trigger the ARM command. (Default: 1800 us)
+  # Supported range: 1200 us to 1900 us.
+  #
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # SAFETY WARNING - ARM SWITCH THRESHOLD:
+  # - Setting this threshold too low (e.g., <1400 us) risks accidental arming on
+  #   a 2-position or 3-position toggle switch.
+  # - Ensure this matches your transmitter's switch calibration (typically ~1000us
+  #   when disarmed, ~2000us when armed).
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  arm_switch_threshold_us: 1800
+
+  # Maximum allowable throttle stick pulse in microseconds to permit arming. (Default: 1050 us)
+  # Throttle stick must be strictly at or below this value to arm the motors.
+  # Supported range: 1000 us to 1200 us.
+  #
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # CRITICAL HAZARD WARNING - MOTOR SPIN-UP & PERSONAL INJURY:
+  # - NEVER set this threshold higher than your transmitter's low-throttle position.
+  # - Setting throttle_zero_threshold_us above 1080 us may allow the aircraft to
+  #   arm with the motor already spooling up or active! High throttle arming
+  #   causes instant, violent propeller spin-up, leading to catastrophic
+  #   laceration injuries, property damage, or runaway aircraft!
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  throttle_zero_threshold_us: 1050
+
 # Servo Actuator Output Configuration
 servos:
   # PWM frame refresh frequency in Hertz (Hz) for servo outputs (D0, D1, D2).

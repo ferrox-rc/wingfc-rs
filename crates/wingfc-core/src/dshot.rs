@@ -4,7 +4,7 @@ pub const DSHOT_MIN_THROTTLE: u16 = 48;
 pub const DSHOT_MAX_THROTTLE: u16 = 2047;
 
 const DSHOT_ZERO_PATTERN: u8 = 0b11100000;
-const DSHOT_ONE_PATTERN: u8  = 0b11111100;
+const DSHOT_ONE_PATTERN: u8 = 0b11111100;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DshotSpeed {

@@ -1,8 +1,12 @@
 /// Arming and Failsafe Safety State Manager
 /// Enforces physical safety interlocks to prevent unintended motor spin-up.
 
-pub const THROTTLE_ZERO_THRESHOLD: u16 = 1050; // Throttle must be <= 1050us to arm
-pub const ARM_SWITCH_THRESHOLD: u16 = 1800;    // Switch value > 1800 considered "ARM"
+pub const DEFAULT_THROTTLE_ZERO_THRESHOLD: u16 = 1050; // Throttle must be <= 1050us to arm
+pub const DEFAULT_ARM_SWITCH_THRESHOLD: u16 = 1800; // Switch value > 1800 considered "ARM"
+
+// Deprecated constant aliases retained for backwards compatibility
+pub const THROTTLE_ZERO_THRESHOLD: u16 = DEFAULT_THROTTLE_ZERO_THRESHOLD;
+pub const ARM_SWITCH_THRESHOLD: u16 = DEFAULT_ARM_SWITCH_THRESHOLD;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ArmingStatus {
@@ -18,6 +22,8 @@ pub enum ArmingStatus {
 pub struct ArmingSafety {
     is_armed: bool,
     saw_disarmed_switch: bool,
+    arm_switch_threshold: u16,
+    throttle_zero_threshold: u16,
 }
 
 impl Default for ArmingSafety {
@@ -27,16 +33,40 @@ impl Default for ArmingSafety {
 }
 
 impl ArmingSafety {
+    /// Creates an arming safety manager with standard default thresholds (1800us arm, 1050us throttle).
     pub const fn new() -> Self {
+        Self::with_thresholds(
+            DEFAULT_ARM_SWITCH_THRESHOLD,
+            DEFAULT_THROTTLE_ZERO_THRESHOLD,
+        )
+    }
+
+    /// Creates an arming safety manager with custom user-configured thresholds.
+    ///
+    /// * `arm_switch_threshold`: Channel pulse (microseconds) above which arming is requested (e.g. 1800).
+    /// * `throttle_zero_threshold`: Maximum pulse (microseconds) permitting transition to armed (e.g. 1050).
+    pub const fn with_thresholds(arm_switch_threshold: u16, throttle_zero_threshold: u16) -> Self {
         Self {
             is_armed: false,
             saw_disarmed_switch: false,
+            arm_switch_threshold,
+            throttle_zero_threshold,
         }
     }
 
     pub fn reset(&mut self) {
         self.is_armed = false;
         self.saw_disarmed_switch = false;
+    }
+
+    /// Configured arm switch threshold in microseconds.
+    pub const fn arm_switch_threshold(&self) -> u16 {
+        self.arm_switch_threshold
+    }
+
+    /// Configured zero-throttle threshold in microseconds.
+    pub const fn throttle_zero_threshold(&self) -> u16 {
+        self.throttle_zero_threshold
     }
 
     /// Evaluates current RC switch and throttle inputs to determine safe arming state.
@@ -57,7 +87,7 @@ impl ArmingSafety {
             return ArmingStatus::Failsafe;
         }
 
-        let switch_wants_arm = arm_switch_value > ARM_SWITCH_THRESHOLD;
+        let switch_wants_arm = arm_switch_value > self.arm_switch_threshold;
 
         // Boot-arm interlock: Pilot must have switch in DISARMED state at least once
         if !switch_wants_arm {
@@ -73,7 +103,7 @@ impl ArmingSafety {
 
             if !self.is_armed {
                 // Transitioning from Disarmed -> Armed requires zero throttle
-                if throttle_us <= THROTTLE_ZERO_THRESHOLD {
+                if throttle_us <= self.throttle_zero_threshold {
                     self.is_armed = true;
                 } else {
                     return ArmingStatus::RefusedThrottleRaised;
