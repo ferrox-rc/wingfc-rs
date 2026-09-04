@@ -7,24 +7,28 @@ This document defines the production release matrix, build-time feature combinat
 ## 1. Production Release Targets (8 Configurations)
 
 Firmware releases compose into 8 discrete, mutually exclusive production binaries based on three core dimensions:
-1. **Receiver Protocol (Required Either/Or):** `crsf` (CRSF / ELRS @ 420kBaud) or `ibus` (FlySky iBus @ 115.2kBaud).
+1. **Receiver Protocol (Required Either/Or):**
+   - `crsf` (Crossfire / ExpressLRS @ 420 kBaud with bidirectional telemetry: Attitude, Flight Mode, Battery, GPS/Baro).
+   - `ibus` (FlySky iBus @ 115.2 kBaud unidirectional RC control).
 2. **Motor Output Protocol:** `dshot` (Digital packet with CRC) or `pwm` (Configurable 50Hz&ndash;400Hz analog PWM).
 3. **Navigation Sensor Suite:** `nav` (fusing Barometer Vertical Kalman Filter, 9-DoF Compass AHRS, and GPS Return-to-Home) or baseline (6-DoF IMU).
 
 | Artifact Target Name | Receiver | Motor | Navigation (`nav`) | Features Flag | Flash Size | RAM Size |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `wingfc-firmware-crsf-pwm` | CRSF | PWM 50&ndash;400Hz | Baseline (6-DoF) | `--features crsf` | 32.8 KB (3.2%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-crsf-pwm-nav` | CRSF | PWM 50&ndash;400Hz | **Nav (Baro + Compass + GPS)** | `--features crsf,nav` | 32.8 KB (3.2%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-crsf-dshot` | CRSF | DShot | Baseline (6-DoF) | `--features crsf,dshot` | 31.5 KB (3.1%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-crsf-dshot-nav` | CRSF | DShot | **Nav (Baro + Compass + GPS)** | `--features crsf,dshot,nav` | 31.5 KB (3.1%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-ibus-pwm` | iBus | PWM 50&ndash;400Hz | Baseline (6-DoF) | `--features ibus` | 32.2 KB (3.1%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-ibus-pwm-nav` | iBus | PWM 50&ndash;400Hz | **Nav (Baro + Compass + GPS)** | `--features ibus,nav` | 32.2 KB (3.1%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-ibus-dshot` | iBus | DShot | Baseline (6-DoF) | `--features ibus,dshot` | 30.8 KB (3.0%) | 5.7 KB (2.2%) |
-| `wingfc-firmware-ibus-dshot-nav` | iBus | DShot | **Nav (Baro + Compass + GPS)** | `--features ibus,dshot,nav` | 30.8 KB (3.0%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-crsf-pwm` | CRSF + Telemetry | PWM 50&ndash;400Hz | Baseline (6-DoF) | `--features crsf` | 36.0 KB (3.5%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-crsf-pwm-nav` | CRSF + Telemetry | PWM 50&ndash;400Hz | **Nav (Baro + Compass + GPS)** | `--features crsf,nav` | 37.1 KB (3.6%) | 5.8 KB (2.2%) |
+| `wingfc-firmware-crsf-dshot` | CRSF + Telemetry | DShot | Baseline (6-DoF) | `--features crsf,dshot` | 34.7 KB (3.4%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-crsf-dshot-nav` | CRSF + Telemetry | DShot | **Nav (Baro + Compass + GPS)** | `--features crsf,dshot,nav` | 35.9 KB (3.5%) | 5.8 KB (2.2%) |
+| `wingfc-firmware-ibus-pwm` | iBus | PWM 50&ndash;400Hz | Baseline (6-DoF) | `--features ibus` | 32.4 KB (3.2%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-ibus-pwm-nav` | iBus | PWM 50&ndash;400Hz | **Nav (Baro + Compass + GPS)** | `--features ibus,nav` | 32.4 KB (3.2%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-ibus-dshot` | iBus | DShot | Baseline (6-DoF) | `--features ibus,dshot` | 31.1 KB (3.0%) | 5.7 KB (2.2%) |
+| `wingfc-firmware-ibus-dshot-nav` | iBus | DShot | **Nav (Baro + Compass + GPS)** | `--features ibus,dshot,nav` | 31.1 KB (3.0%) | 5.7 KB (2.2%) |
 
-> **Resource Footprint & Overhead:** Total nRF52840 resources are 1,024 KB Flash and 256 KB RAM. The entire firmware consumes less than **3.3% of Flash** and **2.3% of RAM**, leaving &gt;96% of chip resources available for future flight scripting, complex autonomous missions, and extended telemetry buffers.
+> **Resource Footprint & Overhead:** Total nRF52840 resources are 1,024 KB Flash and 256 KB RAM. The entire firmware consumes less than **3.7% of Flash** and **2.3% of RAM**, leaving &gt;96% of chip resources available for future flight scripting, complex autonomous missions, and extended telemetry buffers.
 >
-> DShot builds consume &approx; 1.3 KB less flash than analog PWM builds because legacy analog ESC throttle calibration routines and pass-through tables are eliminated at compile time.
+> CRSF builds incorporate the asynchronous EasyDMA telemetry broadcast engine (transmitting attitude, flight mode, battery, and GPS frames @ 50 Hz over pin `D7` / `P0.11`) requiring only &approx; 3.6 KB additional flash.
+>
+> DShot builds consume &approx; 1.2&ndash;1.3 KB less flash than analog PWM builds because legacy analog ESC throttle calibration routines and pass-through tables are eliminated at compile time.
 
 ---
 
@@ -52,7 +56,7 @@ Runs host unit tests for base, barometer, compass, GPS, and full navigation suit
 # Or using matrix script directly
 ./scripts/build_matrix.sh check
 ```
-*Execution time:* &approx; 1.2&ndash;2.0 seconds.
+*Execution time:* &approx; 0.8&ndash;1.5 seconds.
 
 ### Automated Release Build (`build`)
 Compiles, converts, hashes, and outputs all release binaries to `dist/`:
@@ -108,6 +112,6 @@ nrfjprog --program dist/wingfc-firmware-crsf-dshot-nav.hex --chiperase --reset
 ### Flashing via UF2 Bootloader (Seeed XIAO):
 Convert `.hex` to `.uf2` using `uf2conv.py`:
 ```bash
-python3 scripts/uf2conv.py -f 0xADA52840 -c -o wingfc.uf2 dist/wingfc-firmware-crsf-dshot-nav.hex
+python3 uf2conv.py -c -b 0x1000 -f 0xADA52840 dist/wingfc-firmware-crsf-dshot-nav.hex -o firmware.uf2
 ```
-Then drag and drop `wingfc.uf2` into the mounted XIAO drive.
+Copy `firmware.uf2` to the mounted USB drive (`XIAO-SENSE`).

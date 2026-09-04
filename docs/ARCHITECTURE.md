@@ -33,7 +33,7 @@ Board pin definitions and peripheral bindings are centralized in [`crates/wingfc
    Available / Ext SDA --| D4 (P0.04)         (P0.27)  |-- IMU SDA (TWISPI0)
    Available / Ext SCL --| D5 (P0.05)         (P0.15)  |-- IMU Power Rail Enable
    RC RX (EasyDMA UARTE)-| D6 (P1.00)         (3.3V)   |
-   Available / GPIO    --| D7 (P0.11)         (GND)    |
+   RC Telemetry TX     --| D7 (P0.11)         (GND)    |
                          +-----------------------------+\n```
 
 ### Pinout Reference:
@@ -44,6 +44,7 @@ Board pin definitions and peripheral bindings are centralized in [`crates/wingfc
 | **Servo 4** | `P0.28` (D2) | Auxiliary Servo (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 2) |
 | **Motor 1** | `P0.29` (D3) | Motor ESC (50..400Hz PWM or DShot) | `EscPwmDriver` (PWM1) |
 | **RC Input** | `P1.00` (D6) | EasyDMA UART RX (CRSF @ 420kBaud / iBus @ 115.2kBaud) | `UarteRx` (UARTE0) |
+| **RC Telemetry** | `P0.11` (D7) | EasyDMA UART TX (CRSF Telemetry @ 420kBaud) | `UarteTx` (UARTE0) |
 | **IMU SCL** | `P0.07` | I2C Clock (400 kHz Fast Mode) | `Twim` (TWISPI0) |
 | **IMU SDA** | `P0.27` | I2C Data (400 kHz Fast Mode) | `Twim` (TWISPI0) |
 | **IMU PWR** | `P0.15` | Internal Sensor Rail Enable (Active HIGH) | `Output` (GPIO) |

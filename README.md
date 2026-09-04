@@ -20,6 +20,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - 🔌 [Pin Configuration & Hardware Allocation Specification](docs/PINOUT.md)
 - 🛰️ [GPS Navigation & Return-to-Home Specification](docs/GPS_NAVIGATION.md)
 - 📊 [SEGGER RTT & Blackbox Logging Architecture](docs/RTT_BLACKBOX_LOGGING.md)
+- 📡 [Receiver & Telemetry Specification (CRSF/ELRS & iBus)](docs/RECEIVERS.md)
 - 🚀 [Production Release Matrix & Sizing](docs/RELEASE_MATRIX.md)
 
 ## User Quick Start (Zero Rust Knowledge Required)

@@ -66,6 +66,8 @@ receiver:
   * `ibus`: FlySky iBus protocol (115,200 baud).
 * `failsafe_timeout_ms`: Maximum allowed duration without valid RC packets before failsafe engages (50 to 5000 ms). When triggered, motor throttle is cut to 0 and elevons neutralize to level flight.
 
+> For wiring diagrams, full telemetry frame structures, and EdgeTX handset configuration, see the [Receiver & Telemetry Specification](RECEIVERS.md).
+
 ### Safety Interlocks & Arming Thresholds
 ```yaml
 safety:
