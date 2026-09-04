@@ -11,6 +11,9 @@ default = ["crsf"]
 crsf = []
 ibus = []
 dshot = []
+baro = ["wingfc-core/baro"]
+compass = ["wingfc-core/compass"]
+nav = ["wingfc-core/nav", "baro", "compass"]
 
 [dependencies]
 wingfc-core = { path = "../wingfc-core", features = ["defmt-03"] }

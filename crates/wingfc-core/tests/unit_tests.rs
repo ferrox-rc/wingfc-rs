@@ -279,6 +279,7 @@ fn test_hand_autolaunch_flow() {
     assert_eq!(launcher.state(), AutolaunchState::Completed);
 }
 
+#[cfg(feature = "compass")]
 #[test]
 fn test_9dof_madgwick_heading() {
     let mut ahrs = MadgwickAHRS::new(0.5);
@@ -298,6 +299,7 @@ fn test_9dof_madgwick_heading() {
     assert!(yaw.abs() * RAD_TO_DEG < 2.0, "Heading should converge to North (0 deg)");
 }
 
+#[cfg(feature = "baro")]
 #[test]
 fn test_vertical_kalman_filter() {
     use wingfc_core::vertical_kf::VerticalKalmanFilter;
@@ -320,6 +322,7 @@ fn test_vertical_kalman_filter() {
     assert!((vkf.velocity_ms - 2.0).abs() < 0.25, "Estimated climb rate should be ~2.0 m/s, got {}", vkf.velocity_ms);
 }
 
+#[cfg(feature = "baro")]
 #[test]
 fn test_altitude_safety_interventions() {
     use wingfc_core::altitude_safety::{AltitudeSafetyController, AltitudeIntervention};

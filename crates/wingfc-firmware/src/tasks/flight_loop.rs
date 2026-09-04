@@ -2,29 +2,25 @@ use embassy_nrf::twim;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Receiver;
 use embassy_sync::watch::Sender;
-use embassy_time::{Duration, Instant, Timer};
+#[cfg(not(feature = "dshot"))]
+use embassy_time::Timer;
+use embassy_time::{Duration, Instant};
 use wingfc_core::ahrs::MadgwickAHRS;
 use wingfc_core::filter::Pt1Filter;
-use wingfc_core::math::{map_range, Vector3, DEG_TO_RAD};
+use wingfc_core::math::{map_range, Vector3};
 use wingfc_core::mixer::{AirframeMixer, AirframeOutputs, AirframeType};
-use wingfc_core::pid::{PidConfig, PidController};
+use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
-use crate::drivers::{EscPwmDriver, Lsm6ds3Driver};
+use crate::config::{
+    AHRS_BETA, DT, FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ, MAX_PITCH_ANGLE, MAX_PITCH_RATE,
+    MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG,
+};
+#[cfg(not(feature = "dshot"))]
+use crate::drivers::EscPwmDriver;
+use crate::drivers::Lsm6ds3Driver;
 use crate::tasks::telemetry::VisualStatus;
-
-const DT: f32 = 0.002; // 500 Hz control loop (2ms)
-const FAILSAFE_TIMEOUT: Duration = Duration::from_millis(500);
-
-const MAX_ROLL_RATE: f32 = 600.0 * DEG_TO_RAD;   // 600 deg/s in rad/s
-const MAX_PITCH_RATE: f32 = 200.0 * DEG_TO_RAD;  // 200 deg/s in rad/s
-const MAX_YAW_RATE: f32 = 100.0 * DEG_TO_RAD;    // 100 deg/s in rad/s
-
-const MAX_PITCH_ANGLE: f32 = 45.0 * DEG_TO_RAD;  // 45 deg max bank in Angle mode
-const MAX_ROLL_ANGLE: f32 = 60.0 * DEG_TO_RAD;   // 60 deg max bank in Angle mode
-
-const GYRO_LPF_CUTOFF_HZ: f32 = 90.0; // 90 Hz low-pass filter to reject motor/prop vibration
 
 pub struct FlightLoopState<'d, T: twim::Instance> {
     pub imu: Lsm6ds3Driver<'d, T>,
@@ -44,16 +40,6 @@ pub struct FlightLoopState<'d, T: twim::Instance> {
 
 impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
     pub fn new(imu: Lsm6ds3Driver<'d, T>) -> Self {
-        let rate_pid_cfg = PidConfig {
-            kp: 0.15,
-            ki: 0.05,
-            kd: 0.008,
-            kff: 0.04,
-            max_integral: 0.4,
-            dterm_lpf_hz: 40.0,
-            ff_lpf_hz: 45.0,
-        };
-
         let mut gyro_lpf_x = Pt1Filter::new();
         let mut gyro_lpf_y = Pt1Filter::new();
         let mut gyro_lpf_z = Pt1Filter::new();
@@ -63,13 +49,13 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
 
         Self {
             imu,
-            ahrs: MadgwickAHRS::new(0.04),
+            ahrs: MadgwickAHRS::new(AHRS_BETA),
             gyro_lpf_x,
             gyro_lpf_y,
             gyro_lpf_z,
-            pitch_pid: PidController::new(rate_pid_cfg, DT),
-            roll_pid: PidController::new(rate_pid_cfg, DT),
-            yaw_pid: PidController::new(rate_pid_cfg, DT),
+            pitch_pid: PidController::new(RATE_PID_CONFIG, DT),
+            roll_pid: PidController::new(RATE_PID_CONFIG, DT),
+            yaw_pid: PidController::new(RATE_PID_CONFIG, DT),
             mixer: AirframeMixer::new(AirframeType::Elevon),
             safety: ArmingSafety::new(),
             last_packet_time: Instant::now(),
@@ -78,7 +64,8 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
         }
     }
 
-    /// Initializes hardware, checks for ESC Throttle Calibration, and runs Gyro Calibration
+    /// Initializes hardware, checks for ESC Throttle Calibration, and runs Gyro Calibration (Analog PWM)
+    #[cfg(not(feature = "dshot"))]
     pub async fn init<E: embassy_nrf::pwm::Instance>(
         &mut self,
         rc_rx: &Receiver<'static, CriticalSectionRawMutex, RcChannels, 2>,
@@ -125,6 +112,32 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
         }
 
         // Step 2: Gyro Stationary Calibration
+        status_tx.send(VisualStatus::Calibration);
+
+        if let Err(e) = self.imu.init().await {
+            defmt::error!("IMU init failed: {:?}", e);
+            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
+            return;
+        }
+
+        if let Err(e) = self.imu.calibrate_gyro(250).await {
+            defmt::error!("Gyro calib failed: {:?}", e);
+            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
+            return;
+        }
+
+        self.status = ArmingStatus::Disarmed;
+        status_tx.send(VisualStatus::Status(ArmingStatus::Disarmed));
+        defmt::info!("Flight controller initialized and ready!");
+    }
+
+    /// Initializes hardware and runs Gyro Calibration (Digital DShot ESC - no analog calibration needed)
+    #[cfg(feature = "dshot")]
+    pub async fn init(
+        &mut self,
+        status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>,
+    ) {
+        // Gyro Stationary Calibration
         status_tx.send(VisualStatus::Calibration);
 
         if let Err(e) = self.imu.init().await {

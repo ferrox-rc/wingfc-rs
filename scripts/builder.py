@@ -1,0 +1,652 @@
+#!/usr/bin/env python3
+"""
+WingFC-rs User-Friendly Build & Configuration Engine
+
+Allows users to configure and build flight controller firmware using a friendly
+YAML file (`wingfc.yaml`) without ever modifying Rust files or Cargo build flags.
+
+Usage:
+  ./scripts/build.sh                # Build firmware from wingfc.yaml
+  ./scripts/build.sh check          # Validate config and check compilation
+  ./scripts/build.sh test           # Run host test suite
+  ./scripts/build.sh matrix         # Run full 8/16 variant build matrix
+  ./scripts/build.sh init           # Reset/create default wingfc.yaml
+  ./scripts/build.sh flash          # Flash built firmware using probe-rs
+"""
+
+import argparse
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    print("ERROR: PyYAML is required. Please run: pip install pyyaml", file=sys.stderr)
+    sys.exit(1)
+
+TARGET = "thumbv7em-none-eabihf"
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = WORKSPACE_ROOT / "wingfc.yaml"
+GENERATED_CONFIG_PATH = WORKSPACE_ROOT / "crates" / "wingfc-firmware" / "src" / "config.rs"
+DIST_DIR = WORKSPACE_ROOT / "dist"
+
+FLASH_TOTAL_BYTES = 1024 * 1024  # 1 MB Flash
+RAM_TOTAL_BYTES = 256 * 1024     # 256 KB RAM
+
+# Statutory Open Category Altitude Limit in meters Above Ground Level (AGL)
+# FAA (14 CFR 107.51), EASA (EU 2019/947 UAS.OPEN.010), UK CAA (CAP 722): 120m (400 ft)
+LEGAL_MAX_CEILING_AGL_M = 120.0
+
+# Hardware PWM timer limits (nRF52840 1MHz clock with 15-bit counter)
+MIN_PWM_HZ = 50
+MAX_PWM_HZ = 400
+
+
+def load_config(config_path):
+    """Loads and parses the YAML aircraft configuration file."""
+    if not config_path.exists():
+        print(f"Error: Configuration file '{config_path}' does not exist.")
+        print("Run './scripts/build.sh init' to generate a default configuration.")
+        sys.exit(1)
+
+    try:
+        with open(config_path, "r") as f:
+            cfg = yaml.safe_load(f)
+    except Exception as e:
+        print(f"Error parsing YAML file '{config_path}': {e}")
+        sys.exit(1)
+
+    if not isinstance(cfg, dict):
+        print("Error: Invalid configuration format (root must be a YAML mapping).")
+        sys.exit(1)
+
+    return cfg
+
+
+def validate_config(cfg):
+    """Validates configuration parameters and returns sanitized feature flags and values."""
+    errors = []
+    advisories = []
+
+    # 1. Board Target
+    board = str(cfg.get("board", "xiao-sense")).strip().lower()
+    valid_boards = ["xiao-sense", "xiao-sense-plus"]
+    if board not in valid_boards:
+        errors.append(f"Invalid board '{board}'. Must be one of: {valid_boards}")
+
+    # 2. Receiver Protocol
+    rc_cfg = cfg.get("receiver", {})
+    proto = str(rc_cfg.get("protocol", "crsf")).strip().lower()
+    if proto not in ["crsf", "ibus"]:
+        errors.append(f"Invalid receiver.protocol '{proto}'. Must be 'crsf' or 'ibus'.")
+
+    failsafe_ms = rc_cfg.get("failsafe_timeout_ms", 500)
+    if not isinstance(failsafe_ms, (int, float)) or failsafe_ms < 50 or failsafe_ms > 5000:
+        errors.append(f"receiver.failsafe_timeout_ms ({failsafe_ms}) must be between 50 and 5000 ms.")
+
+    # 3. Servo Actuator Configuration
+    servos_cfg = cfg.get("servos", {})
+    servo_pwm_hz = int(servos_cfg.get("pwm_frequency_hz", 50))
+    if servo_pwm_hz < MIN_PWM_HZ or servo_pwm_hz > MAX_PWM_HZ:
+        errors.append(
+            f"servos.pwm_frequency_hz ({servo_pwm_hz} Hz) out of bounds! "
+            f"Hardware supported range is {MIN_PWM_HZ} Hz to {MAX_PWM_HZ} Hz. "
+            f"(Frequencies >400 Hz do not allow enough low off-time for standard 1000..2000 us servo pulses)."
+        )
+    elif servo_pwm_hz > 60:
+        advisories.append(
+            f"HARDWARE WARNING: Servo refresh frequency is set to {servo_pwm_hz} Hz!\n"
+            f"    * Standard analog servos (e.g., SG90, MG90S, 9g micro servos) CANNOT exceed 50-60 Hz.\n"
+            f"      Driving analog servos above 60 Hz causes excessive heating, chattering, and rapid motor burnout.\n"
+            f"    * Ensure your elevon servos are DIGITAL models that explicitly support {servo_pwm_hz} Hz refresh."
+        )
+
+    # 4. Motor ESC Protocol & PWM Frequency
+    motor_cfg = cfg.get("motor", {})
+    motor_proto = str(motor_cfg.get("protocol", "pwm")).strip().lower()
+    if motor_proto not in ["pwm", "dshot"]:
+        errors.append(f"Invalid motor.protocol '{motor_proto}'. Must be 'pwm' or 'dshot'.")
+
+    motor_pwm_hz = int(motor_cfg.get("pwm_frequency_hz", 400))
+    if motor_proto == "pwm":
+        if motor_pwm_hz < MIN_PWM_HZ or motor_pwm_hz > MAX_PWM_HZ:
+            errors.append(
+                f"motor.pwm_frequency_hz ({motor_pwm_hz} Hz) out of bounds! "
+                f"Hardware supported range is {MIN_PWM_HZ} Hz to {MAX_PWM_HZ} Hz. "
+                f"(Frequencies >400 Hz do not allow enough low off-time for standard 1000..2000 us throttle pulses)."
+            )
+        elif motor_pwm_hz > 100:
+            advisories.append(
+                f"HARDWARE NOTICE: Analog ESC PWM is configured at {motor_pwm_hz} Hz.\n"
+                f"    * High-speed multirotor ESCs (BLHeli_S/32, AM32) support 400 Hz natively.\n"
+                f"    * Legacy or basic fixed-wing airplane ESCs may only accept 50 Hz or 60 Hz.\n"
+                f"      If your ESC fails to arm, beeps continually, or stutters, reduce motor.pwm_frequency_hz to 50 Hz."
+            )
+
+    # 5. Navigation & Altitude Limits
+    nav_cfg = cfg.get("navigation", {})
+    nav_enabled = bool(nav_cfg.get("enabled", False))
+    baro_enabled = bool(nav_cfg.get("barometer", False)) or nav_enabled
+    compass_enabled = bool(nav_cfg.get("compass", False)) or nav_enabled
+
+    hard_deck_m = float(nav_cfg.get("hard_deck_agl_m", 15.0))
+    max_ceiling_m = float(nav_cfg.get("max_ceiling_agl_m", 120.0))
+
+    if hard_deck_m < 0.0 or hard_deck_m > 300.0:
+        errors.append("navigation.hard_deck_agl_m must be between 0.0 and 300.0 meters AGL.")
+    if max_ceiling_m <= hard_deck_m:
+        errors.append(f"navigation.max_ceiling_agl_m ({max_ceiling_m}m) must be strictly greater than hard_deck_agl_m ({hard_deck_m}m).")
+
+    # Legality warning check on maximum ceiling
+    if max_ceiling_m > LEGAL_MAX_CEILING_AGL_M:
+        diff_m = max_ceiling_m - LEGAL_MAX_CEILING_AGL_M
+        diff_ft = diff_m * 3.28084
+        advisories.append(
+            f"LEGALITY WARNING: Configured altitude ceiling ({max_ceiling_m:.1f} m / {max_ceiling_m * 3.28084:.0f} ft AGL) EXCEEDS the standard "
+            f"statutory limit of {LEGAL_MAX_CEILING_AGL_M:.1f} m (400 ft) AGL by +{diff_m:.1f} m (+{diff_ft:.0f} ft)!\n"
+            f"    * FAA 14 CFR § 107.51(b) / 49 U.S.C. § 44809 (United States): Maximum sUAS altitude is 400 ft AGL without an approved Part 107.200 certificate/waiver.\n"
+            f"    * EASA Regulation (EU) 2019/947 UAS.OPEN.010 (European Union): Flight height is strictly limited to 120 m AGL in Open category.\n"
+            f"    * UK CAA CAP 722 / Air Navigation Order (United Kingdom): Maximum flight height is 120 m (400 ft) AGL.\n"
+            f"    * CASA (Australia) / Transport Canada (CARs Part IX): 400 ft (120 m) AGL maximum ceiling.\n"
+            f"    --> Operating above 120 m (400 ft) AGL without formal civil aviation authorization is ILLEGAL, creates extreme collision hazards for manned aviation, and exposes the operator to civil fines and criminal prosecution."
+        )
+
+    # 6. Tuning & Rates
+    tuning_cfg = cfg.get("tuning", {})
+    acro = tuning_cfg.get("acro_rates", {})
+    roll_dps = float(acro.get("roll_dps", 600.0))
+    pitch_dps = float(acro.get("pitch_dps", 200.0))
+    yaw_dps = float(acro.get("yaw_dps", 100.0))
+
+    if roll_dps <= 0 or roll_dps > 2000.0:
+        errors.append("tuning.acro_rates.roll_dps must be between 10.0 and 2000.0 deg/s.")
+    if pitch_dps <= 0 or pitch_dps > 2000.0:
+        errors.append("tuning.acro_rates.pitch_dps must be between 10.0 and 2000.0 deg/s.")
+    if yaw_dps <= 0 or yaw_dps > 2000.0:
+        errors.append("tuning.acro_rates.yaw_dps must be between 10.0 and 2000.0 deg/s.")
+
+    angle_lim = tuning_cfg.get("angle_limits", {})
+    max_roll_deg = float(angle_lim.get("max_roll_deg", 60.0))
+    max_pitch_deg = float(angle_lim.get("max_pitch_deg", 45.0))
+    if max_roll_deg < 10.0 or max_roll_deg > 85.0:
+        errors.append("tuning.angle_limits.max_roll_deg must be between 10.0 and 85.0 deg.")
+    if max_pitch_deg < 10.0 or max_pitch_deg > 85.0:
+        errors.append("tuning.angle_limits.max_pitch_deg must be between 10.0 and 85.0 deg.")
+
+    filters = tuning_cfg.get("filters", {})
+    gyro_lpf = float(filters.get("gyro_lpf_hz", 90.0))
+    dterm_lpf = float(filters.get("dterm_lpf_hz", 40.0))
+    ff_lpf = float(filters.get("feedforward_lpf_hz", 45.0))
+    if gyro_lpf < 10.0 or gyro_lpf > 250.0:
+        errors.append("tuning.filters.gyro_lpf_hz must be between 10.0 and 250.0 Hz.")
+
+    pid_cfg = tuning_cfg.get("rate_pid", {})
+    kp = float(pid_cfg.get("kp", 0.15))
+    ki = float(pid_cfg.get("ki", 0.05))
+    kd = float(pid_cfg.get("kd", 0.008))
+    kff = float(pid_cfg.get("kff", 0.04))
+    max_integral = float(pid_cfg.get("max_integral", 0.40))
+    ahrs_beta = float(tuning_cfg.get("ahrs_beta", 0.04))
+
+    if errors:
+        print("=" * 70)
+        print("CONFIGURATION VALIDATION ERRORS IN wingfc.yaml:")
+        print("=" * 70)
+        for err in errors:
+            print(f" - {err}")
+        print("=" * 70)
+        sys.exit(1)
+
+    # Determine required cargo features
+    features = [proto]
+    if motor_proto == "dshot":
+        features.append("dshot")
+
+    if nav_enabled:
+        features.append("nav")
+    else:
+        if baro_enabled:
+            features.append("baro")
+        if compass_enabled:
+            features.append("compass")
+
+    variant_name = f"{proto}-{motor_proto}"
+    if nav_enabled:
+        variant_name += "-nav"
+    elif baro_enabled and compass_enabled:
+        variant_name += "-nav"
+    elif baro_enabled:
+        variant_name += "-baro"
+    elif compass_enabled:
+        variant_name += "-compass"
+
+    return {
+        "board": board,
+        "protocol": proto,
+        "failsafe_ms": int(failsafe_ms),
+        "servo_pwm_hz": servo_pwm_hz,
+        "motor_proto": motor_proto,
+        "motor_pwm_hz": motor_pwm_hz,
+        "nav_enabled": nav_enabled,
+        "hard_deck_m": hard_deck_m,
+        "max_ceiling_m": max_ceiling_m,
+        "advisories": advisories,
+        "features": features,
+        "features_str": ",".join(features),
+        "variant_name": variant_name,
+        "roll_dps": roll_dps,
+        "pitch_dps": pitch_dps,
+        "yaw_dps": yaw_dps,
+        "max_roll_deg": max_roll_deg,
+        "max_pitch_deg": max_pitch_deg,
+        "gyro_lpf": gyro_lpf,
+        "dterm_lpf": dterm_lpf,
+        "ff_lpf": ff_lpf,
+        "kp": kp,
+        "ki": ki,
+        "kd": kd,
+        "kff": kff,
+        "max_integral": max_integral,
+        "ahrs_beta": ahrs_beta,
+    }
+
+
+def generate_rust_config(cfg_vals):
+    """Generates crates/wingfc-firmware/src/config.rs from validated parameters."""
+    code = f"""//! User aircraft configuration parameters for `wingfc-firmware`.
+//!
+//! Generated automatically from `wingfc.yaml` by the build system.
+//! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
+
+use embassy_time::Duration;
+use wingfc_core::math::DEG_TO_RAD;
+use wingfc_core::pid::PidConfig;
+
+/// Hard real-time control loop time-step (500 Hz = 0.002s)
+pub const DT: f32 = 0.002;
+
+/// Duration without valid RC packets before entering failsafe mode
+pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis({cfg_vals['failsafe_ms']});
+
+/// Configured PWM frame frequency for servo outputs in Hz ({MIN_PWM_HZ}Hz - {MAX_PWM_HZ}Hz).
+/// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
+pub const SERVO_PWM_HZ: u32 = {cfg_vals['servo_pwm_hz']};
+
+/// Configured PWM frame frequency for analog ESC output in Hz ({MIN_PWM_HZ}Hz - {MAX_PWM_HZ}Hz).
+/// Legacy airplane ESCs require 50 Hz; high-speed multirotor ESCs support 400 Hz.
+pub const ESC_PWM_HZ: u32 = {cfg_vals['motor_pwm_hz']};
+
+/// Maximum commanded roll rate in Acro / Rates mode (rad/s)
+pub const MAX_ROLL_RATE: f32 = {cfg_vals['roll_dps']:.1f} * DEG_TO_RAD;
+
+/// Maximum commanded pitch rate in Acro / Rates mode (rad/s)
+pub const MAX_PITCH_RATE: f32 = {cfg_vals['pitch_dps']:.1f} * DEG_TO_RAD;
+
+/// Maximum commanded yaw rate in Acro / Rates mode (rad/s)
+pub const MAX_YAW_RATE: f32 = {cfg_vals['yaw_dps']:.1f} * DEG_TO_RAD;
+
+/// Maximum bank angle in Angle / Self-Leveling mode (rad)
+pub const MAX_ROLL_ANGLE: f32 = {cfg_vals['max_roll_deg']:.1f} * DEG_TO_RAD;
+
+/// Maximum pitch angle in Angle / Self-Leveling mode (rad)
+pub const MAX_PITCH_ANGLE: f32 = {cfg_vals['max_pitch_deg']:.1f} * DEG_TO_RAD;
+
+/// Emergency hard-deck floor in meters Above Ground Level (AGL)
+pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};
+
+/// Statutory operational ceiling limiter in meters Above Ground Level (AGL)
+/// Note: FAA / EASA standard legal limit is 120.0 meters (400 ft) AGL.
+pub const MAX_CEILING_AGL_M: f32 = {cfg_vals['max_ceiling_m']:.1f};
+
+/// PT1 low-pass filter cutoff frequency for gyro harmonic vibration rejection (Hz)
+pub const GYRO_LPF_CUTOFF_HZ: f32 = {cfg_vals['gyro_lpf']:.1f};
+
+/// Madgwick AHRS filter convergence gain beta
+pub const AHRS_BETA: f32 = {cfg_vals['ahrs_beta']:.4f};
+
+/// Inner rate loop PID + FeedForward configuration
+pub const RATE_PID_CONFIG: PidConfig = PidConfig {{
+    kp: {cfg_vals['kp']:.4f},
+    ki: {cfg_vals['ki']:.4f},
+    kd: {cfg_vals['kd']:.4f},
+    kff: {cfg_vals['kff']:.4f},
+    max_integral: {cfg_vals['max_integral']:.4f},
+    dterm_lpf_hz: {cfg_vals['dterm_lpf']:.1f},
+    ff_lpf_hz: {cfg_vals['ff_lpf']:.1f},
+}};
+"""
+    GENERATED_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(GENERATED_CONFIG_PATH, "w") as f:
+        f.write(code)
+
+
+def print_advisories(advisories):
+    """Prints highlighted warnings/notices if triggered."""
+    if not advisories:
+        return
+    print("\n" + "!" * 76)
+    print("⚠️   CONFIGURATION & HARDWARE ADVISORIES")
+    print("!" * 76)
+    for adv in advisories:
+        print(f"\n{adv}")
+    print("\n" + "!" * 76 + "\n")
+
+
+def run_cmd(cmd, cwd=WORKSPACE_ROOT, capture=False):
+    """Executes a subprocess command."""
+    if capture:
+        res = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return res.returncode == 0, res.stdout, res.stderr
+    else:
+        res = subprocess.run(cmd, cwd=cwd)
+        return res.returncode == 0
+
+
+def parse_llvm_size(elf_path):
+    """Parses text, data, bss from llvm-size / size."""
+    size_bin = shutil.which("llvm-size") or shutil.which("size")
+    if not size_bin:
+        return None, None, None
+
+    ok, out, _ = run_cmd([size_bin, str(elf_path)], capture=True)
+    if not ok:
+        return None, None, None
+
+    lines = out.strip().splitlines()
+    if len(lines) >= 2:
+        parts = lines[1].split()
+        if len(parts) >= 3:
+            try:
+                return int(parts[0]), int(parts[1]), int(parts[2])
+            except ValueError:
+                pass
+    return None, None, None
+
+
+def cmd_check(cfg_vals):
+    """Validates configuration and checks compilation of firmware."""
+    print("=" * 70)
+    print("WINGFC-RS CONFIGURATION CHECK")
+    print("=" * 70)
+    print(f"Target Board     : {cfg_vals['board']}")
+    print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
+    print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
+    if cfg_vals["motor_proto"] == "dshot":
+        print(f"Motor Protocol   : DSHOT (Digital)")
+    else:
+        print(f"Motor Protocol   : PWM ({cfg_vals['motor_pwm_hz']} Hz)")
+    print(f"Navigation       : {'ENABLED' if cfg_vals['nav_enabled'] else 'DISABLED'}")
+    print(f"Altitude Ceiling : {cfg_vals['max_ceiling_m']:.1f} m AGL (Hard deck: {cfg_vals['hard_deck_m']:.1f} m AGL)")
+    print(f"Cargo Features   : --features {cfg_vals['features_str']}")
+    print("-" * 70)
+
+    print_advisories(cfg_vals["advisories"])
+
+    generate_rust_config(cfg_vals)
+    print("-> Checking compilation for target Cortex-M4F (thumbv7em-none-eabihf)... ", end="", flush=True)
+
+    cmd = [
+        "cargo", "check", "-p", "wingfc-firmware",
+        "--target", TARGET,
+        "--no-default-features",
+        "--features", cfg_vals["features_str"],
+    ]
+
+    t0 = time.time()
+    ok, _, stderr = run_cmd(cmd, capture=True)
+    elapsed = time.time() - t0
+
+    if ok:
+        print(f"SUCCESS in {elapsed:.2f}s!")
+        print("Your aircraft configuration is valid and ready to build.")
+        return True
+    else:
+        print(f"FAILED ({elapsed:.2f}s)")
+        print(stderr)
+        return False
+
+
+def cmd_build(cfg_vals, out_dir=DIST_DIR):
+    """Builds release firmware and packages artifacts."""
+    out_dir = Path(out_dir).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 70)
+    print("WINGFC-RS FIRMWARE RELEASE BUILDER")
+    print("=" * 70)
+    print(f"Target Board     : {cfg_vals['board']}")
+    print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
+    print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
+    if cfg_vals["motor_proto"] == "dshot":
+        print(f"Motor Protocol   : DSHOT (Digital)")
+    else:
+        print(f"Motor Protocol   : PWM ({cfg_vals['motor_pwm_hz']} Hz)")
+    print(f"Navigation       : {'ENABLED' if cfg_vals['nav_enabled'] else 'DISABLED'}")
+    print(f"Altitude Ceiling : {cfg_vals['max_ceiling_m']:.1f} m AGL (Hard deck: {cfg_vals['hard_deck_m']:.1f} m AGL)")
+    print(f"Cargo Features   : --features {cfg_vals['features_str']}")
+    print(f"Output Directory : {out_dir}")
+    print("-" * 70)
+
+    print_advisories(cfg_vals["advisories"])
+
+    generate_rust_config(cfg_vals)
+
+    cmd = [
+        "cargo", "build", "--release", "-p", "wingfc-firmware",
+        "--target", TARGET,
+        "--no-default-features",
+        "--features", cfg_vals["features_str"],
+    ]
+
+    t0 = time.time()
+    print("-> Compiling firmware with LTO and size optimization... ", end="", flush=True)
+    ok, _, stderr = run_cmd(cmd, capture=True)
+    elapsed = time.time() - t0
+
+    built_elf = WORKSPACE_ROOT / "target" / TARGET / "release" / "wingfc-firmware"
+    if not ok or not built_elf.exists():
+        print(f"FAILED ({elapsed:.2f}s)")
+        print(stderr)
+        return False
+
+    print(f"DONE ({elapsed:.1f}s)")
+
+    # Output artifact paths
+    base_name = f"wingfc-firmware-{cfg_vals['variant_name']}"
+    dest_elf = out_dir / f"{base_name}.elf"
+    dest_bin = out_dir / f"{base_name}.bin"
+    dest_hex = out_dir / f"{base_name}.hex"
+
+    shutil.copy2(built_elf, dest_elf)
+
+    # Conversion tools
+    objcopy_bin = shutil.which("llvm-objcopy") or shutil.which("rust-objcopy") or shutil.which("arm-none-eabi-objcopy")
+    if objcopy_bin:
+        run_cmd([objcopy_bin, "-O", "binary", str(dest_elf), str(dest_bin)], capture=True)
+        run_cmd([objcopy_bin, "-O", "ihex", str(dest_elf), str(dest_hex)], capture=True)
+
+    # Calculate memory consumption
+    text, data, bss = parse_llvm_size(dest_elf)
+    flash_used = (text + data) if text is not None else (dest_bin.stat().st_size if dest_bin.exists() else 0)
+    ram_used = (data + bss) if data is not None else 0
+
+    flash_pct = (flash_used / FLASH_TOTAL_BYTES) * 100.0
+    ram_pct = (ram_used / RAM_TOTAL_BYTES) * 100.0
+
+    # Calculate checksums
+    hashes = {}
+    for p in [dest_elf, dest_bin, dest_hex]:
+        if p.exists():
+            h = hashlib.sha256(p.read_bytes()).hexdigest()
+            hashes[p.name] = h
+
+    sums_file = out_dir / "SHA256SUMS"
+    with open(sums_file, "a") as f:
+        for fname in sorted(hashes.keys()):
+            f.write(f"{hashes[fname]}  {fname}\n")
+
+    print("\n" + "=" * 70)
+    print("BUILD SUMMARY & RESOURCE CONSUMPTION")
+    print("=" * 70)
+    print(f"Firmware Binary  : {dest_elf.name}")
+    print(f"Flash Memory     : {flash_used / 1024:.1f} KB / 1024 KB ({flash_pct:.1f}% used, {100 - flash_pct:.1f}% free)")
+    print(f"RAM Memory       : {ram_used / 1024:.1f} KB / 256 KB ({ram_pct:.1f}% used, {100 - ram_pct:.1f}% free)")
+    print("-" * 70)
+    print("Produced Artifacts:")
+    for fname, h in sorted(hashes.items()):
+        print(f"  - {fname:<36} (SHA256: {h[:16]}...)")
+    print("-" * 70)
+    print("FLASHING INSTRUCTIONS:")
+    print("  SWD / Debug Probe (probe-rs):")
+    print(f"    probe-rs run --chip nRF52840_xxAA {dest_elf}")
+    print("  Nordic nrfjprog:")
+    print(f"    nrfjprog --program {dest_hex} --chiperase --reset")
+    print("=" * 70)
+    return True
+
+
+def cmd_init():
+    """Restores default wingfc.yaml."""
+    if DEFAULT_CONFIG_PATH.exists():
+        backup_path = WORKSPACE_ROOT / "wingfc.yaml.bak"
+        shutil.copy2(DEFAULT_CONFIG_PATH, backup_path)
+        print(f"Existing wingfc.yaml backed up to {backup_path.name}")
+
+    default_content = """# ==============================================================================
+# WingFC-rs Aircraft Configuration File (wingfc.yaml)
+# ==============================================================================
+board: xiao-sense
+
+receiver:
+  protocol: crsf
+  failsafe_timeout_ms: 500
+
+servos:
+  # PWM frame refresh frequency (50 Hz to 400 Hz).
+  # WARNING: Standard analog servos MUST use 50 Hz. Exceeding 60 Hz burns them out!
+  # High-speed digital servos can accept 200 Hz to 400 Hz.
+  pwm_frequency_hz: 50
+
+motor:
+  protocol: pwm
+  # PWM frequency (50 Hz to 400 Hz). Multirotor ESCs: 400 Hz. Airplane ESCs: 50 Hz.
+  pwm_frequency_hz: 400
+  min_throttle_us: 1000
+  max_throttle_us: 2000
+
+navigation:
+  enabled: false
+  barometer: false
+  compass: false
+  hard_deck_agl_m: 15.0
+  # LEGALITY WARNING: Max allowable sUAS altitude is 120.0 m (400 ft) AGL under
+  # FAA Part 107/44809 and EASA (EU) 2019/947 without formal waiver.
+  max_ceiling_agl_m: 120.0
+
+tuning:
+  acro_rates:
+    roll_dps: 600.0
+    pitch_dps: 200.0
+    yaw_dps: 100.0
+  angle_limits:
+    max_roll_deg: 60.0
+    max_pitch_deg: 45.0
+  filters:
+    gyro_lpf_hz: 90.0
+    dterm_lpf_hz: 40.0
+    feedforward_lpf_hz: 45.0
+  rate_pid:
+    kp: 0.15
+    ki: 0.05
+    kd: 0.008
+    kff: 0.04
+    max_integral: 0.40
+  ahrs_beta: 0.04
+
+safety:
+  max_arm_throttle_us: 1050
+  finger_delay_ms: 200
+  throttle_ramp_ms: 400
+"""
+    with open(DEFAULT_CONFIG_PATH, "w") as f:
+        f.write(default_content)
+    print(f"Created default configuration file: {DEFAULT_CONFIG_PATH}")
+
+
+def cmd_flash(cfg_vals):
+    """Flashes firmware via probe-rs."""
+    base_name = f"wingfc-firmware-{cfg_vals['variant_name']}"
+    elf_path = DIST_DIR / f"{base_name}.elf"
+    if not elf_path.exists():
+        print(f"Binary '{elf_path.name}' not found. Building now...")
+        ok = cmd_build(cfg_vals)
+        if not ok:
+            return False
+
+    cmd = ["probe-rs", "run", "--chip", "nRF52840_xxAA", str(elf_path)]
+    print(f"Running: {' '.join(cmd)}")
+    return run_cmd(cmd)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="WingFC-rs User-Friendly Build & Aircraft Configuration Utility"
+    )
+    parser.add_argument(
+        "action",
+        nargs="?",
+        default="build",
+        choices=["build", "check", "test", "matrix", "init", "flash"],
+        help="Action: 'build' (default: build from wingfc.yaml), 'check' (validate & check syntax), 'test' (run host unit tests), 'matrix' (run 8-target release matrix), 'init' (create fresh wingfc.yaml), 'flash' (flash via probe-rs)",
+    )
+    parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG_PATH),
+        help="Path to aircraft YAML configuration file (default: wingfc.yaml)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=str(DIST_DIR),
+        help="Output directory for built release binaries (default: dist/)",
+    )
+
+    args, extra = parser.parse_known_args()
+
+    if args.action == "init":
+        cmd_init()
+        return
+
+    if args.action == "test":
+        print("Running host unit tests (wingfc-core)...")
+        cmd = ["cargo", "test", "-p", "wingfc-core", "--all-features"]
+        ok = run_cmd(cmd)
+        sys.exit(0 if ok else 1)
+
+    if args.action == "matrix":
+        matrix_script = WORKSPACE_ROOT / "scripts" / "build_matrix.py"
+        cmd = ["python3", str(matrix_script)] + extra
+        ok = run_cmd(cmd)
+        sys.exit(0 if ok else 1)
+
+    config_path = Path(args.config).resolve()
+    raw_cfg = load_config(config_path)
+    cfg_vals = validate_config(raw_cfg)
+
+    if args.action == "check":
+        ok = cmd_check(cfg_vals)
+        sys.exit(0 if ok else 1)
+    elif args.action == "build":
+        ok = cmd_build(cfg_vals, args.out_dir)
+        sys.exit(0 if ok else 1)
+    elif args.action == "flash":
+        ok = cmd_flash(cfg_vals)
+        sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    main()

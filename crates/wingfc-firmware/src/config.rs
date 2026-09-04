@@ -1,0 +1,61 @@
+//! User aircraft configuration parameters for `wingfc-firmware`.
+//!
+//! Generated automatically from `wingfc.yaml` by the build system.
+//! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
+
+use embassy_time::Duration;
+use wingfc_core::math::DEG_TO_RAD;
+use wingfc_core::pid::PidConfig;
+
+/// Hard real-time control loop time-step (500 Hz = 0.002s)
+pub const DT: f32 = 0.002;
+
+/// Duration without valid RC packets before entering failsafe mode
+pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// Configured PWM frame frequency for servo outputs in Hz (50Hz - 400Hz).
+/// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
+pub const SERVO_PWM_HZ: u32 = 50;
+
+/// Configured PWM frame frequency for analog ESC output in Hz (50Hz - 400Hz).
+/// Legacy airplane ESCs require 50 Hz; high-speed multirotor ESCs support 400 Hz.
+pub const ESC_PWM_HZ: u32 = 400;
+
+/// Maximum commanded roll rate in Acro / Rates mode (rad/s)
+pub const MAX_ROLL_RATE: f32 = 600.0 * DEG_TO_RAD;
+
+/// Maximum commanded pitch rate in Acro / Rates mode (rad/s)
+pub const MAX_PITCH_RATE: f32 = 200.0 * DEG_TO_RAD;
+
+/// Maximum commanded yaw rate in Acro / Rates mode (rad/s)
+pub const MAX_YAW_RATE: f32 = 100.0 * DEG_TO_RAD;
+
+/// Maximum bank angle in Angle / Self-Leveling mode (rad)
+pub const MAX_ROLL_ANGLE: f32 = 60.0 * DEG_TO_RAD;
+
+/// Maximum pitch angle in Angle / Self-Leveling mode (rad)
+pub const MAX_PITCH_ANGLE: f32 = 45.0 * DEG_TO_RAD;
+
+/// Emergency hard-deck floor in meters Above Ground Level (AGL)
+pub const HARD_DECK_AGL_M: f32 = 15.0;
+
+/// Statutory operational ceiling limiter in meters Above Ground Level (AGL)
+/// Note: FAA / EASA standard legal limit is 120.0 meters (400 ft) AGL.
+pub const MAX_CEILING_AGL_M: f32 = 120.0;
+
+/// PT1 low-pass filter cutoff frequency for gyro harmonic vibration rejection (Hz)
+pub const GYRO_LPF_CUTOFF_HZ: f32 = 90.0;
+
+/// Madgwick AHRS filter convergence gain beta
+pub const AHRS_BETA: f32 = 0.0400;
+
+/// Inner rate loop PID + FeedForward configuration
+pub const RATE_PID_CONFIG: PidConfig = PidConfig {
+    kp: 0.1500,
+    ki: 0.0500,
+    kd: 0.0080,
+    kff: 0.0400,
+    max_integral: 0.4000,
+    dterm_lpf_hz: 40.0,
+    ff_lpf_hz: 45.0,
+};

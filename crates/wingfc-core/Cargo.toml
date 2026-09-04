@@ -13,3 +13,6 @@ defmt = { version = "0.3", optional = true }
 [features]
 default = []
 defmt-03 = ["dep:defmt"]
+baro = []
+compass = []
+nav = ["baro", "compass"]

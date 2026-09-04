@@ -91,6 +91,7 @@ impl MadgwickAHRS {
     }
 
     /// Update 9-DoF AHRS fusing Gyro (rad/s), Accel (m/s^2), and Magnetometer (uT / raw)
+    #[cfg(feature = "compass")]
     pub fn update_9dof(&mut self, gyro: Vector3, accel: Vector3, mag: Vector3, dt: f32) {
         if mag.norm_sq() < 1e-4 {
             // Fallback to 6-DoF if magnetometer is unavailable or invalid

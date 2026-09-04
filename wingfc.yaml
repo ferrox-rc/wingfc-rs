@@ -1,0 +1,143 @@
+# ==============================================================================
+# WingFC-rs Aircraft Configuration File (wingfc.yaml)
+# ==============================================================================
+# Edit your aircraft configuration below without touching any Rust source code
+# or Cargo build files.
+#
+# Build command:
+#   ./scripts/build.sh
+#
+# Check syntax & build readiness:
+#   ./scripts/build.sh check
+# ==============================================================================
+
+# Target Board Hardware
+# Options:
+#   - 'xiao-sense'       : Standard Seeed Studio XIAO nRF52840 Sense (6-DoF onboard IMU)
+#   - 'xiao-sense-plus'  : XIAO nRF52840 Sense Plus (Required for GPS navigation & extra UART)
+board: xiao-sense
+
+# Receiver Serial Protocol & Failsafe
+receiver:
+  # Options:
+  #   - 'crsf' : TBS Crossfire / ExpressLRS (CRSF @ 420,000 baud) [Recommended]
+  #   - 'ibus' : FlySky iBus protocol (115,200 baud)
+  protocol: crsf
+
+  # Duration in milliseconds without a valid RC frame before failsafe engages
+  # In failsafe: motors are cut to 0 and elevons neutralize to level flight
+  failsafe_timeout_ms: 500
+
+# Servo Actuator Output Configuration
+servos:
+  # PWM frame refresh frequency in Hertz (Hz) for servo outputs (D0, D1, D2).
+  # Supported range: 50 Hz to 400 Hz.
+  #
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # HARDWARE WARNING - SERVO OVERHEATING & MOTOR BURNOUT:
+  # - Standard Analog Servos (e.g., SG90, MG90S, TowerPro, plastic-gear 9g):
+  #   MUST be set to 50 Hz (maximum 60 Hz). Driving standard analog servos above
+  #   60 Hz causes excessive motor heating, violent chattering, gear stripping,
+  #   and permanent motor burnout within minutes or seconds!
+  # - High-Speed Digital Servos (e.g., KST, MKS, Savox, Blue Bird digital servos):
+  #   Can be configured at 200 Hz, 250 Hz, 333 Hz, or up to 400 Hz. Higher
+  #   refresh rates dramatically reduce control loop latency and improve
+  #   gust rejection and elevon stabilization. Verify servo specs first!
+  # - HARDWARE LIMIT: 400 Hz maximum. At frequencies above 400 Hz, the total
+  #   frame period (<2.5ms) does not provide adequate low-level off-time for
+  #   standard 1000..2000 us pulses.
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  pwm_frequency_hz: 50
+
+# Motor ESC Output Protocol & Configuration
+motor:
+  # Options:
+  #   - 'pwm'   : Analog PWM (includes throttle calibration pass-through detection)
+  #   - 'dshot' : Digital DShot packet with CRC (zero calibration delay)
+  protocol: pwm
+
+  # PWM frame frequency in Hertz (Hz) when protocol: 'pwm'.
+  # Supported range: 50 Hz to 400 Hz.
+  #
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # HARDWARE WARNING - ESC COMPATIBILITY & ARMING:
+  # - Modern Multirotor ESCs (BLHeli_S, BLHeli_32, AM32):
+  #   Support 400 Hz high-speed analog PWM (or DShot).
+  # - Fixed-Wing & Legacy Airplane ESCs (e.g., basic SimonK, standard airplane ESCs,
+  #   yellow-wrap budget ESCs, linear BEC airplane ESCs):
+  #   Many fixed-wing ESCs ONLY accept 50 Hz or 60 Hz input signals. If your ESC
+  #   refuses to arm, continuously emits error beeps, or stutters at 400 Hz,
+  #   reduce this setting to 50 Hz or 100 Hz!
+  # - HARDWARE LIMIT: 50 Hz minimum to 400 Hz maximum (nRF52840 1MHz PWM timer).
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  pwm_frequency_hz: 400
+
+  # Throttle signal ranges in microseconds (for analog PWM)
+  min_throttle_us: 1000
+  max_throttle_us: 2000
+
+# Autonomous Navigation Suite (Barometer & 9-DoF Compass)
+navigation:
+  # Set to true to enable autonomous navigation algorithms and sensors
+  enabled: false
+
+  # Individual sensor toggles (when enabled: true, both baro and compass are fused)
+  barometer: false             # Vertical Kalman filter altitude fusion (BMP280/DPS310)
+  compass: false               # 9-DoF tilt-compensated heading lock (QMC5883L/IST8310)
+
+  # ----------------------------------------------------------------------------
+  # Altitude Safety Boundaries & Regulatory Legality Limits
+  # ----------------------------------------------------------------------------
+  # Emergency climb floor in meters Above Ground Level (AGL)
+  hard_deck_agl_m: 15.0
+
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # LEGALITY & AIRSPACE REGULATION WARNING:
+  # Under FAA (14 CFR Part 107.51 / 49 U.S.C. § 44809), EASA ((EU) 2019/947
+  # UAS.OPEN.010), UK CAA (CAP 722), and CASA regulations, the maximum legal
+  # operational ceiling for unmanned aerial systems (UAS) in open/recreational
+  # category airspace is strictly 120.0 meters (400 feet) Above Ground Level (AGL).
+  #
+  # Setting 'max_ceiling_agl_m' higher than 120.0m without explicit authorization,
+  # airspace waivers, or approved beyond-visual-line-of-sight (BVLOS) certificates
+  # from your national civil aviation authority is ILLEGAL, poses extreme mid-air
+  # collision danger to manned aviation, and subjects the pilot to substantial
+  # civil and criminal penalties.
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  max_ceiling_agl_m: 120.0     # Statutory maximum limit: 120.0 meters (400 ft) AGL
+
+# Flight Dynamics & Rates Tuning
+tuning:
+  # Maximum commanded angular velocity in Acro / Rates mode (degrees/second)
+  acro_rates:
+    roll_dps: 600.0            # Full stick roll rate
+    pitch_dps: 200.0           # Full stick pitch rate
+    yaw_dps: 100.0             # Full stick yaw rate
+
+  # Bank limits in Angle / Self-Leveling mode (degrees)
+  angle_limits:
+    max_roll_deg: 60.0         # Maximum bank angle
+    max_pitch_deg: 45.0        # Maximum pitch climb/dive angle
+
+  # Signal Filtering & Noise Rejection
+  filters:
+    gyro_lpf_hz: 90.0          # PT1 low-pass cutoff for gyro harmonic motor vibration
+    dterm_lpf_hz: 40.0         # PT1 low-pass cutoff for PID D-term derivative
+    feedforward_lpf_hz: 45.0   # PT1 low-pass cutoff for FeedForward stick derivative
+
+  # Inner Rate PID + FeedForward Controller Gains
+  rate_pid:
+    kp: 0.15                   # Proportional gain
+    ki: 0.05                   # Integral gain
+    kd: 0.008                  # Derivative gain
+    kff: 0.04                  # FeedForward gain (eliminates stick phase lag)
+    max_integral: 0.40         # Anti-windup accumulator clamp threshold
+
+  # Madgwick AHRS filter convergence gain
+  ahrs_beta: 0.04
+
+# Safety & Launch Interlocks
+safety:
+  max_arm_throttle_us: 1050    # Interlock: arming refused if throttle stick is above this value
+  finger_delay_ms: 200         # Hand autolaunch: delay before motor spins after throw
+  throttle_ramp_ms: 400        # Hand autolaunch: soft-start throttle ramp duration

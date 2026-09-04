@@ -7,6 +7,7 @@ use crate::drivers::{LedColor, RgbLedDriver};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VisualStatus {
+    #[cfg(not(feature = "dshot"))]
     EscCalibration,
     Calibration,
     Status(ArmingStatus),
@@ -33,6 +34,7 @@ pub async fn telemetry_led_task(
         }
 
         match current_status {
+            #[cfg(not(feature = "dshot"))]
             VisualStatus::EscCalibration => {
                 // Fast blink Yellow (100ms on, 100ms off): ESC Throttle Calibration Mode
                 if (tick_counter / 2) % 2 == 0 {
