@@ -53,10 +53,12 @@ pub struct BoardPins {
     // ==========================================
     // RC Receiver (EasyDMA UARTE0)
     // ==========================================
-    /// UARTE0 hardware peripheral for non-blocking EasyDMA serial reception
+    /// UARTE0 hardware peripheral for non-blocking EasyDMA serial reception & telemetry
     pub uarte_rc: peripherals::UARTE0,
     /// Physical Pin: P1.00 (Silkscreen: D6) - RC Receiver RX (CRSF @ 420kBaud / iBus @ 115.2kBaud)
     pub pin_rc_rx: peripherals::P1_00,
+    /// Physical Pin: P0.11 (Silkscreen: D7) - RC Telemetry TX (CRSF @ 420kBaud)
+    pub pin_rc_tx: peripherals::P0_11,
 
     // ==========================================
     // GPS Receiver (EasyDMA UARTE1 - XIAO Sense Plus)
@@ -91,6 +93,7 @@ impl BoardPins {
             pin_imu_pwr: p.P0_15,
             uarte_rc: p.UARTE0,
             pin_rc_rx: p.P1_00,
+            pin_rc_tx: p.P0_11,
             #[cfg(feature = "gps")]
             uarte_gps: p.UARTE1,
             #[cfg(feature = "gps")]
@@ -98,67 +101,5 @@ impl BoardPins {
             #[cfg(feature = "gps")]
             pin_gps_tx: p.P0_10,
         }
-    }
-}
-
-/// Hardware pin reference and future expansion specifications.
-///
-/// Documents the pin allocation across board revisions, highlighting the migration
-/// requirements when upgrading to the Seeed Studio XIAO nRF52840 Sense Plus for GPS.
-pub mod pin_reference {
-    /// Silkscreen pin labels on the Seeed Studio XIAO nRF52840 form factor.
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum XiaoPin {
-        D0,
-        D1,
-        D2,
-        D3,
-        D4,
-        D5,
-        D6,
-        D7,
-        D8,
-        D9,
-        D10,
-    }
-
-    /// Functional allocation of pins in `wingfc-firmware`.
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum PinFunction {
-        ElevonLeftPwm,
-        ElevonRightPwm,
-        AuxServoPwm,
-        Motor1EscPwm,
-        RcReceiverRx,
-        ExternalI2cExtSda,
-        ExternalI2cExtScl,
-        GpsUartRx,
-        GpsUartTx,
-        BatteryVoltageAdc,
-        InternalImuPwr,
-        InternalImuI2c,
-        RgbStatusLed,
-    }
-
-    /// Specification for the future XIAO nRF52840 Sense Plus expansion variant.
-    ///
-    /// The Sense Plus variant exposes additional pins (D8, D9, D10) and extended solder pads,
-    /// enabling the second hardware serial engine (`UARTE1`) to communicate with GPS modules
-    /// (NMEA / UBX) while retaining full RC reception (`UARTE0`), multi-channel PWM, and
-    /// external I2C magnetometer navigation.
-    pub struct GpsExpansionSpec;
-
-    impl GpsExpansionSpec {
-        /// Recommended hardware peripheral for GPS communication.
-        pub const GPS_UART_PERIPHERAL: &'static str = "UARTE1";
-        /// Recommended default baud rate for u-blox M8N/M10Q GPS modules.
-        pub const GPS_DEFAULT_BAUD: u32 = 115_200;
-        /// Required GPS UART RX pin on the Sense Plus (Silkscreen: D9 / P0.xx).
-        pub const GPS_RX_PIN: &'static str = "P0.09 (D9)";
-        /// Required GPS UART TX pin on the Sense Plus (Silkscreen: D10 / P0.xx).
-        pub const GPS_TX_PIN: &'static str = "P0.10 (D10)";
-        /// Required external I2C bus for wing-mounted compass/barometer.
-        pub const EXT_I2C_SDA_PIN: &'static str = "P0.04 (D4)";
-        pub const EXT_I2C_SCL_PIN: &'static str = "P0.05 (D5)";
     }
 }

@@ -65,7 +65,7 @@ The standard XIAO nRF52840 Sense provides an ultra-compact (21 &times; 17.5 mm) 
    Available / Ext SDA --| D4 (P0.04)         (P0.27)  |-- IMU SDA (Internal TWISPI0)
    Available / Ext SCL --| D5 (P0.05)         (P0.15)  |-- IMU Power Rail Enable
    RC RX (EasyDMA UARTE)-| D6 (P1.00)         (3.3V)   |-- 3.3V Regulated Output (200mA)
-   Available / GPIO    --| D7 (P0.11)         (GND)    |-- Common Ground
+   RC Telemetry TX (DMA)-| D7 (P0.11)         (GND)    |-- Common Ground
                          | 3.3V               (5V)     |-- 5V VBUS Input
                          | GND                (RST)    |-- Hardware Reset
                          +-----------------------------+
@@ -82,7 +82,7 @@ The standard XIAO nRF52840 Sense provides an ultra-compact (21 &times; 17.5 mm) 
 | Pin 5 | `D4` | `P0.04` | Expansion | General GPIO / Ext I2C SDA | Reserved (`TWISPI1`) | 3.3V LVCMOS, Pull-up required for I2C |
 | Pin 6 | `D5` | `P0.05` | Expansion | General GPIO / Ext I2C SCL | Reserved (`TWISPI1`) | 3.3V LVCMOS, Pull-up required for I2C |
 | Pin 7 | `D6` | `P1.00` | Receiver | RC Receiver Serial RX | `UARTE0` RX | CRSF (420 kBaud) or iBus (115.2 kBaud) |
-| Pin 8 | `D7` | `P0.11` | Expansion | General GPIO / NFC / Beeper| Reserved (GPIO) | 3.3V LVCMOS |
+| Pin 8 | `D7` | `P0.11` | Telemetry | CRSF Telemetry Output | `UARTE0` TX | 420 kBaud serial output to receiver (CRSF) |
 | Pin 9 | `3V3` | &mdash; | Power | 3.3V DC Power Rail | Onboard LDO Output | Max 200 mA output |
 | Pin 10 | `GND` | &mdash; | Power | Common Ground Reference | System Ground | 0V reference |
 | Pin 11 | `5V` | &mdash; | Power | USB / VBUS Power Input | USB VBUS | 4.5V &ndash; 5.5V input from USB |
@@ -111,7 +111,7 @@ The Nordic nRF52840 contains several shared hardware register blocks where multi
 | **`PWM0`** | Servos (Ch 0, 1, 2) | `P0.02`, `P0.03`, `P0.28` | Conflict free. Configurable 50..400 Hz frame rate. |
 | **`PWM1`** | ESC Motor Output | `P0.29` | Conflict free. Configurable 50..400 Hz PWM or DShot. |
 | **`TWISPI0`** | Internal LSM6DS3TR IMU | `P0.07`, `P0.27` | Dedicated to internal I2C bus. Cannot be used for SPI. |
-| **`UARTE0`** | RC Receiver (DMA) | `P1.00` | RX-only EasyDMA serial engine. Pin TX is unrouted. |
+| **`UARTE0`** | RC Receiver & Telemetry (DMA) | `P1.00` (RX), `P0.11` (TX) | Full-duplex EasyDMA serial engine (CRSF @ 420 kBaud / iBus @ 115.2 kBaud). |
 | **`TWISPI1`** | Optional External Sensors | `P0.04`, `P0.05` | Free for external compass/barometer I2C on standard XIAO. |
 | **`UARTE1`** | GPS Navigation (NMEA) | `P0.09`, `P0.10` | Broken out on `D9` (RX) and `D10` (TX) on XIAO Sense Plus (Requires `nfc-pins-as-gpio`). |
 

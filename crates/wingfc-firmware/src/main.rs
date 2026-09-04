@@ -10,7 +10,11 @@ use embassy_nrf::bind_interrupts;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::pwm::SimplePwm;
 use embassy_nrf::twim::{self, Twim};
-use embassy_nrf::uarte::{self, Baudrate, UarteRx};
+#[cfg(feature = "crsf")]
+use embassy_nrf::uarte::Uarte;
+#[cfg(feature = "ibus")]
+use embassy_nrf::uarte::UarteRx;
+use embassy_nrf::uarte::{self, Baudrate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
@@ -26,6 +30,8 @@ mod tasks;
 use config::{DT, ESC_PWM_HZ, SERVO_PWM_HZ};
 use drivers::{EscPwmDriver, Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
 use pins::BoardPins;
+#[cfg(feature = "crsf")]
+use tasks::{crsf_telemetry_task, FlightTelemetrySnapshot};
 use tasks::{receiver_task, telemetry_led_task, FlightLoopState, VisualStatus};
 
 bind_interrupts!(struct Irqs {
@@ -35,6 +41,8 @@ bind_interrupts!(struct Irqs {
 
 static RC_CHANNEL: Channel<CriticalSectionRawMutex, RcChannels, 2> = Channel::new();
 static STATUS_WATCH: Watch<CriticalSectionRawMutex, VisualStatus, 2> = Watch::new();
+#[cfg(feature = "crsf")]
+static TELEMETRY_WATCH: Watch<CriticalSectionRawMutex, FlightTelemetrySnapshot, 2> = Watch::new();
 
 #[cfg(all(feature = "crsf", feature = "ibus"))]
 compile_error!("Features 'crsf' and 'ibus' are mutually exclusive. Exactly one receiver protocol must be selected.");
@@ -43,69 +51,49 @@ compile_error!("Features 'crsf' and 'ibus' are mutually exclusive. Exactly one r
 compile_error!("A receiver protocol feature must be enabled: select either 'crsf' or 'ibus'.");
 
 #[cfg(feature = "crsf")]
-// CRSF standard baud rate is 420,000 baud: (420000 * 2^32) / 16000000 = 0x06BA4000
-const BAUD_420K: Baudrate = Baudrate(0x06BA4000);
+const BAUD_420K: Baudrate = unsafe { core::mem::transmute(0x06B50000u32) };
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    info!("=========================================");
-    info!(" WingFC-rs: Next-Gen Flight Controller   ");
-    info!(" Architecture: Cortex-M4F (nRF52840)     ");
-    #[cfg(feature = "crsf")]
-    info!(" RX Protocol: CRSF / ELRS @ 420 kBaud    ");
-    #[cfg(feature = "ibus")]
-    info!(" RX Protocol: FlySky iBus @ 115.2 kBaud  ");
-    #[cfg(feature = "dshot")]
-    info!(" Motor Output: Digital DShot             ");
-    #[cfg(not(feature = "dshot"))]
-    info!(" Motor Output: Analog PWM ({} Hz)        ", ESC_PWM_HZ);
-    info!(" Servo Output: 3-ch PWM ({} Hz)          ", SERVO_PWM_HZ);
-    #[cfg(feature = "nav")]
-    info!(" Nav Suite: Baro (KF) + 9-DoF Compass    ");
-    #[cfg(all(feature = "baro", not(feature = "nav")))]
-    info!(" Sensor: Barometer enabled               ");
-    #[cfg(all(feature = "compass", not(feature = "nav")))]
-    info!(" Sensor: Magnetometer/Compass enabled    ");
-    info!("=========================================");
-
     let p = embassy_nrf::init(Default::default());
     let pins = BoardPins::from_peripherals(p);
 
-    // =========================================================================
-    // STEP 0: Universal ESC Startup Rule #1 & #2: IMMEDIATE LOW SIGNAL ON BOOT
-    // Initialize hardware PWM before any I2C/IMU/UART processing begins so the
-    // ESC immediately sees a clean 1000us pulse and begins its arming countdown.
-    // =========================================================================
-    let esc_pwm_hw = SimplePwm::new_1ch(
-        pins.pwm_esc,
-        pins.pin_motor1, // D3 (Motor 1: ESC) - configurable frequency PWM
-    );
-    let mut esc_pwm = EscPwmDriver::new(esc_pwm_hw, ESC_PWM_HZ);
+    info!("Initializing WingFC-rs bare-metal flight controller...");
 
-    let servo_pwm_hw = SimplePwm::new_3ch(
-        pins.pwm_servos,
-        pins.pin_servo_left,  // D0 (Servo 1: Left Elevon)
-        pins.pin_servo_right, // D1 (Servo 2: Right Elevon)
-        pins.pin_servo_aux,   // D2 (Servo 4: Aux)
-    );
-    let mut servo_pwm = ServoPwmDriver::new(servo_pwm_hw, SERVO_PWM_HZ);
-
-    // 1. Initialize Tri-Color Visual Telemetry (RGB LED) on Seeed XIAO
+    // 1. Initialize Visual Telemetry (RGB LED)
     let led_driver = RgbLedDriver::new(pins.pin_led_red, pins.pin_led_green, pins.pin_led_blue);
-    let status_sender = STATUS_WATCH.sender();
-    let status_receiver = STATUS_WATCH.receiver().unwrap();
-
     spawner
-        .spawn(telemetry_led_task(led_driver, status_receiver))
+        .spawn(telemetry_led_task(
+            led_driver,
+            STATUS_WATCH.receiver().unwrap(),
+        ))
         .unwrap();
 
-    // Enable IMU Power Rail on Seeed XIAO Sense (P0.15 set HIGH)
-    let _imu_power = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::Standard);
+    // 2. Initialize Actuators (PWM)
+    // Motor 1 ESC on PWM1 (configurable 50Hz..400Hz analog or DShot)
+    let pwm_esc_dev = SimplePwm::new_1ch(pins.pwm_esc, pins.pin_motor1);
+    let mut esc_pwm = EscPwmDriver::new(pwm_esc_dev, ESC_PWM_HZ);
 
-    // 2. Configure I2C (TWISPI0) for LSM6DS3TR IMU (400 kHz)
+    // Servos (Elevons + Aux) on PWM0 (50Hz analog)
+    let pwm_servos_dev = SimplePwm::new_3ch(
+        pins.pwm_servos,
+        pins.pin_servo_left,
+        pins.pin_servo_right,
+        pins.pin_servo_aux,
+    );
+    let mut servo_pwm = ServoPwmDriver::new(pwm_servos_dev, SERVO_PWM_HZ);
+
+    // Set initial neutral pulse widths
+    servo_pwm.set_channel_us(0, 1500);
+    servo_pwm.set_channel_us(1, 1500);
+    servo_pwm.set_channel_us(2, 1500);
+    esc_pwm.set_throttle_us(1000);
+
+    // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
+    let mut _pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::Standard);
+
     let mut twim_config = twim::Config::default();
     twim_config.frequency = twim::Frequency::K400;
-    // XIAO Sense internal IMU wiring: SCL = P0.07, SDA = P0.27
     let twim = Twim::new(
         pins.twispi_imu,
         Irqs,
@@ -115,7 +103,7 @@ async fn main(spawner: Spawner) {
     );
     let imu_driver = Lsm6ds3Driver::new(twim);
 
-    // 3. Configure EasyDMA UART (UARTE0) matching the selected build-time protocol
+    // 4. Configure EasyDMA UART (UARTE0) matching the selected build-time protocol
     let mut uarte_config = uarte::Config::default();
     #[cfg(feature = "crsf")]
     {
@@ -126,15 +114,42 @@ async fn main(spawner: Spawner) {
         uarte_config.baudrate = Baudrate::BAUD115200;
     }
     uarte_config.parity = uarte::Parity::EXCLUDED;
-    let rx = UarteRx::new(pins.uarte_rc, Irqs, pins.pin_rc_rx, uarte_config);
 
-    // Spawn EasyDMA receiver task
-    spawner
-        .spawn(receiver_task(rx, RC_CHANNEL.sender()))
-        .unwrap();
+    #[cfg(feature = "crsf")]
+    {
+        let uarte = Uarte::new(
+            pins.uarte_rc,
+            Irqs,
+            pins.pin_rc_rx,
+            pins.pin_rc_tx,
+            uarte_config,
+        );
+        let (tx, rx) = uarte.split();
 
-    // 4. Initialize Flight Loop and calibrate Gyro
+        // Spawn EasyDMA receiver task (channel inputs)
+        spawner
+            .spawn(receiver_task(rx, RC_CHANNEL.sender()))
+            .unwrap();
+
+        // Spawn EasyDMA telemetry task (telemetry downstream to receiver)
+        spawner
+            .spawn(crsf_telemetry_task(tx, TELEMETRY_WATCH.receiver().unwrap()))
+            .unwrap();
+    }
+
+    #[cfg(feature = "ibus")]
+    {
+        let rx = UarteRx::new(pins.uarte_rc, Irqs, pins.pin_rc_rx, uarte_config);
+
+        // Spawn EasyDMA receiver task
+        spawner
+            .spawn(receiver_task(rx, RC_CHANNEL.sender()))
+            .unwrap();
+    }
+
+    // 5. Initialize Flight Loop and calibrate Gyro
     // (ESC throttle range calibration is only checked if PWM is used; unnecessary if DShot is active)
+    let status_sender = STATUS_WATCH.sender();
     let rc_receiver = RC_CHANNEL.receiver();
     let mut flight_loop = FlightLoopState::new(imu_driver);
     #[cfg(not(feature = "dshot"))]
@@ -144,14 +159,27 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "dshot")]
     flight_loop.init(&status_sender).await;
 
+    #[cfg(feature = "crsf")]
+    let telemetry_sender = TELEMETRY_WATCH.sender();
+
     let loop_hz = (1.0 / DT) as u64;
     let mut ticker = Ticker::every(Duration::from_hz(loop_hz)); // 500 Hz hard real-time loop (2ms)
+    #[cfg(feature = "crsf")]
+    let mut loop_counter: u32 = 0;
     info!("Starting 500Hz Real-Time Flight Loop...");
 
     loop {
         ticker.next().await;
 
         let outputs = flight_loop.step(&rc_receiver, &status_sender).await;
+
+        #[cfg(feature = "crsf")]
+        {
+            loop_counter = loop_counter.wrapping_add(1);
+            if loop_counter % 10 == 0 {
+                telemetry_sender.send(flight_loop.telemetry_snapshot());
+            }
+        }
 
         // Apply physical PWM output updates via EasyDMA
         servo_pwm.set_channel_us(0, outputs.servo1_us);

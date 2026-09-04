@@ -268,4 +268,34 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
 
         self.mixer.mix(pitch_mix, roll_mix, yaw_mix, throttle_out)
     }
+
+    /// Returns the latest vehicle state snapshot for telemetry broadcasting
+    #[cfg(feature = "crsf")]
+    pub fn telemetry_snapshot(&self) -> crate::tasks::FlightTelemetrySnapshot {
+        let (pitch, roll, yaw) = self.ahrs.get_euler_angles();
+        crate::tasks::FlightTelemetrySnapshot {
+            roll_rad: roll,
+            pitch_rad: pitch,
+            yaw_rad: yaw,
+            status: self.status,
+            #[cfg(feature = "gps")]
+            gps_lat: 0.0,
+            #[cfg(feature = "gps")]
+            gps_lon: 0.0,
+            #[cfg(feature = "gps")]
+            gps_speed_mps: 0.0,
+            #[cfg(feature = "gps")]
+            gps_heading_deg: 0.0,
+            #[cfg(feature = "gps")]
+            gps_alt_m: 0.0,
+            #[cfg(feature = "gps")]
+            gps_sats: 0,
+            #[cfg(feature = "gps")]
+            gps_has_fix: false,
+            #[cfg(feature = "baro")]
+            baro_alt_m: 0.0,
+            #[cfg(feature = "baro")]
+            vario_cms: 0,
+        }
+    }
 }

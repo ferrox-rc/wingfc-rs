@@ -1,7 +1,11 @@
 pub mod crsf;
 pub mod ibus;
 
-pub use crsf::{CrsfFrame, CrsfParser, CRSF_NUM_CHANNELS, CRSF_PACKET_SIZE};
+pub use crsf::{
+    CrsfFrame, CrsfParser, CrsfTelemetryEncoder, CRSF_FRAMETYPE_ATTITUDE,
+    CRSF_FRAMETYPE_BARO_ALTITUDE, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAMETYPE_FLIGHT_MODE,
+    CRSF_FRAMETYPE_GPS, CRSF_NUM_CHANNELS, CRSF_PACKET_SIZE, CRSF_SYNC_BYTE,
+};
 pub use ibus::{IbusFrame, IbusParser, IBUS_NUM_CHANNELS, IBUS_PACKET_SIZE};
 
 pub const MAX_RC_CHANNELS: usize = 16;

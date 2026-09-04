@@ -542,3 +542,84 @@ fn test_configurable_arming_thresholds() {
     assert_eq!(status, ArmingStatus::ArmedAngle);
     assert!(safety.is_armed());
 }
+
+#[test]
+fn test_crsf_telemetry_encoding() {
+    use wingfc_core::protocol::crsf::{
+        calculate_crc8_dvb_s2, CrsfTelemetryEncoder, CRSF_FRAMETYPE_ATTITUDE,
+        CRSF_FRAMETYPE_BARO_ALTITUDE, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAMETYPE_FLIGHT_MODE,
+        CRSF_FRAMETYPE_GPS, CRSF_SYNC_BYTE,
+    };
+
+    let mut buf = [0u8; 32];
+
+    // 1. Flight Mode: "ANGLE"
+    let len = CrsfTelemetryEncoder::encode_flight_mode("ANGLE", &mut buf);
+    assert_eq!(len, 10); // Sync(1) + Len(1) + Type(1) + "ANGLE "(6) + CRC(1) = 10
+    assert_eq!(buf[0], CRSF_SYNC_BYTE);
+    assert_eq!(buf[1], 8); // Type(1) + 6 + CRC(1) = 8
+    assert_eq!(buf[2], CRSF_FRAMETYPE_FLIGHT_MODE);
+    assert_eq!(&buf[3..9], b"ANGLE ");
+    assert_eq!(buf[9], calculate_crc8_dvb_s2(&buf[2..9]));
+
+    // 2. Vehicle Attitude: pitch=0.1 rad, roll=-0.2 rad, yaw=1.5 rad
+    let len = CrsfTelemetryEncoder::encode_attitude(0.1, -0.2, 1.5, &mut buf);
+    assert_eq!(len, 10); // Sync(1) + Len(1) + Type(1) + Payload(6) + CRC(1) = 10
+    assert_eq!(buf[0], CRSF_SYNC_BYTE);
+    assert_eq!(buf[1], 8);
+    assert_eq!(buf[2], CRSF_FRAMETYPE_ATTITUDE);
+    let pitch = i16::from_be_bytes([buf[3], buf[4]]);
+    let roll = i16::from_be_bytes([buf[5], buf[6]]);
+    let yaw = i16::from_be_bytes([buf[7], buf[8]]);
+    assert_eq!(pitch, 1000);
+    assert_eq!(roll, -2000);
+    assert_eq!(yaw, 15000);
+    assert_eq!(buf[9], calculate_crc8_dvb_s2(&buf[2..9]));
+
+    // 3. Battery Sensor: 12.6V (126 dv), 15.4A (154 da), 850 mAh, 78%
+    let len = CrsfTelemetryEncoder::encode_battery(126, 154, 850, 78, &mut buf);
+    assert_eq!(len, 12); // Sync(1) + Len(1) + Type(1) + Payload(8) + CRC(1) = 12
+    assert_eq!(buf[0], CRSF_SYNC_BYTE);
+    assert_eq!(buf[1], 10);
+    assert_eq!(buf[2], CRSF_FRAMETYPE_BATTERY_SENSOR);
+    let v = u16::from_be_bytes([buf[3], buf[4]]);
+    let i = u16::from_be_bytes([buf[5], buf[6]]);
+    let mah = ((buf[7] as u32) << 16) | ((buf[8] as u32) << 8) | (buf[9] as u32);
+    assert_eq!(v, 126);
+    assert_eq!(i, 154);
+    assert_eq!(mah, 850);
+    assert_eq!(buf[10], 78);
+    assert_eq!(buf[11], calculate_crc8_dvb_s2(&buf[2..11]));
+
+    // 4. GPS Navigation: lat=37.7749, lon=-122.4194, speed=12.5 m/s, heading=180.0 deg, alt=120m, sats=14
+    let len =
+        CrsfTelemetryEncoder::encode_gps(37.7749, -122.4194, 12.5, 180.0, 120.0, 14, &mut buf);
+    assert_eq!(len, 19); // Sync(1) + Len(1) + Type(1) + Payload(15) + CRC(1) = 19
+    assert_eq!(buf[0], CRSF_SYNC_BYTE);
+    assert_eq!(buf[1], 17);
+    assert_eq!(buf[2], CRSF_FRAMETYPE_GPS);
+    let lat = i32::from_be_bytes([buf[3], buf[4], buf[5], buf[6]]);
+    let lon = i32::from_be_bytes([buf[7], buf[8], buf[9], buf[10]]);
+    let speed = u16::from_be_bytes([buf[11], buf[12]]);
+    let hdg = u16::from_be_bytes([buf[13], buf[14]]);
+    let alt = u16::from_be_bytes([buf[15], buf[16]]);
+    assert_eq!(lat, 377749000);
+    assert_eq!(lon, -1224194000);
+    assert_eq!(speed, 450); // 12.5 * 36.0 = 450 km/h * 10
+    assert_eq!(hdg, 18000); // 180.0 * 100
+    assert_eq!(alt, 1120); // 120 + 1000m offset
+    assert_eq!(buf[17], 14); // 14 satellites
+    assert_eq!(buf[18], calculate_crc8_dvb_s2(&buf[2..18]));
+
+    // 5. Barometer Altitude: alt=250m, vario=150 cm/s
+    let len = CrsfTelemetryEncoder::encode_baro_altitude(250.0, 150, &mut buf);
+    assert_eq!(len, 8); // Sync(1) + Len(1) + Type(1) + Payload(4) + CRC(1) = 8
+    assert_eq!(buf[0], CRSF_SYNC_BYTE);
+    assert_eq!(buf[1], 6);
+    assert_eq!(buf[2], CRSF_FRAMETYPE_BARO_ALTITUDE);
+    let baro_alt = u16::from_be_bytes([buf[3], buf[4]]);
+    let vario = i16::from_be_bytes([buf[5], buf[6]]);
+    assert_eq!(baro_alt, 10250); // 250 + 10000m offset
+    assert_eq!(vario, 150);
+    assert_eq!(buf[7], calculate_crc8_dvb_s2(&buf[2..7]));
+}

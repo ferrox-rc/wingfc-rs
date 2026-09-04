@@ -26,6 +26,7 @@ pub use gps::{GpsData, GpsFixType, GpsNavigation, NmeaParser, RthGuidance};
 pub use math::{Quaternion, Vector3};
 pub use mixer::{AirframeMixer, AirframeOutputs, AirframeType, ServoConfig};
 pub use pid::{PidConfig, PidController};
+pub use protocol::{CrsfTelemetryEncoder, RcChannels};
 pub use safety::{ArmingSafety, ArmingStatus};
 #[cfg(feature = "baro")]
 pub use vertical_kf::VerticalKalmanFilter;
