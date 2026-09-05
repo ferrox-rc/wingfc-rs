@@ -22,6 +22,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - 📊 [SEGGER RTT & Blackbox Logging Architecture](docs/RTT_BLACKBOX_LOGGING.md)
 - 📡 [Receiver & Telemetry Specification (CRSF/ELRS & iBus)](docs/RECEIVERS.md)
 - 🚀 [Production Release Matrix & Sizing](docs/RELEASE_MATRIX.md)
+- 📝 [Changelog & Version History](CHANGELOG.md)
 
 ## User Quick Start (Zero Rust Knowledge Required)
 

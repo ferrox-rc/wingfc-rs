@@ -1,10 +1,13 @@
 [package]
 name = "wingfc-core"
-version = "0.5.1"
-edition = "2021"
-authors = ["Bryan Souza"]
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "High-performance #![no_std] flight controller core with Madgwick AHRS, Rate/Angle PID, and Airframe Mixers"
+publish = false
 
 [dependencies]
 libm = "0.2"

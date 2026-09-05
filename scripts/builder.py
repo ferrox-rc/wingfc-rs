@@ -660,7 +660,7 @@ def main():
         "action",
         nargs="?",
         default="build",
-        choices=["build", "check", "test", "matrix", "init", "flash"],
+        choices=["build", "check", "test", "matrix", "init", "flash", "release"],
         help="Action: 'build' (default: build from wingfc.yaml), 'check' (validate & check syntax), 'test' (run host unit tests), 'matrix' (run 8-target release matrix), 'init' (create fresh wingfc.yaml), 'flash' (flash via probe-rs)",
     )
     parser.add_argument(
@@ -689,6 +689,12 @@ def main():
     if args.action == "matrix":
         matrix_script = WORKSPACE_ROOT / "scripts" / "build_matrix.py"
         cmd = ["python3", str(matrix_script)] + extra
+        ok = run_cmd(cmd)
+        sys.exit(0 if ok else 1)
+
+    if args.action == "release":
+        release_script = WORKSPACE_ROOT / "scripts" / "release.sh"
+        cmd = ["bash", str(release_script)] + extra
         ok = run_cmd(cmd)
         sys.exit(0 if ok else 1)
 

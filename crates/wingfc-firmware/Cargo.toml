@@ -1,10 +1,13 @@
 [package]
 name = "wingfc-firmware"
-version = "0.5.1"
-edition = "2021"
-authors = ["Bryan Souza"]
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Embedded flight controller firmware for Seeed Studio XIAO nRF52840 Sense"
+publish = false
 
 [features]
 default = ["crsf"]
@@ -17,7 +20,7 @@ gps = ["wingfc-core/gps"]
 nav = ["wingfc-core/nav", "baro", "compass", "gps"]
 
 [dependencies]
-wingfc-core = { path = "../wingfc-core", features = ["defmt-03"] }
+wingfc-core = { workspace = true, features = ["defmt-03"] }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 embassy-executor = { version = "0.7", features = ["arch-cortex-m", "executor-thread", "defmt"] }
