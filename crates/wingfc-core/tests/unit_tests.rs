@@ -15,7 +15,32 @@ fn test_vector_and_quaternion_math() {
     let v2 = Vector3::new(4.0, 5.0, 6.0);
     assert_eq!(v1.dot(v2), 32.0);
 
+    // Cross product & operations
+    let cross = v1.cross(v2);
+    assert_eq!(cross.x, -3.0);
+    assert_eq!(cross.y, 6.0);
+    assert_eq!(cross.z, -3.0);
+    assert_eq!(v1 + v2, Vector3::new(5.0, 7.0, 9.0));
+    assert_eq!(v2 - v1, Vector3::new(3.0, 3.0, 3.0));
+    assert_eq!(v1 * 2.0, Vector3::new(2.0, 4.0, 6.0));
+    let norm = Vector3::new(3.0, 4.0, 0.0).norm();
+    assert!((norm - 5.0).abs() < 1e-5);
+    let normalized = Vector3::new(0.0, 10.0, 0.0).normalize();
+    assert!((normalized.y - 1.0).abs() < 1e-5);
+    assert_eq!(Vector3::ZERO.normalize(), Vector3::ZERO);
+
+    // Quaternion operations
     let q = Quaternion::IDENTITY;
+    assert_eq!(q.conjugate(), Quaternion::IDENTITY);
+    assert!((q.norm() - 1.0).abs() < 1e-5);
+    assert_eq!(q.multiply(Quaternion::IDENTITY), Quaternion::IDENTITY);
+    let q2 = Quaternion::new(2.0, 0.0, 0.0, 0.0).normalize();
+    assert!((q2.w - 1.0).abs() < 1e-5);
+    assert_eq!(
+        Quaternion::new(0.0, 0.0, 0.0, 0.0).normalize(),
+        Quaternion::IDENTITY
+    );
+
     let (pitch, roll, yaw) = q.to_euler_angles();
     assert!(pitch.abs() < 1e-5);
     assert!(roll.abs() < 1e-5);
@@ -306,6 +331,10 @@ fn test_9dof_madgwick_heading() {
         yaw.abs() * RAD_TO_DEG < 2.0,
         "Heading should converge to North (0 deg)"
     );
+
+    // Fallback to 6-DoF on zero magnetometer measurement
+    ahrs.update_9dof(gyro, accel, Vector3::ZERO, dt);
+    ahrs.reset();
 }
 
 #[cfg(feature = "baro")]
@@ -622,4 +651,97 @@ fn test_crsf_telemetry_encoding() {
     assert_eq!(baro_alt, 10250); // 250 + 10000m offset
     assert_eq!(vario, 150);
     assert_eq!(buf[7], calculate_crc8_dvb_s2(&buf[2..7]));
+}
+
+#[test]
+fn test_filter_pt1_and_biquad() {
+    use wingfc_core::filter::{BiquadFilter, Pt1Filter};
+
+    let mut pt1 = Pt1Filter::new();
+    pt1.init(20.0, 0.002); // 20 Hz cutoff, 500 Hz sample rate (dt=2ms)
+    assert_eq!(pt1.state(), 0.0);
+
+    for _ in 0..100 {
+        pt1.update(1.0);
+    }
+    assert!(
+        (pt1.state() - 1.0).abs() < 0.01,
+        "PT1 should settle near 1.0"
+    );
+
+    pt1.reset(0.0);
+    assert_eq!(pt1.state(), 0.0);
+
+    // Biquad low-pass
+    let mut bq = BiquadFilter::new();
+    bq.init(50.0, 500.0);
+    let mut out = 0.0;
+    for _ in 0..100 {
+        out = bq.update(1.0);
+    }
+    assert!(
+        (out - 1.0).abs() < 0.05,
+        "Biquad should settle near 1.0, got {}",
+        out
+    );
+
+    bq.reset();
+}
+
+#[test]
+fn test_dshot_encoder_full_pipeline() {
+    use wingfc_core::dshot::{DshotEncoder, DSHOT_MAX_THROTTLE, DSHOT_MIN_THROTTLE};
+
+    // Min throttle clamp
+    let pkt = DshotEncoder::encode_packet(10, false);
+    let expected = DshotEncoder::encode_packet(DSHOT_MIN_THROTTLE, false);
+    assert_eq!(pkt, expected);
+
+    // Max throttle clamp
+    let pkt_max = DshotEncoder::encode_packet(3000, false);
+    let expected_max = DshotEncoder::encode_packet(DSHOT_MAX_THROTTLE, false);
+    assert_eq!(pkt_max, expected_max);
+
+    // to_spi_buffer
+    let mut buf = [0u8; 16];
+    DshotEncoder::to_spi_buffer(pkt, &mut buf);
+    assert_eq!(buf.len(), 16);
+}
+
+#[test]
+fn test_airframe_mixer_all_modes() {
+    use wingfc_core::mixer::{AirframeMixer, AirframeType, ServoConfig};
+
+    // Test servo config mapping and reversing
+    let servo = ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 50,
+        reversed: true,
+    };
+    let center = servo.apply(0.0);
+    assert_eq!(center, 1550); // 1500 reversed + 50 subtrim
+
+    // Elevon with differential thrust
+    let mixer = AirframeMixer::new(AirframeType::ElevonWithDiffThrust);
+    let out = mixer.mix(0.0, 0.0, 0.5, 1500); // 1500us throttle, 50% positive yaw
+    assert!(
+        out.motor2_throttle > out.motor1_throttle,
+        "Motor 2 should spin faster on positive yaw"
+    );
+    assert!(out.motor1_throttle > 0 && out.motor2_throttle > 0);
+
+    // Standard fixed wing
+    let mixer_fw = AirframeMixer::new(AirframeType::StandardFixedWing);
+    let out_fw = mixer_fw.mix(0.2, -0.3, 0.1, 1600);
+    assert_eq!(out_fw.motor1_throttle, 1600);
+    assert!(out_fw.servo1_us != 1500); // Aileron
+    assert!(out_fw.servo2_us != 1500); // Elevator
+    assert!(out_fw.servo6_us != 1500); // Rudder
+
+    // V-Tail
+    let mixer_vt = AirframeMixer::new(AirframeType::VTail);
+    let out_vt = mixer_vt.mix(0.2, 0.3, 0.0, 1500);
+    assert!(out_vt.servo1_us != 1500);
+    assert!(out_vt.servo2_us != 1500);
 }

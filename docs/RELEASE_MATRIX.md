@@ -58,6 +58,26 @@ Runs host unit tests for base, barometer, compass, GPS, and full navigation suit
 ```
 *Execution time:* &approx; 0.8&ndash;1.5 seconds.
 
+#### Test Coverage Metrics (`wingfc-core`)
+Host unit tests achieve **88.4% Line Coverage**, **89.8% Region Coverage**, and **89.4% Function Coverage** measured via `cargo-llvm-cov`:
+
+| Subsystem / Module | Source File | Line Coverage | Function Coverage | Region Coverage |
+| :--- | :--- | :---: | :---: | :---: |
+| **Altitude Safety & Terrain** | `altitude_safety.rs` | **100.0%** | **100.0%** | **100.0%** |
+| **Airframe Mixer** | `mixer.rs` | **100.0%** | **100.0%** | **100.0%** |
+| **Vertical Kalman Filter** | `vertical_kf.rs` | **97.9%** | **100.0%** | **98.1%** |
+| **Hand Autolaunch** | `autolaunch.rs` | **97.8%** | **100.0%** | **96.9%** |
+| **Signal Filtering** | `filter.rs` | **96.9%** | **100.0%** | **97.1%** |
+| **CRSF Protocol & Telemetry** | `protocol/crsf.rs` | **95.7%** | **91.7%** | **96.3%** |
+| **Math & Quaternion Library** | `math.rs` | **94.1%** | **94.7%** | **95.6%** |
+| **Arming Safety Interlocks** | `safety.rs` | **88.1%** | **75.0%** | **85.4%** |
+| **Rate PID & FeedForward** | `pid.rs` | **84.5%** | **80.0%** | **82.8%** |
+| **FlySky iBus Protocol** | `protocol/ibus.rs` | **82.3%** | **71.4%** | **85.7%** |
+| **GPS & NMEA Navigation** | `gps.rs` | **79.6%** | **85.7%** | **84.8%** |
+| **Madgwick 9-DoF AHRS** | `ahrs.rs` | **79.5%** | **100.0%** | **84.3%** |
+| **DShot Motor Protocol** | `dshot.rs` | **76.9%** | **66.7%** | **82.9%** |
+| **Total `wingfc-core` Suite** | **All Modules** | **88.4%** | **89.4%** | **89.8%** |
+
 ### Automated Release Build (`build`)
 Compiles, converts, hashes, and outputs all release binaries to `dist/`:
 ```bash

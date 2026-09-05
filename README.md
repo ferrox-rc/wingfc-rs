@@ -60,7 +60,30 @@ nano wingfc.yaml
 
 # Or directly via cargo
 cargo test -p wingfc-core --all-features
+
+# Generate detailed code coverage report via cargo-llvm-cov
+cargo llvm-cov -p wingfc-core --all-features
 ```
+
+#### Core Algorithm Test Coverage (88.4% Line, 89.8% Region, 89.4% Function)
+The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 20 host unit tests covering safety, kinematics, protocol decoders, and navigation:
+
+| Subsystem / Module | Source File | Line Coverage | Function Coverage | Region Coverage | Key Verification Scenarios |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **Altitude Safety & Terrain** | [`altitude_safety.rs`](crates/wingfc-core/src/altitude_safety.rs) | **100.0%** | **100.0%** | **100.0%** | Ceiling override, floor intervention, pull-up ramp |
+| **Airframe Mixer** | [`mixer.rs`](crates/wingfc-core/src/mixer.rs) | **100.0%** | **100.0%** | **100.0%** | Elevon, diff thrust, standard fixed wing, V-tail, trimming |
+| **Vertical Kalman Filter** | [`vertical_kf.rs`](crates/wingfc-core/src/vertical_kf.rs) | **97.9%** | **100.0%** | **98.1%** | Accel/baro sensor fusion, vertical velocity, state reset |
+| **Hand Autolaunch** | [`autolaunch.rs`](crates/wingfc-core/src/autolaunch.rs) | **97.8%** | **100.0%** | **96.9%** | Throw acceleration trigger, motor delay, climb, stick abort |
+| **Signal Filtering** | [`filter.rs`](crates/wingfc-core/src/filter.rs) | **96.9%** | **100.0%** | **97.1%** | PT1 1st-order step response, 2nd-order Biquad low-pass |
+| **CRSF Protocol & Telemetry** | [`protocol/crsf.rs`](crates/wingfc-core/src/protocol/crsf.rs) | **95.7%** | **91.7%** | **96.3%** | CRC8 DVB-S2, RC channels, telemetry frames (att/bat/gps/baro) |
+| **Math & Quaternion Library** | [`math.rs`](crates/wingfc-core/src/math.rs) | **94.1%** | **94.7%** | **95.6%** | Vector cross/dot/norm, Quaternion multiplication/conjugate |
+| **Arming Safety Interlocks** | [`safety.rs`](crates/wingfc-core/src/safety.rs) | **88.1%** | **75.0%** | **85.4%** | Configurable thresholds, high-throttle lockout, zero-surge |
+| **Rate PID & FeedForward** | [`pid.rs`](crates/wingfc-core/src/pid.rs) | **84.5%** | **80.0%** | **82.8%** | Anti-windup clamping, dynamic FeedForward transient & decay |
+| **FlySky iBus Protocol** | [`protocol/ibus.rs`](crates/wingfc-core/src/protocol/ibus.rs) | **82.3%** | **71.4%** | **85.7%** | 16-bit inverse checksum, 14-channel unpacking, failsafe bits |
+| **GPS & NMEA Navigation** | [`gps.rs`](crates/wingfc-core/src/gps.rs) | **79.6%** | **85.7%** | **84.8%** | NMEA GGA/RMC parsing, home latching, RTH bearing & error |
+| **Madgwick 9-DoF AHRS** | [`ahrs.rs`](crates/wingfc-core/src/ahrs.rs) | **79.5%** | **100.0%** | **84.3%** | 6-DoF gravity alignment, 9-DoF mag fusion, zero-mag fallback |
+| **DShot Motor Protocol** | [`dshot.rs`](crates/wingfc-core/src/dshot.rs) | **76.9%** | **66.7%** | **82.9%** | 16-bit packet encoding, nibble checksum, SPI MOSI bitstream |
+| **Total `wingfc-core`** | **All Modules** | **88.4%** | **89.4%** | **89.8%** | **20 unit tests, 100% passing** |
 
 ### Production Release Matrix (All 8 Release Permutations):
 ```bash

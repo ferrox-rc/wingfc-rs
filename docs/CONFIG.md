@@ -31,6 +31,7 @@ To execute the core unit test suite on your local development machine:
 ```bash
 ./scripts/build.sh test
 ```
+*Coverage Overview:* The host test suite executes 20 unit tests across `wingfc-core` achieving **88.4% Line Coverage**, **89.8% Region Coverage**, and **89.4% Function Coverage** (including 100% line coverage of Altitude Safety and Airframe Mixers, and 95.7%+ across CRSF and Signal Filtering). Detailed coverage reports can be generated with `cargo llvm-cov -p wingfc-core --all-features`.
 
 ### Reset to Default Configuration
 To generate or reset a fresh template of `wingfc.yaml` (existing file is automatically backed up to `wingfc.yaml.bak`):

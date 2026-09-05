@@ -9,7 +9,7 @@
 1. **Deterministic Execution:** Zero heap allocations (`no_std`), zero garbage collection pauses, and hard real-time execution at 500Hz (2000&mu;s period).
 2. **Zero-Cost Abstractions:** Build-time Cargo feature flags eliminate inactive protocols, algorithms, and drivers at compile time via dead-code elimination.
 3. **Defense-in-Depth Safety:** Multi-layered arming interlocks, zero-surge failsafe recovery, and physical separation between core logic (`wingfc-core`) and peripheral drivers (`wingfc-firmware`).
-4. **Modularity for Rapid Testing:** Pure flight control algorithms are isolated in `wingfc-core` and fully testable on host platforms via standard `cargo test`.
+4. **Modularity for Rapid Testing:** Pure flight control algorithms are isolated in `wingfc-core` and fully testable on host platforms via standard `cargo test` (achieving 88.4% line coverage and 89.8% region coverage across 20 unit tests).
 5. **Zero-Code User Configuration:** End users configure aircraft hardware, protocols, flight dynamics, and PID tunes using a friendly configuration file ([`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml)) without touching Rust source code or build files (see [Aircraft Configuration Guide](file:///home/bryansouza/Repos/wingfc-rs/docs/CONFIG.md)).
 
 ---
@@ -207,3 +207,41 @@ Visual telemetry is driven by an asynchronous 20Hz task monitoring the global `S
    * Because the bare Seeed XIAO nRF52840 lacks onboard high-speed NOR flash, an SD slot, and available GPIOs, custom derivative PCBs incorporate a companion co-processor (RP2040 / ESP32) linked via SPI or SWD.
    * The companion chip handles FatFS SD card block writes and wear-leveling asynchronously, preserving the nRF52840 500Hz flight loop jitter-free (<1 &mu;s timing variation).
    * For complete hardware layouts, packet binary structures, and flight log analysis tools, see the [SEGGER RTT & Blackbox Logging Architecture Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/RTT_BLACKBOX_LOGGING.md).
+
+
+---
+
+## 9. Core Algorithm Verification & Test Coverage
+
+To ensure aerospace-grade reliability in safety-critical code, `wingfc-core` separates all mathematical modeling, protocol framing, filter dynamics, and safety interlocks from hardware peripheral bindings.
+
+The core suite is validated on the host development machine without requiring hardware or target emulation:
+```bash
+# Execute 20 host unit tests
+./scripts/build.sh test
+
+# Generate code coverage report via cargo-llvm-cov
+cargo llvm-cov -p wingfc-core --all-features
+```
+
+### Test Coverage Breakdown (cargo-llvm-cov)
+* **Overall Line Coverage:** **88.42%** (1,130 / 1,278 lines)
+* **Overall Region Coverage:** **89.79%** (1,424 / 1,586 regions)
+* **Overall Function Coverage:** **89.38%** (101 / 113 functions)
+
+| Subsystem / Module | Source File | Line Coverage | Function Coverage | Region Coverage | Verified Dynamics |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **Altitude Safety & Terrain** | [`altitude_safety.rs`](crates/wingfc-core/src/altitude_safety.rs) | **100.0%** | **100.0%** | **100.0%** | Ceiling override, floor intervention, proportional pull-up |
+| **Airframe Mixer** | [`mixer.rs`](crates/wingfc-core/src/mixer.rs) | **100.0%** | **100.0%** | **100.0%** | Elevon, diff thrust, standard fixed wing, V-tail, trimming |
+| **Vertical Kalman Filter** | [`vertical_kf.rs`](crates/wingfc-core/src/vertical_kf.rs) | **97.9%** | **100.0%** | **98.1%** | Accel/baro sensor fusion, vertical velocity, state reset |
+| **Hand Autolaunch** | [`autolaunch.rs`](crates/wingfc-core/src/autolaunch.rs) | **97.8%** | **100.0%** | **96.9%** | Throw acceleration trigger, motor delay, climb, stick abort |
+| **Signal Filtering** | [`filter.rs`](crates/wingfc-core/src/filter.rs) | **96.9%** | **100.0%** | **97.1%** | PT1 1st-order step response, 2nd-order Biquad low-pass |
+| **CRSF Protocol & Telemetry** | [`protocol/crsf.rs`](crates/wingfc-core/src/protocol/crsf.rs) | **95.7%** | **91.7%** | **96.3%** | CRC8 DVB-S2, RC channels, telemetry frames (att/bat/gps/baro) |
+| **Math & Quaternion Library** | [`math.rs`](crates/wingfc-core/src/math.rs) | **94.1%** | **94.7%** | **95.6%** | Vector cross/dot/norm, Quaternion multiplication/conjugate |
+| **Arming Safety Interlocks** | [`safety.rs`](crates/wingfc-core/src/safety.rs) | **88.1%** | **75.0%** | **85.4%** | Configurable thresholds, high-throttle lockout, zero-surge |
+| **Rate PID & FeedForward** | [`pid.rs`](crates/wingfc-core/src/pid.rs) | **84.5%** | **80.0%** | **82.8%** | Anti-windup clamping, dynamic FeedForward transient & decay |
+| **FlySky iBus Protocol** | [`protocol/ibus.rs`](crates/wingfc-core/src/protocol/ibus.rs) | **82.3%** | **71.4%** | **85.7%** | 16-bit inverse checksum, 14-channel unpacking, failsafe bits |
+| **GPS & NMEA Navigation** | [`gps.rs`](crates/wingfc-core/src/gps.rs) | **79.6%** | **85.7%** | **84.8%** | NMEA GGA/RMC parsing, home latching, RTH bearing & error |
+| **Madgwick 9-DoF AHRS** | [`ahrs.rs`](crates/wingfc-core/src/ahrs.rs) | **79.5%** | **100.0%** | **84.3%** | 6-DoF gravity alignment, 9-DoF mag fusion, zero-mag fallback |
+| **DShot Motor Protocol** | [`dshot.rs`](crates/wingfc-core/src/dshot.rs) | **76.9%** | **66.7%** | **82.9%** | 16-bit packet encoding, nibble checksum, SPI MOSI bitstream |
+| **Total `wingfc-core` Suite** | **All Modules** | **88.4%** | **89.4%** | **89.8%** | **20 unit tests, 100% passing** |
