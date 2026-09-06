@@ -40,10 +40,19 @@ To generate or reset a fresh template of `wingfc.yaml` (existing file is automat
 ```
 
 ### Flash Firmware
-To flash the compiled firmware directly to the Seeed Studio XIAO nRF52840 via a debug probe (CMSIS-DAP, J-Link, ST-Link):
+To deploy firmware to the Seeed Studio XIAO nRF52840 Sense:
 ```bash
+# Auto-detect connected device or mounted bootloader drive (Recommended)
 ./scripts/build.sh flash
+
+# Or explicitly select your preferred method:
+./scripts/build.sh flash --method uf2           # USB mass storage drag-and-drop
+./scripts/build.sh flash --method nrfjprog      # Nordic J-Link SWD via self-addressing Intel HEX
+./scripts/build.sh flash --method dfu           # adafruit-nrfutil serial DFU over USB
+./scripts/build.sh flash --method probe-rs-hex  # probe-rs Intel HEX download
+./scripts/build.sh flash --method probe-rs-run  # probe-rs SWD run with live defmt RTT logging
 ```
+For detailed explanations of memory addressing (`0x27000`), Intel HEX safety advantages, and bootloader mechanics, see the [Firmware Deployment & Flashing Guide](file:///home/bryansouza/Repos/wingfc-rs/docs/FLASHING.md).
 
 ---
 
@@ -196,6 +205,17 @@ safety:
 * `max_arm_throttle_us`: Interlock threshold. Arming is refused if throttle is above this value when flipping the arm switch.
 * `finger_delay_ms`: Autolaunch finger safety delay before motor starts spinning after throw detection.
 * `throttle_ramp_ms`: Soft-start throttle acceleration duration during autolaunch to prevent aerodynamic torque roll.
+
+### Flashing Configuration
+```yaml
+flashing:
+  method: auto          # options: auto, uf2, nrfjprog, dfu, probe-rs-hex, probe-rs-run
+  port: auto            # optional serial port for DFU (e.g. /dev/ttyACM0)
+  mount: auto           # optional mount path for UF2 drive (e.g. /run/media/$USER/XIAO-SENSE)
+```
+* `method`: Flashing tool invoked by `./scripts/build.sh flash`.
+* `port`: Serial port for serial DFU mode. Auto-detected if omitted.
+* `mount`: Destination mount path for UF2 bootloader drive. Auto-detected if omitted.
 
 ---
 

@@ -43,22 +43,22 @@ pub struct BoardPins {
     // ==========================================
     /// TWISPI0 hardware peripheral for 400kHz Fast-Mode I2C
     pub twispi_imu: peripherals::TWISPI0,
-    /// Physical Pin: P0.27 (Internal) - IMU I2C SDA
-    pub pin_imu_sda: peripherals::P0_27,
-    /// Physical Pin: P0.07 (Internal) - IMU I2C SCL
-    pub pin_imu_scl: peripherals::P0_07,
-    /// Physical Pin: P0.15 (Internal) - IMU Power Rail Enable (Active HIGH)
-    pub pin_imu_pwr: peripherals::P0_15,
+    /// Physical Pin: P0.07 (Internal) - IMU I2C SDA
+    pub pin_imu_sda: peripherals::P0_07,
+    /// Physical Pin: P0.27 (Internal) - IMU I2C SCL
+    pub pin_imu_scl: peripherals::P0_27,
+    /// Physical Pin: P1.08 (Internal) - IMU Power Rail Enable (Active HIGH)
+    pub pin_imu_pwr: peripherals::P1_08,
 
     // ==========================================
     // RC Receiver (EasyDMA UARTE0)
     // ==========================================
     /// UARTE0 hardware peripheral for non-blocking EasyDMA serial reception & telemetry
     pub uarte_rc: peripherals::UARTE0,
-    /// Physical Pin: P1.00 (Silkscreen: D6) - RC Receiver RX (CRSF @ 420kBaud / iBus @ 115.2kBaud)
-    pub pin_rc_rx: peripherals::P1_00,
-    /// Physical Pin: P0.11 (Silkscreen: D7) - RC Telemetry TX (CRSF @ 420kBaud)
-    pub pin_rc_tx: peripherals::P0_11,
+    /// Physical Pin: P1.11 (Silkscreen: D6) - RC Receiver RX (CRSF @ 420kBaud / iBus @ 115.2kBaud)
+    pub pin_rc_rx: peripherals::P1_11,
+    /// Physical Pin: P1.12 (Silkscreen: D7) - RC Telemetry TX (CRSF @ 420kBaud)
+    pub pin_rc_tx: peripherals::P1_12,
 
     // ==========================================
     // GPS Receiver (EasyDMA UARTE1 - XIAO Sense Plus)
@@ -67,11 +67,11 @@ pub struct BoardPins {
     /// UARTE1 hardware peripheral for GPS communication (Sense Plus variant)
     pub uarte_gps: peripherals::UARTE1,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P0.09 (Silkscreen: D9) - GPS UART RX
-    pub pin_gps_rx: peripherals::P0_09,
+    /// Physical Pin: P1.14 (Silkscreen: D9) - GPS UART RX
+    pub pin_gps_rx: peripherals::P1_14,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P0.10 (Silkscreen: D10) - GPS UART TX
-    pub pin_gps_tx: peripherals::P0_10,
+    /// Physical Pin: P1.15 (Silkscreen: D10) - GPS UART TX
+    pub pin_gps_tx: peripherals::P1_15,
 }
 
 impl BoardPins {
@@ -88,18 +88,18 @@ impl BoardPins {
             pin_led_green: p.P0_30,
             pin_led_blue: p.P0_06,
             twispi_imu: p.TWISPI0,
-            pin_imu_sda: p.P0_27,
-            pin_imu_scl: p.P0_07,
-            pin_imu_pwr: p.P0_15,
+            pin_imu_sda: p.P0_07,
+            pin_imu_scl: p.P0_27,
+            pin_imu_pwr: p.P1_08,
             uarte_rc: p.UARTE0,
-            pin_rc_rx: p.P1_00,
-            pin_rc_tx: p.P0_11,
+            pin_rc_rx: p.P1_11,
+            pin_rc_tx: p.P1_12,
             #[cfg(feature = "gps")]
             uarte_gps: p.UARTE1,
             #[cfg(feature = "gps")]
-            pin_gps_rx: p.P0_09,
+            pin_gps_rx: p.P1_14,
             #[cfg(feature = "gps")]
-            pin_gps_tx: p.P0_10,
+            pin_gps_tx: p.P1_15,
         }
     }
 }

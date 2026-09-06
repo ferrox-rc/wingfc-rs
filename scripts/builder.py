@@ -15,7 +15,9 @@ Usage:
 """
 
 import argparse
+import glob
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -220,6 +222,17 @@ def validate_config(cfg):
     if gyro_lpf < 10.0 or gyro_lpf > 250.0:
         errors.append("tuning.filters.gyro_lpf_hz must be between 10.0 and 250.0 Hz.")
 
+    # 7. Flashing Configuration
+    flash_cfg = cfg.get("flashing", {})
+    flash_method = str(flash_cfg.get("method", "auto")).lower()
+    valid_methods = ["auto", "nrfjprog", "uf2", "dfu", "probe-rs", "probe-rs-hex", "probe-rs-run"]
+    if flash_method not in valid_methods:
+        errors.append(
+            f"flashing.method '{flash_method}' is invalid. Supported methods: {', '.join(valid_methods)}"
+        )
+    flash_port = flash_cfg.get("port", "auto")
+    flash_mount = flash_cfg.get("mount", "auto")
+
     pid_cfg = tuning_cfg.get("rate_pid", {})
     kp = float(pid_cfg.get("kp", 0.15))
     ki = float(pid_cfg.get("ki", 0.05))
@@ -296,6 +309,9 @@ def validate_config(cfg):
         "kff": kff,
         "max_integral": max_integral,
         "ahrs_beta": ahrs_beta,
+        "flash_method": flash_method,
+        "flash_port": flash_port,
+        "flash_mount": flash_mount,
     }
 
 
@@ -529,6 +545,12 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
         run_cmd([objcopy_bin, "-O", "binary", str(dest_elf), str(dest_bin)], capture=True)
         run_cmd([objcopy_bin, "-O", "ihex", str(dest_elf), str(dest_hex)], capture=True)
 
+    # Generate .uf2 artifact via uf2conv.py if available
+    uf2conv_script = WORKSPACE_ROOT / "scripts" / "uf2conv" / "uf2conv.py"
+    dest_uf2 = out_dir / f"{base_name}.uf2"
+    if uf2conv_script.exists() and dest_hex.exists():
+        run_cmd(["python3", str(uf2conv_script), "-c", "-f", "0xADA52840", str(dest_hex), "-o", str(dest_uf2)], capture=True)
+
     # Calculate memory consumption
     text, data, bss = parse_llvm_size(dest_elf)
     flash_used = (text + data) if text is not None else (dest_bin.stat().st_size if dest_bin.exists() else 0)
@@ -539,7 +561,7 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
 
     # Calculate checksums
     hashes = {}
-    for p in [dest_elf, dest_bin, dest_hex]:
+    for p in [dest_elf, dest_bin, dest_hex, dest_uf2]:
         if p.exists():
             h = hashlib.sha256(p.read_bytes()).hexdigest()
             hashes[p.name] = h
@@ -561,10 +583,14 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
         print(f"  - {fname:<36} (SHA256: {h[:16]}...)")
     print("-" * 70)
     print("FLASHING INSTRUCTIONS:")
+    print("  USB Drag-and-Drop (UF2 Bootloader):")
+    print("    1. Double-tap reset button to mount XIAO-SENSE drive")
+    print(f"    2. Copy '{dest_uf2.name}' to XIAO-SENSE drive")
+    print(f"    (Manual conversion: python3 scripts/uf2conv/uf2conv.py -c -f 0xADA52840 {dest_hex.name} -o firmware.uf2)")
     print("  SWD / Debug Probe (probe-rs):")
     print(f"    probe-rs run --chip nRF52840_xxAA {dest_elf}")
     print("  Nordic nrfjprog:")
-    print(f"    nrfjprog --program {dest_hex} --chiperase --reset")
+    print(f"    nrfjprog --program {dest_hex} --sectorerase --reset")
     print("=" * 70)
     return True
 
@@ -637,19 +663,175 @@ safety:
     print(f"Created default configuration file: {DEFAULT_CONFIG_PATH}")
 
 
-def cmd_flash(cfg_vals):
-    """Flashes firmware via probe-rs."""
+def find_uf2_mount():
+    """Searches common mount locations for a UF2 bootloader drive."""
+    user = os.environ.get("USER", "")
+    search_dirs = [
+        Path("/run/media") / user,
+        Path("/media") / user,
+        Path("/media"),
+        Path("/mnt"),
+        Path("/Volumes"),
+    ]
+    for parent in search_dirs:
+        if parent.exists() and parent.is_dir():
+            try:
+                for child in parent.iterdir():
+                    if child.is_dir():
+                        if (child / "INFO_UF2.TXT").exists() or child.name.upper() in ["XIAO-SENSE", "XIAO-BLE", "NRF52BOOT"]:
+                            return child
+            except PermissionError:
+                continue
+    return None
+
+
+def find_serial_port():
+    """Finds first available serial port matching CDC ACM / USB for DFU bootloader."""
+    candidates = sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*") + glob.glob("/dev/cu.usbmodem*"))
+    return candidates[0] if candidates else None
+
+
+def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DIR):
+    """Flashes firmware using selected method (auto, uf2, nrfjprog, dfu, probe-rs-hex, probe-rs-run)."""
     base_name = f"wingfc-firmware-{cfg_vals['variant_name']}"
-    elf_path = DIST_DIR / f"{base_name}.elf"
-    if not elf_path.exists():
-        print(f"Binary '{elf_path.name}' not found. Building now...")
-        ok = cmd_build(cfg_vals)
+    out_dir = Path(out_dir).resolve()
+    elf_path = out_dir / f"{base_name}.elf"
+    hex_path = out_dir / f"{base_name}.hex"
+    bin_path = out_dir / f"{base_name}.bin"
+    uf2_path = out_dir / f"{base_name}.uf2"
+
+    if not elf_path.exists() or not hex_path.exists():
+        print(f"Target artifacts for '{base_name}' not found. Building now...")
+        ok = cmd_build(cfg_vals, out_dir)
         if not ok:
             return False
 
-    cmd = ["probe-rs", "run", "--chip", "nRF52840_xxAA", str(elf_path)]
-    print(f"Running: {' '.join(cmd)}")
-    return run_cmd(cmd)
+    selected_method = method or cfg_vals.get("flash_method", "auto")
+    print("\n" + "=" * 70)
+    print(f"WINGFC-RS FIRMWARE FLASH ENGINE: {base_name}")
+    print("=" * 70)
+
+    if selected_method == "auto":
+        detected_mount = find_uf2_mount()
+        nrfjprog_bin = shutil.which("nrfjprog")
+        dfu_bin = shutil.which("adafruit-nrfutil")
+        detected_port = find_serial_port()
+        probe_bin = shutil.which("probe-rs")
+
+        if detected_mount:
+            selected_method = "uf2"
+            mount_path = detected_mount
+            print(f"-> Auto-detected mounted UF2 bootloader drive: {mount_path}")
+        elif nrfjprog_bin:
+            selected_method = "nrfjprog"
+            print("-> Auto-detected Nordic nrfjprog programmer.")
+        elif dfu_bin and detected_port:
+            selected_method = "dfu"
+            port = detected_port
+            print(f"-> Auto-detected adafruit-nrfutil and serial device: {port}")
+        elif probe_bin:
+            selected_method = "probe-rs-hex"
+            print("-> Auto-detected probe-rs debug tool.")
+        else:
+            print("No active hardware flashing tool or mounted drive detected automatically.")
+            print("\nAvailable Flashing Methods & Manual Commands:")
+            print("  1. USB Drag-and-Drop (UF2 Bootloader):")
+            print("     - Double-tap the tiny reset button to mount 'XIAO-SENSE'.")
+            print(f"     - Copy '{uf2_path.name}' into the drive:")
+            print(f"       cp {uf2_path} /run/media/$USER/XIAO-SENSE/")
+            print("  2. Nordic nrfjprog (SWD Intel HEX):")
+            print(f"     nrfjprog --program {hex_path} --sectorerase --reset")
+            print("  3. Serial DFU (adafruit-nrfutil):")
+            print(f"     adafruit-nrfutil dfu genpkg --dev-type 0x0052 --application {hex_path} dfu.zip")
+            print(f"     adafruit-nrfutil dfu serial --package dfu.zip -p /dev/ttyACM0 -b 115200")
+            print("  4. probe-rs (SWD):")
+            print(f"     probe-rs download --chip nRF52840_xxAA --format hex {hex_path}")
+            print(f"     probe-rs run --chip nRF52840_xxAA {elf_path}")
+            return False
+
+    if selected_method == "uf2":
+        dest_mount = Path(mount_path) if mount_path else find_uf2_mount()
+        if not dest_mount or not dest_mount.exists():
+            print("Searching for UF2 bootloader drive ('XIAO-SENSE')...")
+            print("  --> Please double-tap the tiny reset button on your XIAO nRF52840 Sense now.")
+            for sec in range(15, 0, -1):
+                sys.stdout.write(f"\r  Waiting for drive to mount... ({sec}s remaining) ")
+                sys.stdout.flush()
+                time.sleep(1)
+                dest_mount = find_uf2_mount()
+                if dest_mount and dest_mount.exists():
+                    sys.stdout.write("\r" + " " * 55 + "\r")
+                    print(f"-> Detected mounted UF2 drive: {dest_mount}")
+                    break
+
+        if not dest_mount or not dest_mount.exists():
+            print("\nERROR: UF2 bootloader drive not detected.")
+            print("  Make sure your Seeed XIAO is connected via USB-C and double-tap the reset button quickly.")
+            print("  You can also specify the path manually with: ./scripts/build.sh flash --method uf2 --mount /path/to/XIAO-SENSE")
+            return False
+
+        if not uf2_path.exists():
+            uf2conv_script = WORKSPACE_ROOT / "scripts" / "uf2conv" / "uf2conv.py"
+            if uf2conv_script.exists() and hex_path.exists():
+                run_cmd(["python3", str(uf2conv_script), "-c", "-f", "0xADA52840", str(hex_path), "-o", str(uf2_path)], capture=True)
+
+        target_file = dest_mount / uf2_path.name
+        print(f"Copying '{uf2_path.name}' -> '{target_file}'...")
+        try:
+            shutil.copy2(uf2_path, target_file)
+            print("Flashing successful! XIAO bootloader will automatically reboot and start WingFC.")
+            return True
+        except Exception as e:
+            print(f"ERROR copying UF2 file: {e}")
+            return False
+
+    elif selected_method == "nrfjprog":
+        if not shutil.which("nrfjprog"):
+            print("ERROR: 'nrfjprog' not found in system PATH. Install Nordic Command Line Tools.")
+            return False
+        cmd = ["nrfjprog", "--program", str(hex_path), "--sectorerase", "--reset"]
+        print(f"Executing: {' '.join(cmd)}")
+        return run_cmd(cmd)
+
+    elif selected_method == "dfu":
+        dfu_tool = shutil.which("adafruit-nrfutil")
+        if not dfu_tool:
+            print("ERROR: 'adafruit-nrfutil' not found in system PATH. Install via pip install adafruit-nrfutil.")
+            return False
+        target_port = port or (cfg_vals.get("flash_port") if cfg_vals.get("flash_port") != "auto" else None) or find_serial_port()
+        if not target_port:
+            print("ERROR: No serial port found. Connect your board in bootloader mode or specify --port <device>.")
+            return False
+
+        zip_pkg = out_dir / f"{base_name}_dfu.zip"
+        gen_cmd = [dfu_tool, "dfu", "genpkg", "--dev-type", "0x0052", "--application", str(hex_path), str(zip_pkg)]
+        print(f"Generating DFU package: {' '.join(gen_cmd)}")
+        if not run_cmd(gen_cmd):
+            return False
+
+        flash_cmd = [dfu_tool, "dfu", "serial", "--package", str(zip_pkg), "-p", str(target_port), "-b", "115200"]
+        print(f"Flashing DFU package: {' '.join(flash_cmd)}")
+        return run_cmd(flash_cmd)
+
+    elif selected_method in ["probe-rs", "probe-rs-hex"]:
+        if not shutil.which("probe-rs"):
+            print("ERROR: 'probe-rs' not found in system PATH. Install via cargo install probe-rs-tools.")
+            return False
+        cmd = ["probe-rs", "download", "--chip", "nRF52840_xxAA", "--format", "hex", str(hex_path)]
+        print(f"Executing: {' '.join(cmd)}")
+        return run_cmd(cmd)
+
+    elif selected_method == "probe-rs-run":
+        if not shutil.which("probe-rs"):
+            print("ERROR: 'probe-rs' not found in system PATH. Install via cargo install probe-rs-tools.")
+            return False
+        cmd = ["probe-rs", "run", "--chip", "nRF52840_xxAA", str(elf_path)]
+        print(f"Executing: {' '.join(cmd)}")
+        return run_cmd(cmd)
+
+    else:
+        print(f"ERROR: Unknown flashing method '{selected_method}'.")
+        return False
 
 
 def main():
@@ -672,6 +854,24 @@ def main():
         "--out-dir",
         default=str(DIST_DIR),
         help="Output directory for built release binaries (default: dist/)",
+    )
+    parser.add_argument(
+        "--method",
+        "-m",
+        default=None,
+        choices=["auto", "nrfjprog", "uf2", "dfu", "probe-rs-hex", "probe-rs", "probe-rs-run"],
+        help="Flashing method: 'nrfjprog' (SWD Intel HEX), 'uf2' (USB mass storage drag-and-drop), 'dfu' (adafruit-nrfutil serial), 'probe-rs-hex' (probe-rs HEX download), 'probe-rs-run' (probe-rs ELF with RTT), 'auto' (detect connected device)",
+    )
+    parser.add_argument(
+        "--port",
+        "-p",
+        default=None,
+        help="Serial port for DFU flashing (e.g., /dev/ttyACM0). Auto-detected if not specified.",
+    )
+    parser.add_argument(
+        "--mount",
+        default=None,
+        help="Mount directory for UF2 drive (e.g., /run/media/user/XIAO-SENSE). Auto-detected if not specified.",
     )
 
     args, extra = parser.parse_known_args()
@@ -709,7 +909,13 @@ def main():
         ok = cmd_build(cfg_vals, args.out_dir)
         sys.exit(0 if ok else 1)
     elif args.action == "flash":
-        ok = cmd_flash(cfg_vals)
+        ok = cmd_flash(
+            cfg_vals,
+            method=args.method,
+            port=args.port,
+            mount_path=args.mount,
+            out_dir=args.out_dir,
+        )
         sys.exit(0 if ok else 1)
 
 

@@ -51,7 +51,7 @@ compile_error!("Features 'crsf' and 'ibus' are mutually exclusive. Exactly one r
 compile_error!("A receiver protocol feature must be enabled: select either 'crsf' or 'ibus'.");
 
 #[cfg(feature = "crsf")]
-const BAUD_420K: Baudrate = unsafe { core::mem::transmute(0x06B50000u32) };
+const BAUD_420K: Baudrate = Baudrate::from_bits(0x06B50000u32);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -82,12 +82,6 @@ async fn main(spawner: Spawner) {
         pins.pin_servo_aux,
     );
     let mut servo_pwm = ServoPwmDriver::new(pwm_servos_dev, SERVO_PWM_HZ);
-
-    // Set initial neutral pulse widths
-    servo_pwm.set_channel_us(0, 1500);
-    servo_pwm.set_channel_us(1, 1500);
-    servo_pwm.set_channel_us(2, 1500);
-    esc_pwm.set_throttle_us(1000);
 
     // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
     let mut _pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::Standard);
@@ -164,27 +158,29 @@ async fn main(spawner: Spawner) {
 
     let loop_hz = (1.0 / DT) as u64;
     let mut ticker = Ticker::every(Duration::from_hz(loop_hz)); // 500 Hz hard real-time loop (2ms)
-    #[cfg(feature = "crsf")]
     let mut loop_counter: u32 = 0;
     info!("Starting 500Hz Real-Time Flight Loop...");
 
     loop {
         ticker.next().await;
+        loop_counter = loop_counter.wrapping_add(1);
 
         let outputs = flight_loop.step(&rc_receiver, &status_sender).await;
 
         #[cfg(feature = "crsf")]
         {
-            loop_counter = loop_counter.wrapping_add(1);
-            if loop_counter % 10 == 0 {
+            if loop_counter.is_multiple_of(10) {
                 telemetry_sender.send(flight_loop.telemetry_snapshot());
             }
         }
 
-        // Apply physical PWM output updates via EasyDMA
-        servo_pwm.set_channel_us(0, outputs.servo1_us);
-        servo_pwm.set_channel_us(1, outputs.servo2_us);
-        servo_pwm.set_channel_us(2, outputs.servo4_us);
+        // Apply physical PWM output updates
+        // Servos operate at 50 Hz; update their pulse widths every 10 loop ticks (20 ms)
+        if loop_counter.is_multiple_of(10) {
+            servo_pwm.set_channel_us(0, outputs.servo1_us);
+            servo_pwm.set_channel_us(1, outputs.servo2_us);
+            servo_pwm.set_channel_us(2, outputs.servo4_us);
+        }
         esc_pwm.set_throttle_us(outputs.motor1_throttle);
     }
 }

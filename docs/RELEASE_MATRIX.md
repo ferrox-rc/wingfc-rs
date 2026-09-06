@@ -119,6 +119,8 @@ cargo build --release -p wingfc-firmware --target $TARGET --no-default-features 
 
 ## 5. Flashing Instructions
 
+*For complete details on memory offsets, binary formats, and all automated flashing methods, see the [Firmware Deployment & Flashing Guide](FLASHING.md).*
+
 ### Using `probe-rs` (Recommended for SWD):
 ```bash
 probe-rs run --chip nRF52840_xxAA dist/wingfc-firmware-crsf-dshot-nav.elf
@@ -126,15 +128,33 @@ probe-rs run --chip nRF52840_xxAA dist/wingfc-firmware-crsf-dshot-nav.elf
 
 ### Flashing pre-built `.hex` with `nrfjprog`:
 ```bash
-nrfjprog --program dist/wingfc-firmware-crsf-dshot-nav.hex --chiperase --reset
+# Flash Intel HEX using sector erase (preserves Nordic SoftDevice and UF2 bootloader)
+nrfjprog --program dist/wingfc-firmware-crsf-dshot-nav.hex --sectorerase --reset
 ```
 
 ### Flashing via UF2 Bootloader (Seeed XIAO):
-Convert `.hex` to `.uf2` using `uf2conv.py`:
-```bash
-python3 scripts/uf2conv/uf2conv.py -c -b 0x1000 -f 0xADA52840 dist/wingfc-firmware-crsf-dshot-nav.hex -o firmware.uf2
-```
-Copy `firmware.uf2` to the mounted USB drive (`XIAO-SENSE`).
+The Seeed Studio XIAO nRF52840 Sense includes a factory UF2 bootloader that expects application images linked at base address `0x00027000`.
+
+1. **Convert from `.hex` (Recommended):**
+   Intel HEX records already contain the embedded `0x00027000` base address from `memory.x`, so omit `-b`:
+   ```bash
+   python3 scripts/uf2conv/uf2conv.py -c -f 0xADA52840 dist/wingfc-firmware-crsf-dshot-nav.hex -o firmware.uf2
+   ```
+
+2. **Convert from `.bin` (Requires `-b 0x27000`):**
+   Raw binary files lack address metadata, so you must explicitly specify the application start offset:
+   ```bash
+   python3 scripts/uf2conv/uf2conv.py -c -b 0x27000 -f 0xADA52840 dist/wingfc-firmware-crsf-dshot-nav.bin -o firmware.uf2
+   ```
+
+3. **Verify UF2 Header & Target Address:**
+   ```bash
+   python3 scripts/uf2conv/uf2conv.py -i firmware.uf2
+   ```
+   *(Ensure output reports `Target Address is 0x00027000`)*
+
+4. **Deploy:**
+   Double-tap the reset button on the board so it mounts as a USB mass storage drive (`XIAO-SENSE`), then copy `firmware.uf2` to the drive.
 
 
 ---

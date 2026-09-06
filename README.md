@@ -22,6 +22,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - 📊 [SEGGER RTT & Blackbox Logging Architecture](docs/RTT_BLACKBOX_LOGGING.md)
 - 📡 [Receiver & Telemetry Specification (CRSF/ELRS & iBus)](docs/RECEIVERS.md)
 - 🚀 [Production Release Matrix & Sizing](docs/RELEASE_MATRIX.md)
+- ⚡ [Firmware Deployment & Flashing Guide](docs/FLASHING.md)
 - 📝 [Changelog & Version History](CHANGELOG.md)
 
 ## User Quick Start (Zero Rust Knowledge Required)
@@ -38,8 +39,20 @@ nano wingfc.yaml
 # 3. Build optimized release firmware (.elf, .bin, .hex in dist/)
 ./scripts/build.sh
 
-# 4. (Optional) Flash directly to Seeed Studio XIAO via SWD debug probe
+# 4. Flash to Seeed Studio XIAO (see docs/FLASHING.md):
+# Option A: Auto-detect connected programmer or mounted drive (Recommended)
 ./scripts/build.sh flash
+
+# Option B: USB Drag-and-Drop (UF2 Bootloader - No probe needed)
+# Double-tap reset button to mount XIAO-SENSE drive, then run:
+./scripts/build.sh flash --method uf2
+# (Or manual copy: cp dist/wingfc-firmware-*.uf2 /run/media/$USER/XIAO-SENSE/)
+
+# Option C: Nordic J-Link SWD via self-addressing Intel HEX
+./scripts/build.sh flash --method nrfjprog
+
+# Option D: Direct SWD Debug Probe (probe-rs)
+./scripts/build.sh flash --method probe-rs-run
 ```
 
 ---

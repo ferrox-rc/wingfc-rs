@@ -18,3 +18,5 @@ fw-flash-ibus = "run --release -p wingfc-firmware --target thumbv7em-none-eabihf
 fw-flash-dshot = "run --release -p wingfc-firmware --target thumbv7em-none-eabihf --features dshot"
 test-core = "test -p wingfc-core"
 test-core-all = "test -p wingfc-core --all-features"
+fw-bin-ibus = "objcopy -p wingfc-firmware --bin wingfc-firmware --target thumbv7em-none-eabihf --release --no-default-features --features ibus -- -O binary"
+fw-bin-crsf = "objcopy -p wingfc-firmware --bin wingfc-firmware --target thumbv7em-none-eabihf --release --no-default-features --features crsf -- -O binary"

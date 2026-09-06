@@ -170,3 +170,23 @@ tuning:
 
   # Madgwick AHRS Filter Convergence Gain (higher = faster accel alignment)
   ahrs_beta: 0.040
+
+# ==============================================================================
+# Firmware Flashing Configuration
+# ==============================================================================
+# Configures the target deployment method executed by `./scripts/build.sh flash`
+flashing:
+  # Deployment Method:
+  #   - 'uf2'          : USB Mass Storage Drag-and-Drop (Recommended - no debug probe needed)
+  #   - 'auto'         : Automatically detects connected programmer or mounted drive
+  #   - 'nrfjprog'     : Nordic J-Link SWD programmer using self-addressing Intel HEX
+  #   - 'dfu'          : Serial DFU via adafruit-nrfutil over USB CDC-ACM
+  #   - 'probe-rs-hex' : SWD programmer flashing Intel HEX via probe-rs
+  #   - 'probe-rs-run' : SWD probe-rs run with live defmt RTT logging
+  method: uf2
+
+  # Optional serial port override for DFU (e.g., /dev/ttyACM0). Defaults to auto-detection.
+  # port: auto
+
+  # Optional mount directory override for UF2 drive. Defaults to auto-detection.
+  # mount: auto

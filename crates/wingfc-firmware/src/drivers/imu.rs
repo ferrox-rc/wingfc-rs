@@ -1,5 +1,5 @@
 use embassy_nrf::twim::{self, Twim};
-use embassy_time::{Duration, Timer};
+use embassy_time::{with_timeout, Duration, Timer};
 use wingfc_core::math::Vector3;
 
 pub const LSM6DS3_ADDR: u8 = 0x6A;
@@ -37,14 +37,18 @@ impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
     }
 
     pub async fn init(&mut self) -> Result<(), ImuError> {
-        Timer::after(Duration::from_millis(15)).await;
+        Timer::after(Duration::from_millis(20)).await;
 
-        // Verify WHO_AM_I
+        // Verify WHO_AM_I with timeout
         let mut who_am_i = [0u8; 1];
-        self.twim
-            .write_read(LSM6DS3_ADDR, &[WHO_AM_I_REG], &mut who_am_i)
-            .await
-            .map_err(|_| ImuError::I2cError)?;
+        with_timeout(
+            Duration::from_millis(50),
+            self.twim
+                .write_read(LSM6DS3_ADDR, &[WHO_AM_I_REG], &mut who_am_i),
+        )
+        .await
+        .map_err(|_| ImuError::I2cError)?
+        .map_err(|_| ImuError::I2cError)?;
 
         if who_am_i[0] != 0x69 && who_am_i[0] != 0x6A {
             defmt::error!("Unexpected WHO_AM_I: 0x{:02X}", who_am_i[0]);
@@ -109,10 +113,14 @@ impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
     async fn read_raw_scaled(&mut self) -> Result<(Vector3, Vector3), ImuError> {
         // Read 12 contiguous bytes: Gyro X, Y, Z (6 bytes) followed by Accel X, Y, Z (6 bytes)
         let mut buf = [0u8; 12];
-        self.twim
-            .write_read(LSM6DS3_ADDR, &[OUTX_L_G_REG], &mut buf)
-            .await
-            .map_err(|_| ImuError::I2cError)?;
+        with_timeout(
+            Duration::from_millis(5),
+            self.twim
+                .write_read(LSM6DS3_ADDR, &[OUTX_L_G_REG], &mut buf),
+        )
+        .await
+        .map_err(|_| ImuError::I2cError)?
+        .map_err(|_| ImuError::I2cError)?;
 
         let gx = (buf[0] as i16 | ((buf[1] as i16) << 8)) as f32 * GYRO_SCALE_2000DPS_TO_RADS;
         let gy = (buf[2] as i16 | ((buf[3] as i16) << 8)) as f32 * GYRO_SCALE_2000DPS_TO_RADS;

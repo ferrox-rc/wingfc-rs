@@ -93,7 +93,7 @@ pub async fn telemetry_led_task(
             #[cfg(not(feature = "dshot"))]
             VisualStatus::EscCalibration => {
                 // Fast blink Yellow (100ms on, 100ms off): ESC Throttle Calibration Mode
-                if (tick_counter / 2) % 2 == 0 {
+                if (tick_counter / 2).is_multiple_of(2) {
                     led.set_color(LedColor::Yellow);
                 } else {
                     led.set_color(LedColor::Off);
@@ -101,7 +101,7 @@ pub async fn telemetry_led_task(
             }
             VisualStatus::Calibration => {
                 // Fast blink White (100ms on, 100ms off): Gyro Stationary Calibration
-                if (tick_counter / 2) % 2 == 0 {
+                if (tick_counter / 2).is_multiple_of(2) {
                     led.set_color(LedColor::White);
                 } else {
                     led.set_color(LedColor::Off);
@@ -131,7 +131,7 @@ pub async fn telemetry_led_task(
             }
             VisualStatus::Status(ArmingStatus::Failsafe) => {
                 // Slow blink Red: Failsafe / Loss of RC Link (250ms on, 250ms off)
-                if (tick_counter / 5) % 2 == 0 {
+                if (tick_counter / 5).is_multiple_of(2) {
                     led.set_color(LedColor::Red);
                 } else {
                     led.set_color(LedColor::Off);
