@@ -33,14 +33,14 @@ All serial receiver communication is handled directly by the Nordic nRF52840's h
                   | [D3]            [D10] |
                   | [D4]             [D9] |
                   | [D5]             [D8] |
-RC RX (UARTE0) -> | [D6]             [D7] | -> RC Telemetry TX (UARTE0) [CRSF only]
+RC Telemetry TX ->| [D6]             [D7] | <- RC Receiver RX (UARTE0)
                   +-----------------------+
 ```
 
 | XIAO Pin | nRF52840 Pin | Subsystem | Function / Role | Connected Receiver Pin |
 | :--- | :--- | :--- | :--- | :--- |
-| **`D6`** | `P1.00` | `UARTE0_RX` | Serial Channel Input | Receiver **TX** / Signal Out |
-| **`D7`** | `P0.11` | `UARTE0_TX` | Serial Telemetry Output | Receiver **RX** / Telemetry In (CRSF only) |
+| **`D7`** | `P1.12` | `UARTE0_RX` | Serial Channel Input | Receiver **TX** / Signal Out |
+| **`D6`** | `P1.11` | `UARTE0_TX` | Serial Telemetry Output | Receiver **RX** / Telemetry In (CRSF only) |
 | **`5V`** | `VBUS` | Power | Receiver Power Supply | Receiver **VCC / 5V** |
 | **`GND`** | `GND` | Power | Common Ground Reference | Receiver **GND** |
 
@@ -54,15 +54,15 @@ ExpressLRS receivers communicate at 420,000 baud and require both RX and TX line
 +---------------------------+             +---------------------------+
 |  Seeed Studio XIAO        |             |  ExpressLRS Receiver      |
 |                           |             |                           |
-|       D6 (P1.00 / RX) <---|-------------|-- TX (CH1 Output)         |
-|       D7 (P0.11 / TX) ----|------------>|-- RX (CH2 Telemetry Input)|
+|       D7 (P1.12 / RX) <---|-------------|-- TX (CH1 Output)         |
+|       D6 (P1.11 / TX) ----|------------>|-- RX (CH2 Telemetry Input)|
 |                    5V ----|------------>|-- 5V / VCC                |
 |                   GND ----|-------------|-- GND                     |
 +---------------------------+             +---------------------------+
 ```
 
 > [!WARNING]
-> Ensure the receiver's TX connects to the flight controller's RX (`D6`), and the receiver's RX connects to the flight controller's TX (`D7`). Do not connect TX-to-TX or RX-to-RX.
+> Ensure the receiver's TX connects to the flight controller's RX (`D7`), and the receiver's RX connects to the flight controller's TX (`D6`). Do not connect TX-to-TX or RX-to-RX.
 
 ---
 
@@ -74,8 +74,8 @@ FlySky iBus operates in simplex mode at 115,200 baud over a single serial line:
 +---------------------------+             +---------------------------+
 |  Seeed Studio XIAO        |             |  FlySky iBus Receiver     |
 |                           |             |                           |
-|       D6 (P1.00 / RX) <---|-------------|-- iBus SERVO / S-PORT     |
-|       D7 (P0.11 / TX)     | (Disconnected)|                         |
+|       D7 (P1.12 / RX) <---|-------------|-- iBus SERVO / S-PORT     |
+|       D6 (P1.11 / TX)     | (Disconnected)|                         |
 |                    5V ----|------------>|-- VCC (4.0V - 6.5V)       |
 |                   GND ----|-------------|-- GND                     |
 +---------------------------+             +---------------------------+
@@ -200,9 +200,23 @@ The receiver task timestamp is refreshed every time a cryptographically and chec
 4. **Visual Warning:** Onboard RGB LED shifts to **Slow Blink Red** (250 ms on, 250 ms off).
 5. **Telemetry Warning:** Flight mode string changes to `"FAILSAFE"`, triggering transmitter audio alarms.
 
+### 5.2 Visual Telemetry & LED Diagnostics Matrix
+
+The onboard tri-color RGB LED indicates real-time link health, sensor calibration, and arming states at 20 Hz:
+
+| LED Color | Visual Pattern | Frequency / Timing | Arming / Flight State | Meaning & Required Pilot Action |
+| :--- | :--- | :--- | :--- | :--- |
+| **White** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `VisualStatus::Calibration` | **Gyro Stationary Calibration:** Measuring zero-rate bias at boot (250 samples). Keep aircraft flat and completely motionless. |
+| **Yellow** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `VisualStatus::EscCalibration` | **ESC Calibration Mode:** Throttle was high (&gt;1850 &mu;s) at boot. ESC endpoints calibration active (PWM only). |
+| **Yellow** | Double Blink | 2 pulses every 1.0 s | `ArmingStatus::Refused` | **Arming Refused (Safety Lockout):** Arm switch engaged while throttle &gt; 1050 &mu;s, or arm switch was active during boot. Lower throttle and cycle arm switch. |
+| **Red** | Slow Blink | 2 Hz (250ms ON / 250ms OFF) | `ArmingStatus::Failsafe` | **Failsafe / Link Lost:** No valid RC frames received within timeout (default: 500ms). Check receiver power, binding, and signal wiring on D7 (`P1.12`). |
+| **Green** | Solid ON | Constant | `ArmingStatus::Disarmed` | **Disarmed & Ready:** Valid RC link active, gyro calibrated, motors disabled. Aircraft is safe to handle and ready to arm. |
+| **Blue** | Solid ON | Constant | `ArmingStatus::ArmedAcro` | **Armed (Acro / Rate Mode):** Flight loop live, motors active, angular rate PID stabilization enabled. |
+| **Cyan** | Solid ON | Constant | `ArmingStatus::ArmedAngle` | **Armed (Angle / Self-Leveling):** Flight loop live, motors active, attitude self-leveling stabilized flight enabled. |
+
 ---
 
-### 5.2 Pre-Arm Safety Interlocks
+### 5.3 Pre-Arm Safety Interlocks
 
 Before motors can spin, the following conditions must be met simultaneously:
 

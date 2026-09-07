@@ -148,13 +148,13 @@ pub async fn telemetry_led_task(
 #[cfg(feature = "crsf")]
 #[embassy_executor::task]
 pub async fn crsf_telemetry_task(
-    mut tx: embassy_nrf::uarte::UarteTx<'static, embassy_nrf::peripherals::UARTE0>,
+    mut tx: embassy_nrf::buffered_uarte::BufferedUarteTx<'static, embassy_nrf::peripherals::UARTE0>,
     mut telem_rx: Receiver<'static, CriticalSectionRawMutex, FlightTelemetrySnapshot, 2>,
 ) {
     use embassy_time::{Duration, Ticker};
     use wingfc_core::protocol::crsf::CrsfTelemetryEncoder;
 
-    defmt::info!("Starting CRSF / ELRS Telemetry Task on UARTE0 TX (D7 / P0.11) @ 50 Hz...");
+    defmt::info!("Starting CRSF / ELRS Telemetry Task on UARTE0 TX (D6 / P1.11) @ 50 Hz...");
     let mut ticker = Ticker::every(Duration::from_millis(20)); // 50 Hz slot ticker
     let mut slot: u8 = 0;
     let mut snapshot = FlightTelemetrySnapshot::default();

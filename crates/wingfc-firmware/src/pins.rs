@@ -49,16 +49,26 @@ pub struct BoardPins {
     pub pin_imu_scl: peripherals::P0_27,
     /// Physical Pin: P1.08 (Internal) - IMU Power Rail Enable (Active HIGH)
     pub pin_imu_pwr: peripherals::P1_08,
+    /// Physical Pin: P0.11 (Internal) - IMU INT1 (Hardware Data-Ready Interrupt)
+    pub pin_imu_int1: peripherals::P0_11,
 
     // ==========================================
-    // RC Receiver (EasyDMA UARTE0)
+    // RC Receiver (Buffered EasyDMA UARTE0)
     // ==========================================
     /// UARTE0 hardware peripheral for non-blocking EasyDMA serial reception & telemetry
     pub uarte_rc: peripherals::UARTE0,
-    /// Physical Pin: P1.11 (Silkscreen: D6) - RC Receiver RX (CRSF @ 420kBaud / iBus @ 115.2kBaud)
-    pub pin_rc_rx: peripherals::P1_11,
-    /// Physical Pin: P1.12 (Silkscreen: D7) - RC Telemetry TX (CRSF @ 420kBaud)
-    pub pin_rc_tx: peripherals::P1_12,
+    /// Hardware TIMER0 dedicated to background DMA double-buffering & timeout detection
+    pub timer_rc: peripherals::TIMER0,
+    /// Programmable Peripheral Interconnect channel 0
+    pub ppi_ch0: peripherals::PPI_CH0,
+    /// Programmable Peripheral Interconnect channel 1
+    pub ppi_ch1: peripherals::PPI_CH1,
+    /// Programmable Peripheral Interconnect Group 0
+    pub ppi_group0: peripherals::PPI_GROUP0,
+    /// Physical Pin: P1.12 (Silkscreen: D7) - RC Receiver RX (from receiver TX)
+    pub pin_rc_rx: peripherals::P1_12,
+    /// Physical Pin: P1.11 (Silkscreen: D6) - RC Telemetry TX (to receiver RX)
+    pub pin_rc_tx: peripherals::P1_11,
 
     // ==========================================
     // GPS Receiver (EasyDMA UARTE1 - XIAO Sense Plus)
@@ -91,9 +101,14 @@ impl BoardPins {
             pin_imu_sda: p.P0_07,
             pin_imu_scl: p.P0_27,
             pin_imu_pwr: p.P1_08,
+            pin_imu_int1: p.P0_11,
             uarte_rc: p.UARTE0,
-            pin_rc_rx: p.P1_11,
-            pin_rc_tx: p.P1_12,
+            timer_rc: p.TIMER0,
+            ppi_ch0: p.PPI_CH0,
+            ppi_ch1: p.PPI_CH1,
+            ppi_group0: p.PPI_GROUP0,
+            pin_rc_rx: p.P1_12,
+            pin_rc_tx: p.P1_11,
             #[cfg(feature = "gps")]
             uarte_gps: p.UARTE1,
             #[cfg(feature = "gps")]

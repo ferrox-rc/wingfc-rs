@@ -34,14 +34,15 @@ Board pin definitions and peripheral bindings are centralized in [`crates/wingfc
    Available / Ext SCL --| D5 (P0.05)         (P0.15)  |-- IMU Power Rail Enable
    RC RX (EasyDMA UARTE)-| D6 (P1.00)         (3.3V)   |
    RC Telemetry TX     --| D7 (P0.11)         (GND)    |
-                         +-----------------------------+\n```
+                         +-----------------------------+
+```
 
 ### Pinout Reference:
 | Peripheral | Pin | Description | Driver / Subsystem |
 | :--- | :--- | :--- | :--- |
 | **Servo 1** | `P0.02` (D0) | Left Elevon (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 0) |
 | **Servo 2** | `P0.03` (D1) | Right Elevon (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 1) |
-| **Servo 4** | `P0.28` (D2) | Auxiliary Servo (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 2) |
+| **Servo 3** | `P0.28` (D2) | Auxiliary Servo (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 2) |
 | **Motor 1** | `P0.29` (D3) | Motor ESC (50..400Hz PWM or DShot) | `EscPwmDriver` (PWM1) |
 | **RC Input** | `P1.00` (D6) | EasyDMA UART RX (CRSF @ 420kBaud / iBus @ 115.2kBaud) | `UarteRx` (UARTE0) |
 | **RC Telemetry** | `P0.11` (D7) | EasyDMA UART TX (CRSF Telemetry @ 420kBaud) | `UarteTx` (UARTE0) |
@@ -100,7 +101,7 @@ Execution runs on Embassy's cooperative async executor with prioritized DMA even
 1. **RC Ingestion:** Non-blocking drain of the async channel queue populated by the EasyDMA UART receiver task.
 2. **Failsafe Monitoring:** If the duration since the last valid packet exceeds 500ms, the system enters failsafe mode (motors cut to zero throttle, control surfaces held level).
 3. **Safety State Machine:** Evaluates arming switch (CH5), mode switch (CH6), throttle position, and failsafe flag to determine the operational state.
-4. **IMU Sampling:** Samples gyroscope (rad/s) and accelerometer (m/s<sup>2</sup>) data over 400kHz I2C.
+4. **IMU Interrupt-Driven DMA Ingestion:** Synchronizes with hardware Data-Ready interrupt (`INT1` on `P0.11`), initiating a 12-byte EasyDMA burst read over TWISPI0 (`0x22` through `0x2D`) to fetch angular velocity and acceleration with zero CPU polling latency.
 5. **Harmonic Vibration Filtering:** Raw gyroscope rates pass through single-pole PT1 low-pass filters with a 90Hz cutoff frequency (DT = 0.002s) to reject motor and propeller vibrations before entering AHRS or PID calculations:
    <br>&alpha; = (2&pi; &middot; f<sub>c</sub> &middot; &Delta;t) / (1 + 2&pi; &middot; f<sub>c</sub> &middot; &Delta;t), &nbsp;&nbsp; y<sub>k</sub> = y<sub>k-1</sub> + &alpha;(x<sub>k</sub> - y<sub>k-1</sub>)
 6. **Attitude Estimation (Madgwick AHRS):**

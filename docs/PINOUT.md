@@ -12,7 +12,7 @@ The firmware decouples physical pins from algorithm drivers via the [`BoardPins`
 graph TD
     subgraph "Nordic nRF52840 Hardware Core"
         P0["Port 0 GPIOs (P0.00 .. P0.31)"]
-        P1["Port 1 GPIOs (P1.00 .. P1.15)"]
+        P1["Port 1 GPIOs (P1.12 .. P1.15)"]
         PWM0["PWM0 Peripheral (50..400 Hz)"]
         PWM1["PWM1 Peripheral (50..400 Hz / DShot)"]
         TWISPI0["TWISPI0 Peripheral (400 kHz I2C)"]
@@ -33,8 +33,8 @@ graph TD
 
     subgraph Sensors & Telemetry
         LED["Tri-Color RGB LED (P0.26, P0.30, P0.06)"]
-        IMU["LSM6DS3TR IMU (P0.07 SCL, P0.27 SDA, P0.15 PWR)"]
-        RC["RC Receiver Input (D6 / P1.00)"]
+        IMU["LSM6DS3TR IMU (P0.07 SCL, P0.27 SDA, P1.08 PWR)"]
+        RC["RC Receiver Input (D7 / P1.12)"]
         GPS["GPS Engine (D9 RX, D10 TX - Sense Plus)"]
     end
 
@@ -63,9 +63,9 @@ The standard XIAO nRF52840 Sense provides an ultra-compact (21 &times; 17.5 mm) 
    Aux Servo    (PWM0) --| D2 (P0.28)         (P0.26)  |-- Red LED (Active-LOW)
    ESC Motor 1  (PWM1) --| D3 (P0.29)         (P0.07)  |-- IMU SCL (Internal TWISPI0)
    Available / Ext SDA --| D4 (P0.04)         (P0.27)  |-- IMU SDA (Internal TWISPI0)
-   Available / Ext SCL --| D5 (P0.05)         (P0.15)  |-- IMU Power Rail Enable
-   RC RX (EasyDMA UARTE)-| D6 (P1.00)         (3.3V)   |-- 3.3V Regulated Output (200mA)
-   RC Telemetry TX (DMA)-| D7 (P0.11)         (GND)    |-- Common Ground
+   Available / Ext SCL --| D5 (P0.05)         (P1.08)  |-- IMU Power Rail Enable
+   RC Telemetry TX (DMA)-| D6 (P1.11)         (3.3V)   |-- 3.3V Regulated Output (200mA)
+   RC Receiver RX (DMA) -| D7 (P1.12)         (GND)    |-- Common Ground
                          | 3.3V               (5V)     |-- 5V VBUS Input
                          | GND                (RST)    |-- Hardware Reset
                          +-----------------------------+
@@ -81,8 +81,8 @@ The standard XIAO nRF52840 Sense provides an ultra-compact (21 &times; 17.5 mm) 
 | Pin 4 | `D3` | `P0.29` | Actuator | Motor 1 ESC Signal | `PWM1` (Channel 0) | 50..400 Hz PWM (or DShot digital frame) |
 | Pin 5 | `D4` | `P0.04` | Expansion | General GPIO / Ext I2C SDA | Reserved (`TWISPI1`) | 3.3V LVCMOS, Pull-up required for I2C |
 | Pin 6 | `D5` | `P0.05` | Expansion | General GPIO / Ext I2C SCL | Reserved (`TWISPI1`) | 3.3V LVCMOS, Pull-up required for I2C |
-| Pin 7 | `D6` | `P1.00` | Receiver | RC Receiver Serial RX | `UARTE0` RX | CRSF (420 kBaud) or iBus (115.2 kBaud) |
-| Pin 8 | `D7` | `P0.11` | Telemetry | CRSF Telemetry Output | `UARTE0` TX | 420 kBaud serial output to receiver (CRSF) |
+| Pin 7 | `D6` | `P1.11` | Telemetry | CRSF Telemetry Output | `UARTE0` TX | 420 kBaud serial output to receiver (CRSF) |
+| Pin 8 | `D7` | `P1.12` | Receiver | RC Receiver Serial RX | `UARTE0` RX | CRSF (420 kBaud) or iBus (115.2 kBaud) |
 | Pin 9 | `3V3` | &mdash; | Power | 3.3V DC Power Rail | Onboard LDO Output | Max 200 mA output |
 | Pin 10 | `GND` | &mdash; | Power | Common Ground Reference | System Ground | 0V reference |
 | Pin 11 | `5V` | &mdash; | Power | USB / VBUS Power Input | USB VBUS | 4.5V &ndash; 5.5V input from USB |
@@ -92,13 +92,28 @@ The standard XIAO nRF52840 Sense provides an ultra-compact (21 &times; 17.5 mm) 
 
 | Function | nRF52840 Pin | Hardware Block | Description & Configuration |
 | :--- | :--- | :--- | :--- |
-| **IMU Power Rail** | `P0.15` | GPIO Output | Internal high-side power switch for LSM6DS3TR (Drive HIGH to power IMU) |
+| **IMU Power Rail** | `P1.08` | GPIO Output | Internal high-side power switch for LSM6DS3TR (Drive HIGH to power IMU) |
 | **IMU I2C SCL** | `P0.07` | `TWISPI0` | Internal I2C clock line (400 kHz Fast-Mode) |
 | **IMU I2C SDA** | `P0.27` | `TWISPI0` | Internal I2C data line (400 kHz Fast-Mode) |
+| **IMU Interrupt 1 (INT1)** | `P0.11` | GPIOTE Input | Hardware Gyro/Accel Data-Ready (DRDY) interrupt triggering DMA burst read |
 | **Telemetry LED Red** | `P0.26` | GPIO Output | Visual Telemetry indicator (Active-LOW, sink current) |
 | **Telemetry LED Green** | `P0.30` | GPIO Output | Visual Telemetry indicator (Active-LOW, sink current) |
 | **Telemetry LED Blue** | `P0.06` | GPIO Output | Visual Telemetry indicator (Active-LOW, sink current) |
 | **Reset / Boot Button** | `P0.18` | Hardware Reset | Triggers hardware system reset or bootloader entry |
+
+### Onboard RGB LED Telemetry Matrix
+
+The Seeed Studio XIAO nRF52840 Sense features an onboard common-anode RGB LED driven directly by the real-time visual telemetry task at 20 Hz ([`crates/wingfc-firmware/src/tasks/telemetry.rs`](../crates/wingfc-firmware/src/tasks/telemetry.rs)):
+
+| LED Color | Visual Pattern | Frequency / Timing | Arming / Flight State | Meaning & Required Pilot Action |
+| :--- | :--- | :--- | :--- | :--- |
+| **White** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `VisualStatus::Calibration` | **Gyro Stationary Calibration:** Measuring zero-rate bias at boot (250 samples). Keep aircraft flat and completely motionless. |
+| **Yellow** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `VisualStatus::EscCalibration` | **ESC Calibration Mode:** Throttle was high (&gt;1850 &mu;s) at boot. ESC endpoints calibration active (PWM only). |
+| **Yellow** | Double Blink | 2 pulses every 1.0 s | `ArmingStatus::Refused` | **Arming Refused (Safety Lockout):** Arm switch engaged while throttle &gt; 1050 &mu;s, or arm switch was active during boot. Lower throttle and cycle arm switch. |
+| **Red** | Slow Blink | 2 Hz (250ms ON / 250ms OFF) | `ArmingStatus::Failsafe` | **Failsafe / Link Lost:** No valid RC frames received within timeout (default: 500ms). Check receiver power, binding, and signal wiring on D7 (`P1.12`). |
+| **Green** | Solid ON | Constant | `ArmingStatus::Disarmed` | **Disarmed & Ready:** Valid RC link active, gyro calibrated, motors disabled. Aircraft is safe to handle and ready to arm. |
+| **Blue** | Solid ON | Constant | `ArmingStatus::ArmedAcro` | **Armed (Acro / Rate Mode):** Flight loop live, motors active, angular rate PID stabilization enabled. |
+| **Cyan** | Solid ON | Constant | `ArmingStatus::ArmedAngle` | **Armed (Angle / Self-Leveling):** Flight loop live, motors active, attitude self-leveling stabilized flight enabled. |
 
 ---
 
@@ -111,7 +126,7 @@ The Nordic nRF52840 contains several shared hardware register blocks where multi
 | **`PWM0`** | Servos (Ch 0, 1, 2) | `P0.02`, `P0.03`, `P0.28` | Conflict free. Configurable 50..400 Hz frame rate. |
 | **`PWM1`** | ESC Motor Output | `P0.29` | Conflict free. Configurable 50..400 Hz PWM or DShot. |
 | **`TWISPI0`** | Internal LSM6DS3TR IMU | `P0.07`, `P0.27` | Dedicated to internal I2C bus. Cannot be used for SPI. |
-| **`UARTE0`** | RC Receiver & Telemetry (DMA) | `P1.00` (RX), `P0.11` (TX) | Full-duplex EasyDMA serial engine (CRSF @ 420 kBaud / iBus @ 115.2 kBaud). |
+| **`UARTE0`** | RC Receiver & Telemetry (DMA) | `P1.12` (RX), `P1.11` (TX) | Full-duplex EasyDMA serial engine (CRSF @ 420 kBaud / iBus @ 115.2 kBaud). |
 | **`TWISPI1`** | Optional External Sensors | `P0.04`, `P0.05` | Free for external compass/barometer I2C on standard XIAO. |
 | **`UARTE1`** | GPS Navigation (NMEA) | `P0.09`, `P0.10` | Broken out on `D9` (RX) and `D10` (TX) on XIAO Sense Plus (Requires `nfc-pins-as-gpio`). |
 
@@ -124,8 +139,8 @@ The standard Seeed Studio XIAO nRF52840 exposes only 8 usable GPIO header pins (
 - 3 pins are allocated for Servos (`D0`, `D1`, `D2`).
 - 1 pin is allocated for ESC Motor Control (`D3`).
 - 2 pins are reserved for external I2C Barometer & Compass (`D4`, `D5`).
-- 1 pin is allocated for Serial RC Receiver (`D6` / `P1.00`).
-- 1 pin is available for GPIO / Beeper (`D7`).
+- 1 pin is allocated for Serial RC Receiver (`D7` / `P1.12`).
+- 1 pin is allocated for Telemetry TX (`D6` / `P1.11`).
 
 ### Why GPS Demands Seeed Studio XIAO nRF52840 Sense Plus:
 1. **Secondary Asynchronous Serial Engine (`UARTE1`):** The nRF52840 requires a second hardware UART engine to communicate with GPS modules (NMEA / UBX @ 115,200 baud). `UARTE0` is already consumed by the primary RC link (`CRSF` @ 420 kBaud or `iBus` @ 115.2 kBaud).

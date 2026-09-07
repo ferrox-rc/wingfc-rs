@@ -22,7 +22,7 @@ receiver:
   # Options:
   #   - 'crsf' : TBS Crossfire / ExpressLRS (CRSF @ 420,000 baud) [Recommended]
   #   - 'ibus' : FlySky iBus protocol (115,200 baud)
-  protocol: crsf
+  protocol: ibus
 
   # Duration in milliseconds without a valid RC frame before failsafe engages
   # In failsafe: motors are cut to 0 and elevons neutralize to level flight

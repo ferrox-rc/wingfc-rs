@@ -10,7 +10,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - **Autonomous Navigation Suite:** Barometric Vertical Kalman Filter (altitude hold, stall prevention, hard-deck floor, statutory 120m ceiling limiter), tilt-compensated magnetic compass, and GPS Return-to-Home (RTH).
 - **Zero-Allocation NMEA GPS Engine:** High-speed streaming parser with automatic launch point latching and equirectangular flat-Earth coordinate projection.
 - **DMA-Driven Hardware I/O:** Embassy-based async UART (CRSF / ELRS @ 420 kBaud, iBus @ 115.2 kBaud, GPS @ 115.2 kBaud), SPI (DShot), and multi-frequency PWM (50 Hz &ndash; 400 Hz).
-- **Bidirectional CRSF / ELRS Telemetry:** Broadcasts 3D vehicle attitude, active flight mode, battery status, and GPS coordinates to EdgeTX / OpenTX transmitters via EasyDMA UARTE0 TX (`D7` / `P0.11`).
+- **Bidirectional CRSF / ELRS Telemetry:** Broadcasts 3D vehicle attitude, active flight mode, battery status, and GPS coordinates to EdgeTX / OpenTX transmitters via EasyDMA UARTE0 TX (`D6` / `P1.11`).
 - **Configurable Arming Interlocks:** Pilot-configurable arm switch and throttle-zero thresholds with active motor spin-up warning systems.
 - **Next-Gen Telemetry & Bench Debugging:** Sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and 500 Hz binary blackbox structures.
 
@@ -54,6 +54,22 @@ nano wingfc.yaml
 # Option D: Direct SWD Debug Probe (probe-rs)
 ./scripts/build.sh flash --method probe-rs-run
 ```
+
+---
+
+## Visual Status & RGB LED Matrix
+
+The onboard tri-color RGB LED provides instant visual status of the aircraft state:
+
+| LED Color | Visual Pattern | Frequency | Status / Flight Mode | Meaning & Pilot Action |
+| :--- | :--- | :--- | :--- | :--- |
+| **White** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `Calibration` | **Gyro Calibration:** Measuring stationary sensor bias at boot (250 samples). Keep aircraft flat and motionless. |
+| **Yellow** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `EscCalibration` | **ESC Calibration Mode:** Throttle was high (&gt;1850 &mu;s) at boot. ESC endpoints calibration active (PWM only). |
+| **Yellow** | Double Blink | 2 pulses / second | `Refused` | **Arming Refused:** Safety lockout active. Either throttle &gt; 1050 &mu;s or arm switch was active at boot. Lower throttle and cycle switch. |
+| **Red** | Slow Blink | 2 Hz (250ms ON / 250ms OFF) | `Failsafe` | **Failsafe / Link Lost:** No RC frames received within timeout (500ms). Check receiver binding and wiring on D7 (`P1.12`). |
+| **Green** | Solid ON | Constant | `Disarmed` | **Disarmed & Ready:** Valid RC link active, gyro calibrated, motors safe. Ready to arm. |
+| **Blue** | Solid ON | Constant | `ArmedAcro` | **Armed (Acro / Rates Mode):** Motors live, raw angular rate PID stabilization active. |
+| **Cyan** | Solid ON | Constant | `ArmedAngle` | **Armed (Angle / Self-Leveling):** Motors live, self-leveling attitude stabilization active. |
 
 ---
 

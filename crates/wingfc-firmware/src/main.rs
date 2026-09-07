@@ -7,13 +7,10 @@ use panic_probe as _;
 
 use embassy_executor::Spawner;
 use embassy_nrf::bind_interrupts;
-use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::buffered_uarte::{self, BufferedUarte};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::pwm::SimplePwm;
 use embassy_nrf::twim::{self, Twim};
-#[cfg(feature = "crsf")]
-use embassy_nrf::uarte::Uarte;
-#[cfg(feature = "ibus")]
-use embassy_nrf::uarte::UarteRx;
 use embassy_nrf::uarte::{self, Baudrate};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -36,7 +33,7 @@ use tasks::{receiver_task, telemetry_led_task, FlightLoopState, VisualStatus};
 
 bind_interrupts!(struct Irqs {
     TWISPI0 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI0>;
-    UARTE0 => uarte::InterruptHandler<embassy_nrf::peripherals::UARTE0>;
+    UARTE0 => buffered_uarte::InterruptHandler<embassy_nrf::peripherals::UARTE0>;
 });
 
 static RC_CHANNEL: Channel<CriticalSectionRawMutex, RcChannels, 2> = Channel::new();
@@ -84,7 +81,7 @@ async fn main(spawner: Spawner) {
     let mut servo_pwm = ServoPwmDriver::new(pwm_servos_dev, SERVO_PWM_HZ);
 
     // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
-    let mut _pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::Standard);
+    let mut _pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::HighDrive);
 
     let mut twim_config = twim::Config::default();
     twim_config.frequency = twim::Frequency::K400;
@@ -95,9 +92,10 @@ async fn main(spawner: Spawner) {
         pins.pin_imu_scl,
         twim_config,
     );
-    let imu_driver = Lsm6ds3Driver::new(twim);
+    let imu_int1 = Input::new(pins.pin_imu_int1, Pull::Down);
+    let imu_driver = Lsm6ds3Driver::new(twim, imu_int1);
 
-    // 4. Configure EasyDMA UART (UARTE0) matching the selected build-time protocol
+    // 4. Configure Buffered EasyDMA UART (UARTE0) matching the selected build-time protocol
     let mut uarte_config = uarte::Config::default();
     #[cfg(feature = "crsf")]
     {
@@ -109,36 +107,41 @@ async fn main(spawner: Spawner) {
     }
     uarte_config.parity = uarte::Parity::EXCLUDED;
 
+    static mut RX_BUFFER: [u8; 512] = [0; 512];
+    static mut TX_BUFFER: [u8; 256] = [0; 256];
+    let rx_buf = unsafe { &mut *core::ptr::addr_of_mut!(RX_BUFFER) };
+    let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUFFER) };
+
+    let uarte = BufferedUarte::new(
+        pins.uarte_rc,
+        pins.timer_rc,
+        pins.ppi_ch0,
+        pins.ppi_ch1,
+        pins.ppi_group0,
+        Irqs,
+        pins.pin_rc_rx,
+        pins.pin_rc_tx,
+        uarte_config,
+        rx_buf,
+        tx_buf,
+    );
+    let (rx, tx) = uarte.split();
+
+    // Spawn Buffered EasyDMA receiver task (channel inputs)
+    spawner
+        .spawn(receiver_task(rx, RC_CHANNEL.sender()))
+        .unwrap();
+
     #[cfg(feature = "crsf")]
     {
-        let uarte = Uarte::new(
-            pins.uarte_rc,
-            Irqs,
-            pins.pin_rc_rx,
-            pins.pin_rc_tx,
-            uarte_config,
-        );
-        let (tx, rx) = uarte.split();
-
-        // Spawn EasyDMA receiver task (channel inputs)
-        spawner
-            .spawn(receiver_task(rx, RC_CHANNEL.sender()))
-            .unwrap();
-
         // Spawn EasyDMA telemetry task (telemetry downstream to receiver)
         spawner
             .spawn(crsf_telemetry_task(tx, TELEMETRY_WATCH.receiver().unwrap()))
             .unwrap();
     }
-
-    #[cfg(feature = "ibus")]
+    #[cfg(not(feature = "crsf"))]
     {
-        let rx = UarteRx::new(pins.uarte_rc, Irqs, pins.pin_rc_rx, uarte_config);
-
-        // Spawn EasyDMA receiver task
-        spawner
-            .spawn(receiver_task(rx, RC_CHANNEL.sender()))
-            .unwrap();
+        let _ = tx;
     }
 
     // 5. Initialize Flight Loop and calibrate Gyro
@@ -175,12 +178,9 @@ async fn main(spawner: Spawner) {
         }
 
         // Apply physical PWM output updates
-        // Servos operate at 50 Hz; update their pulse widths every 10 loop ticks (20 ms)
-        if loop_counter.is_multiple_of(10) {
-            servo_pwm.set_channel_us(0, outputs.servo1_us);
-            servo_pwm.set_channel_us(1, outputs.servo2_us);
-            servo_pwm.set_channel_us(2, outputs.servo4_us);
-        }
+        servo_pwm.set_channel_us(0, outputs.servo1_us);
+        servo_pwm.set_channel_us(1, outputs.servo2_us);
+        servo_pwm.set_channel_us(2, outputs.servo4_us);
         esc_pwm.set_throttle_us(outputs.motor1_throttle);
     }
 }

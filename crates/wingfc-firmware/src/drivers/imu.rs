@@ -1,3 +1,4 @@
+use embassy_nrf::gpio::Input;
 use embassy_nrf::twim::{self, Twim};
 use embassy_time::{with_timeout, Duration, Timer};
 use wingfc_core::math::Vector3;
@@ -5,6 +6,7 @@ use wingfc_core::math::Vector3;
 pub const LSM6DS3_ADDR: u8 = 0x6A;
 
 // Register definitions
+const INT1_CTRL_REG: u8 = 0x0D;
 const WHO_AM_I_REG: u8 = 0x0F;
 const CTRL1_XL_REG: u8 = 0x10;
 const CTRL2_G_REG: u8 = 0x11;
@@ -25,13 +27,15 @@ pub enum ImuError {
 
 pub struct Lsm6ds3Driver<'d, T: twim::Instance> {
     twim: Twim<'d, T>,
+    int1: Input<'d>,
     gyro_bias: Vector3,
 }
 
 impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
-    pub fn new(twim: Twim<'d, T>) -> Self {
+    pub fn new(twim: Twim<'d, T>, int1: Input<'d>) -> Self {
         Self {
             twim,
+            int1,
             gyro_bias: Vector3::ZERO,
         }
     }
@@ -73,7 +77,13 @@ impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
             .await
             .map_err(|_| ImuError::I2cError)?;
 
-        defmt::info!("LSM6DS3TR IMU initialized @ 1.66kHz ODR (+/-2000 dps, +/-16g)");
+        // INT1_CTRL: Route Gyro Data Ready (INT1_DRDY_G = 0x02) to INT1 hardware pin (P0.11)
+        self.twim
+            .write(LSM6DS3_ADDR, &[INT1_CTRL_REG, 0x02])
+            .await
+            .map_err(|_| ImuError::I2cError)?;
+
+        defmt::info!("LSM6DS3TR IMU initialized @ 1.66kHz ODR (DRDY on INT1, +/-2000 dps, +/-16g)");
         Ok(())
     }
 
@@ -85,11 +95,10 @@ impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
         let mut sum_z = 0.0f32;
 
         for _ in 0..sample_count {
-            let (gyro, _) = self.read_raw_scaled().await?;
+            let (gyro, _) = self.read().await?;
             sum_x += gyro.x;
             sum_y += gyro.y;
             sum_z += gyro.z;
-            Timer::after(Duration::from_millis(2)).await;
         }
 
         let inv = 1.0 / (sample_count as f32);
@@ -103,8 +112,12 @@ impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
         Ok(())
     }
 
-    /// Reads Gyro (rad/s) and Accel (m/s^2) in a single burst read
+    /// Synchronously waits for hardware Data-Ready interrupt on INT1 (P0.11)
+    /// before triggering an EasyDMA burst read over I2C.
     pub async fn read(&mut self) -> Result<(Vector3, Vector3), ImuError> {
+        // Wait for DRDY high interrupt from LSM6DS3 on P0.11 (fallback to 4ms timeout if bus disconnects)
+        let _ = with_timeout(Duration::from_millis(4), self.int1.wait_for_high()).await;
+
         let (raw_gyro, accel) = self.read_raw_scaled().await?;
         let gyro = raw_gyro - self.gyro_bias;
         Ok((gyro, accel))
@@ -112,6 +125,7 @@ impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
 
     async fn read_raw_scaled(&mut self) -> Result<(Vector3, Vector3), ImuError> {
         // Read 12 contiguous bytes: Gyro X, Y, Z (6 bytes) followed by Accel X, Y, Z (6 bytes)
+        // using non-blocking hardware EasyDMA
         let mut buf = [0u8; 12];
         with_timeout(
             Duration::from_millis(5),
