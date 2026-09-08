@@ -159,6 +159,27 @@ def validate_config(cfg):
             f"    * Ensure your elevon servos are DIGITAL models that explicitly support {servo_pwm_hz} Hz refresh."
         )
 
+
+    # Per-servo channel configurations (servo1, servo2, servo4, servo5, servo6)
+    def parse_servo(s_name, def_min=1000, def_max=2000, def_subtrim=0, def_rev=False):
+        sc = servos_cfg.get(s_name, {})
+        s_min = int(sc.get("min_us", def_min))
+        s_max = int(sc.get("max_us", def_max))
+        s_subtrim = int(sc.get("subtrim_us", def_subtrim))
+        s_rev = bool(sc.get("reversed", def_rev))
+        if s_min < 750 or s_min > 1500:
+            errors.append(f"servos.{s_name}.min_us ({s_min}) out of bounds [750, 1500]")
+        if s_max < 1500 or s_max > 2250:
+            errors.append(f"servos.{s_name}.max_us ({s_max}) out of bounds [1500, 2250]")
+        if s_subtrim < -500 or s_subtrim > 500:
+            errors.append(f"servos.{s_name}.subtrim_us ({s_subtrim}) out of bounds [-500, 500]")
+        return f"ServoConfig {{ min_us: {s_min}, max_us: {s_max}, subtrim_us: {s_subtrim}, reversed: {str(s_rev).lower()} }}"
+
+    servo1_rust = parse_servo("servo1")
+    servo2_rust = parse_servo("servo2")
+    servo4_rust = parse_servo("servo4")
+    servo5_rust = parse_servo("servo5")
+    servo6_rust = parse_servo("servo6")
     # 4. Motor ESC Protocol & PWM Frequency
     motor_cfg = cfg.get("motor", {})
     motor_proto = str(motor_cfg.get("protocol", "pwm")).strip().lower()
@@ -316,6 +337,11 @@ def validate_config(cfg):
         "arm_switch_threshold_us": arm_switch_threshold_us,
         "throttle_zero_threshold_us": throttle_zero_threshold_us,
         "servo_pwm_hz": servo_pwm_hz,
+        "servo1_rust": servo1_rust,
+        "servo2_rust": servo2_rust,
+        "servo4_rust": servo4_rust,
+        "servo5_rust": servo5_rust,
+        "servo6_rust": servo6_rust,
         "motor_proto": motor_proto,
         "motor_pwm_hz": motor_pwm_hz,
         "nav_enabled": nav_enabled,
@@ -359,7 +385,7 @@ def generate_rust_config(cfg_vals):
 
 use embassy_time::Duration;
 use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
-use wingfc_core::mixer::AirframeType;
+use wingfc_core::mixer::{{AirframeType, ServoConfig}};
 use wingfc_core::pid::PidConfig;
 
 /// Board mounting orientation
@@ -383,6 +409,15 @@ pub const THROTTLE_ZERO_THRESHOLD: u16 = {cfg_vals['throttle_zero_threshold_us']
 /// Configured PWM frame frequency for servo outputs in Hz ({MIN_PWM_HZ}Hz - {MAX_PWM_HZ}Hz).
 /// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
 pub const SERVO_PWM_HZ: u32 = {cfg_vals['servo_pwm_hz']};
+
+/// Per-servo output endpoint, subtrim, and inversion calibration profiles
+pub const SERVO_CONFIGS: [ServoConfig; 5] = [
+    {cfg_vals['servo1_rust']},
+    {cfg_vals['servo2_rust']},
+    {cfg_vals['servo4_rust']},
+    {cfg_vals['servo5_rust']},
+    {cfg_vals['servo6_rust']},
+];
 
 /// Configured PWM frame frequency for analog ESC output in Hz ({MIN_PWM_HZ}Hz - {MAX_PWM_HZ}Hz).
 /// Legacy airplane ESCs require 50 Hz; high-speed multirotor ESCs support 400 Hz.

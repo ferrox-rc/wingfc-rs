@@ -90,6 +90,42 @@ servos:
   # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   pwm_frequency_hz: 50
 
+  # Per-Servo Limits, Sub-trim, and Reversals:
+  # Servo 1: Left Elevon / Primary Aileron
+  servo1:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
+  # Servo 2: Right Elevon / Elevator / Right V-Tail
+  servo2:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
+  # Servo 4: Rudder / Left V-Tail / Aux
+  servo4:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
+  # Servo 5: Secondary Aileron (Dual Aileron airframes)
+  servo5:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
+  # Servo 6: Secondary Elevator / Aux
+  servo6:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
 # Motor ESC Output Protocol & Configuration
 motor:
   # Options:

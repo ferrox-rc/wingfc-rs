@@ -5,7 +5,7 @@
 
 use embassy_time::Duration;
 use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
-use wingfc_core::mixer::AirframeType;
+use wingfc_core::mixer::{AirframeType, ServoConfig};
 use wingfc_core::pid::PidConfig;
 
 /// Board mounting orientation
@@ -29,6 +29,40 @@ pub const THROTTLE_ZERO_THRESHOLD: u16 = 1050;
 /// Configured PWM frame frequency for servo outputs in Hz (50Hz - 400Hz).
 /// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
 pub const SERVO_PWM_HZ: u32 = 50;
+
+/// Per-servo output endpoint, subtrim, and inversion calibration profiles
+pub const SERVO_CONFIGS: [ServoConfig; 5] = [
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+];
 
 /// Configured PWM frame frequency for analog ESC output in Hz (50Hz - 400Hz).
 /// Legacy airplane ESCs require 50 Hz; high-speed multirotor ESCs support 400 Hz.
