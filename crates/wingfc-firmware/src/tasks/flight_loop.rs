@@ -13,8 +13,8 @@ use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::{
-    AHRS_BETA, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ, MAX_PITCH_ANGLE,
-    MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG,
+    AHRS_BETA, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ,
+    MAX_PITCH_ANGLE, MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG,
     THROTTLE_ZERO_THRESHOLD,
 };
 #[cfg(not(feature = "dshot"))]
@@ -244,8 +244,8 @@ impl<'d> FlightLoopState<'d> {
                 let target_roll = roll_stick * MAX_ROLL_ANGLE;
 
                 // Outer P-loop calculates target rates from angle errors
-                let target_pitch_rate = (target_pitch - est_pitch) * 4.0;
-                let target_roll_rate = (target_roll - est_roll) * 4.0;
+                let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
+                let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
 
                 roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);

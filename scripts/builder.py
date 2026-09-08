@@ -214,6 +214,9 @@ def validate_config(cfg):
         errors.append("tuning.angle_limits.max_roll_deg must be between 10.0 and 85.0 deg.")
     if max_pitch_deg < 10.0 or max_pitch_deg > 85.0:
         errors.append("tuning.angle_limits.max_pitch_deg must be between 10.0 and 85.0 deg.")
+    angle_p_gain = float(angle_lim.get("angle_p_gain", 4.0))
+    if angle_p_gain < 0.5 or angle_p_gain > 20.0:
+        errors.append("tuning.angle_limits.angle_p_gain must be between 0.5 and 20.0 s^-1.")
 
     filters = tuning_cfg.get("filters", {})
     gyro_lpf = float(filters.get("gyro_lpf_hz", 90.0))
@@ -300,6 +303,7 @@ def validate_config(cfg):
         "yaw_dps": yaw_dps,
         "max_roll_deg": max_roll_deg,
         "max_pitch_deg": max_pitch_deg,
+        "angle_p_gain": angle_p_gain,
         "gyro_lpf": gyro_lpf,
         "dterm_lpf": dterm_lpf,
         "ff_lpf": ff_lpf,
@@ -360,6 +364,9 @@ pub const MAX_ROLL_ANGLE: f32 = {cfg_vals['max_roll_deg']:.1f} * DEG_TO_RAD;
 
 /// Maximum pitch angle in Angle / Self-Leveling mode (rad)
 pub const MAX_PITCH_ANGLE: f32 = {cfg_vals['max_pitch_deg']:.1f} * DEG_TO_RAD;
+
+/// Outer proportional gain converting attitude angle error to target rate in Angle mode (s^-1)
+pub const ANGLE_P_GAIN: f32 = {cfg_vals['angle_p_gain']:.2f};
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};

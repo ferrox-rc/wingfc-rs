@@ -42,6 +42,9 @@ pub const MAX_ROLL_ANGLE: f32 = 60.0 * DEG_TO_RAD;
 /// Maximum pitch angle in Angle / Self-Leveling mode (rad)
 pub const MAX_PITCH_ANGLE: f32 = 45.0 * DEG_TO_RAD;
 
+/// Outer proportional gain converting attitude angle error to target rate in Angle mode (s^-1)
+pub const ANGLE_P_GAIN: f32 = 4.00;
+
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = 15.0;
 
