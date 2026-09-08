@@ -75,27 +75,41 @@ async fn main(spawner: Spawner) {
     spawner.spawn(telemetry_led_task(led_driver, STATUS_WATCH.receiver().unwrap()).unwrap());
 
     // 2. Initialize Actuators (PWM)
-    // Motor 1 ESC on PWM1 (configurable 50Hz..400Hz analog or DShot)
+    // Motors 1 & 2 ESC on PWM0 (configurable 50Hz..400Hz analog or DShot)
     #[cfg(not(feature = "dshot"))]
     let esc_config = EscPwmDriver::config(ESC_PWM_HZ);
     #[cfg(not(feature = "dshot"))]
-    let pwm_esc_dev = SimplePwm::new_1ch(pins.pwm_esc, pins.pin_motor1, &esc_config);
+    let pwm_esc_dev =
+        SimplePwm::new_2ch(pins.pwm_esc, pins.pin_motor1, pins.pin_motor2, &esc_config);
     #[cfg(not(feature = "dshot"))]
     let mut esc_pwm = EscPwmDriver::new(pwm_esc_dev);
 
-    // Servos (Elevons + Aux) on PWM0 (50Hz analog)
+    // Primary Servos (1, 2, 4, 5) on PWM1 (50Hz..400Hz)
     let servo_config = ServoPwmDriver::config(SERVO_PWM_HZ);
-    let pwm_servos_dev = SimplePwm::new_3ch(
-        pins.pwm_servos,
-        pins.pin_servo_left,
-        pins.pin_servo_right,
-        pins.pin_servo_aux,
+    let pwm1_servos_dev = SimplePwm::new_4ch(
+        pins.pwm1_servos,
+        pins.pin_servo1,
+        pins.pin_servo2,
+        pins.pin_servo4,
+        pins.pin_servo5,
         &servo_config,
     );
-    let mut servo_pwm = ServoPwmDriver::new(pwm_servos_dev);
+    let mut servo_pwm = ServoPwmDriver::new(pwm1_servos_dev);
+
+    #[cfg(feature = "gps")]
+    let pwm2_servos_dev = SimplePwm::new_4ch(
+        pins.pwm2_servos,
+        pins.pin_servo6,
+        pins.pin_servo7,
+        pins.pin_servo8,
+        pins.pin_servo9,
+        &servo_config,
+    );
+    #[cfg(feature = "gps")]
+    let mut servo_pwm_ext = ServoPwmDriver::new(pwm2_servos_dev);
 
     // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
-    let _imu_pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::HighDrive);
+    let _imu_pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::Standard);
 
     let mut twim_config = twim::Config::default();
     twim_config.frequency = twim::Frequency::K400;
@@ -192,7 +206,13 @@ async fn main(spawner: Spawner) {
         servo_pwm.set_channel_us(0, outputs.servo1_us);
         servo_pwm.set_channel_us(1, outputs.servo2_us);
         servo_pwm.set_channel_us(2, outputs.servo4_us);
+        servo_pwm.set_channel_us(3, outputs.servo5_us);
+        #[cfg(feature = "gps")]
+        servo_pwm_ext.set_channel_us(0, outputs.servo6_us);
         #[cfg(not(feature = "dshot"))]
-        esc_pwm.set_throttle_us(outputs.motor1_throttle);
+        {
+            esc_pwm.set_throttle_us(0, outputs.motor1_throttle);
+            esc_pwm.set_throttle_us(1, outputs.motor2_throttle);
+        }
     }
 }

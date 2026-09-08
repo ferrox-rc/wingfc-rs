@@ -102,12 +102,14 @@ impl<'d> FlightLoopState<'d> {
                 if let Ok(rc) = rc_rx.try_receive() {
                     self.latest_rc = rc;
                     let throttle = rc.channels[2].clamp(1000, 2000);
-                    esc_pwm.set_throttle_us(throttle);
+                    esc_pwm.set_throttle_us(0, throttle);
+                    esc_pwm.set_throttle_us(1, throttle);
 
                     // Pilot lowered stick to zero: exit calibration
                     if throttle <= 1050 {
                         defmt::info!("ESC Throttle Minimum reached. Finalizing ESC calibration.");
-                        esc_pwm.set_throttle_us(1000);
+                        esc_pwm.set_throttle_us(0, 1000);
+                        esc_pwm.set_throttle_us(1, 1000);
                         Timer::after(Duration::from_millis(500)).await;
                         break;
                     }
