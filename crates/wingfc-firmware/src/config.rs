@@ -7,6 +7,7 @@ use embassy_time::Duration;
 use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
 use wingfc_core::mixer::{AirframeType, ServoConfig};
 use wingfc_core::pid::PidConfig;
+use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = BoardOrientation::Default;
@@ -85,6 +86,23 @@ pub const MAX_PITCH_ANGLE: f32 = 45.0 * DEG_TO_RAD;
 
 /// Outer proportional gain converting attitude angle error to target rate in Angle mode (s^-1)
 pub const ANGLE_P_GAIN: f32 = 4.00;
+
+/// In-flight real-time PID potentiometer tuning configuration
+pub const IN_FLIGHT_TUNING_ENABLED: bool = false;
+pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {
+    slot_a: TuneSlot {
+        parameter: TuneParameter::None,
+        channel_idx: 5,
+        min_val: 0.0500,
+        max_val: 0.5000,
+    },
+    slot_b: TuneSlot {
+        parameter: TuneParameter::None,
+        channel_idx: 6,
+        min_val: 0.0050,
+        max_val: 0.0500,
+    },
+};
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = 15.0;

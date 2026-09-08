@@ -13,6 +13,7 @@ pub mod mixer;
 pub mod pid;
 pub mod protocol;
 pub mod safety;
+pub mod tuning;
 #[cfg(feature = "baro")]
 pub mod vertical_kf;
 
@@ -28,5 +29,6 @@ pub use mixer::{AirframeMixer, AirframeOutputs, AirframeType, ServoConfig};
 pub use pid::{PidConfig, PidController};
 pub use protocol::{CrsfTelemetryEncoder, RcChannels};
 pub use safety::{ArmingSafety, ArmingStatus};
+pub use tuning::{InFlightTuning, TuneParameter, TuneSlot};
 #[cfg(feature = "baro")]
 pub use vertical_kf::VerticalKalmanFilter;

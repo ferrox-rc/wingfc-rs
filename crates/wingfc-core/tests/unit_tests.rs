@@ -815,3 +815,32 @@ fn test_board_orientation_transforms() {
         Vector3::new(2.0, 1.0, -3.0)
     );
 }
+
+#[test]
+fn test_in_flight_tuning_pots() {
+    use wingfc_core::pid::{PidConfig, PidController};
+    use wingfc_core::protocol::RcChannels;
+    use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
+
+    let mut pitch_pid = PidController::new(PidConfig::default(), 0.002);
+    let mut roll_pid = PidController::new(PidConfig::default(), 0.002);
+
+    let mut rc = RcChannels::default();
+    rc.channels[5] = 1000; // Slot A low
+    rc.channels[6] = 2000; // Slot B high
+
+    let tuning = InFlightTuning::new(
+        TuneSlot::new(TuneParameter::PitchKp, 5, 0.1, 0.5),
+        TuneSlot::new(TuneParameter::RollKd, 6, 0.01, 0.05),
+    );
+
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid);
+
+    assert!((pitch_pid.config.kp - 0.1).abs() < 1e-4);
+    assert!((roll_pid.config.kd - 0.05).abs() < 1e-4);
+
+    // Now test mid-stick (1500 us)
+    rc.channels[5] = 1500;
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid);
+    assert!((pitch_pid.config.kp - 0.3).abs() < 1e-4);
+}

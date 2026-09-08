@@ -126,6 +126,23 @@ servos:
     subtrim_us: 0
     reversed: false
 
+# In-Flight Dynamic PID Tuning (via transmitter potentiometer / slider channels)
+in_flight_tuning:
+  enabled: false
+  # Slot A: Tune a PID term using RC Channel (1-16)
+  slot_a:
+    parameter: none     # Options: none, pitch_kp, roll_kp, pitch_ki, roll_ki, pitch_kd, roll_kd, pitch_kff, roll_kff
+    channel: 6          # RC Channel number (1-16, e.g., 6 = CH6 / AUX2)
+    min_val: 0.05
+    max_val: 0.50
+
+  # Slot B: Tune a second PID term
+  slot_b:
+    parameter: none
+    channel: 7          # RC Channel number (1-16, e.g., 7 = CH7 / AUX3)
+    min_val: 0.005
+    max_val: 0.050
+
 # Motor ESC Output Protocol & Configuration
 motor:
   # Options:

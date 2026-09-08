@@ -180,6 +180,38 @@ def validate_config(cfg):
     servo4_rust = parse_servo("servo4")
     servo5_rust = parse_servo("servo5")
     servo6_rust = parse_servo("servo6")
+
+    # In-Flight Dynamic PID Tuning (Slots A & B)
+    param_map = {
+        "none": "TuneParameter::None",
+        "pitch_kp": "TuneParameter::PitchKp",
+        "roll_kp": "TuneParameter::RollKp",
+        "pitch_ki": "TuneParameter::PitchKi",
+        "roll_ki": "TuneParameter::RollKi",
+        "pitch_kd": "TuneParameter::PitchKd",
+        "roll_kd": "TuneParameter::RollKd",
+        "pitch_kff": "TuneParameter::PitchKff",
+        "roll_kff": "TuneParameter::RollKff",
+    }
+    ift_cfg = cfg.get("in_flight_tuning", {})
+    ift_enabled = bool(ift_cfg.get("enabled", False))
+
+    def parse_slot(slot_name, def_ch):
+        sc = ift_cfg.get(slot_name, {})
+        param = str(sc.get("parameter", "none")).strip().lower()
+        if param not in param_map:
+            errors.append(f"in_flight_tuning.{slot_name}.parameter '{param}' invalid. Valid: {list(param_map.keys())}")
+        param_rust = param_map.get(param, "TuneParameter::None")
+        ch = int(sc.get("channel", def_ch))
+        if ch < 1 or ch > 16:
+            errors.append(f"in_flight_tuning.{slot_name}.channel ({ch}) out of bounds [1, 16]")
+        min_v = float(sc.get("min_val", 0.0))
+        max_v = float(sc.get("max_val", 1.0))
+        ch_idx = max(0, ch - 1)
+        return f"TuneSlot {{ parameter: {param_rust}, channel_idx: {ch_idx}, min_val: {min_v:.4f}, max_val: {max_v:.4f} }}"
+
+    slot_a_rust = parse_slot("slot_a", 6)
+    slot_b_rust = parse_slot("slot_b", 7)
     # 4. Motor ESC Protocol & PWM Frequency
     motor_cfg = cfg.get("motor", {})
     motor_proto = str(motor_cfg.get("protocol", "pwm")).strip().lower()
@@ -342,6 +374,9 @@ def validate_config(cfg):
         "servo4_rust": servo4_rust,
         "servo5_rust": servo5_rust,
         "servo6_rust": servo6_rust,
+        "ift_enabled": "true" if ift_enabled else "false",
+        "slot_a_rust": slot_a_rust,
+        "slot_b_rust": slot_b_rust,
         "motor_proto": motor_proto,
         "motor_pwm_hz": motor_pwm_hz,
         "nav_enabled": nav_enabled,
@@ -386,6 +421,7 @@ def generate_rust_config(cfg_vals):
 use embassy_time::Duration;
 use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
 use wingfc_core::mixer::{{AirframeType, ServoConfig}};
+use wingfc_core::tuning::{{InFlightTuning, TuneParameter, TuneSlot}};
 use wingfc_core::pid::PidConfig;
 
 /// Board mounting orientation
@@ -440,6 +476,13 @@ pub const MAX_PITCH_ANGLE: f32 = {cfg_vals['max_pitch_deg']:.1f} * DEG_TO_RAD;
 
 /// Outer proportional gain converting attitude angle error to target rate in Angle mode (s^-1)
 pub const ANGLE_P_GAIN: f32 = {cfg_vals['angle_p_gain']:.2f};
+
+/// In-flight real-time PID potentiometer tuning configuration
+pub const IN_FLIGHT_TUNING_ENABLED: bool = {cfg_vals['ift_enabled']};
+pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {{
+    slot_a: {cfg_vals['slot_a_rust']},
+    slot_b: {cfg_vals['slot_b_rust']},
+}};
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};

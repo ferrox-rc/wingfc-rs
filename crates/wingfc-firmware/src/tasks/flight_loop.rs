@@ -14,8 +14,9 @@ use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::{
     AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT,
-    GYRO_LPF_CUTOFF_HZ, MAX_PITCH_ANGLE, MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE,
-    MAX_YAW_RATE, RATE_PID_CONFIG, SERVO_CONFIGS, THROTTLE_ZERO_THRESHOLD,
+    GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED, MAX_PITCH_ANGLE,
+    MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG, SERVO_CONFIGS,
+    THROTTLE_ZERO_THRESHOLD,
 };
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
@@ -179,6 +180,11 @@ impl<'d> FlightLoopState<'d> {
         let pitch_stick = map_range(self.latest_rc.channels[1] as f32, 988.0, 2012.0, -1.0, 1.0);
         let throttle_raw = self.latest_rc.channels[2].clamp(1000, 2000);
         let yaw_stick = map_range(self.latest_rc.channels[3] as f32, 988.0, 2012.0, -1.0, 1.0);
+
+        // Optional in-flight potentiometer PID tuning
+        if IN_FLIGHT_TUNING_ENABLED {
+            IN_FLIGHT_TUNING.update(&self.latest_rc, &mut self.pitch_pid, &mut self.roll_pid);
+        }
 
         // 4. Update Arming Safety State Machine
         let new_status = self.safety.update(
