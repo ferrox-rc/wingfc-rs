@@ -1,4 +1,6 @@
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::peripherals;
+use embassy_nrf::Peri;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LedColor {
@@ -19,9 +21,9 @@ pub struct RgbLedDriver {
 
 impl RgbLedDriver {
     pub fn new(
-        red_pin: embassy_nrf::peripherals::P0_26,
-        green_pin: embassy_nrf::peripherals::P0_30,
-        blue_pin: embassy_nrf::peripherals::P0_06,
+        red_pin: Peri<'static, peripherals::P0_26>,
+        green_pin: Peri<'static, peripherals::P0_30>,
+        blue_pin: Peri<'static, peripherals::P0_06>,
     ) -> Self {
         // Active-low: start with all LEDs OFF (Level::High)
         let red = Output::new(red_pin, Level::High, OutputDrive::Standard);

@@ -1,5 +1,5 @@
 use embassy_nrf::gpio::Input;
-use embassy_nrf::twim::{self, Twim};
+use embassy_nrf::twim::Twim;
 use embassy_time::{with_timeout, Duration, Timer};
 use wingfc_core::math::Vector3;
 
@@ -25,14 +25,14 @@ pub enum ImuError {
     I2cError,
 }
 
-pub struct Lsm6ds3Driver<'d, T: twim::Instance> {
-    twim: Twim<'d, T>,
+pub struct Lsm6ds3Driver<'d> {
+    twim: Twim<'d>,
     int1: Input<'d>,
     gyro_bias: Vector3,
 }
 
-impl<'d, T: twim::Instance> Lsm6ds3Driver<'d, T> {
-    pub fn new(twim: Twim<'d, T>, int1: Input<'d>) -> Self {
+impl<'d> Lsm6ds3Driver<'d> {
+    pub fn new(twim: Twim<'d>, int1: Input<'d>) -> Self {
         Self {
             twim,
             int1,

@@ -5,6 +5,7 @@
 //! future XIAO Sense Plus expansion variant for GPS integration) from application runtime logic.
 
 use embassy_nrf::peripherals;
+use embassy_nrf::Peri;
 
 /// Centralized board pin and peripheral container for the Seeed Studio XIAO nRF52840 Sense / Sense Plus.
 ///
@@ -15,73 +16,73 @@ pub struct BoardPins {
     // Actuators (PWM)
     // ==========================================
     /// PWM1 peripheral dedicated to Motor 1 ESC (400Hz analog or DShot timing)
-    pub pwm_esc: peripherals::PWM1,
+    pub pwm_esc: Peri<'static, peripherals::PWM1>,
     /// Physical Pin: P0.29 (Silkscreen: D3) - Motor 1 ESC signal
-    pub pin_motor1: peripherals::P0_29,
+    pub pin_motor1: Peri<'static, peripherals::P0_29>,
 
     /// PWM0 peripheral dedicated to 50Hz analog servos
-    pub pwm_servos: peripherals::PWM0,
+    pub pwm_servos: Peri<'static, peripherals::PWM0>,
     /// Physical Pin: P0.02 (Silkscreen: D0) - Left Elevon (Channel 0)
-    pub pin_servo_left: peripherals::P0_02,
+    pub pin_servo_left: Peri<'static, peripherals::P0_02>,
     /// Physical Pin: P0.03 (Silkscreen: D1) - Right Elevon (Channel 1)
-    pub pin_servo_right: peripherals::P0_03,
+    pub pin_servo_right: Peri<'static, peripherals::P0_03>,
     /// Physical Pin: P0.28 (Silkscreen: D2) - Auxiliary Servo / Rudder (Channel 2)
-    pub pin_servo_aux: peripherals::P0_28,
+    pub pin_servo_aux: Peri<'static, peripherals::P0_28>,
 
     // ==========================================
     // Visual Telemetry (RGB LED)
     // ==========================================
     /// Physical Pin: P0.26 (Internal) - Active-LOW Red Telemetry LED
-    pub pin_led_red: peripherals::P0_26,
+    pub pin_led_red: Peri<'static, peripherals::P0_26>,
     /// Physical Pin: P0.30 (Internal) - Active-LOW Green Telemetry LED
-    pub pin_led_green: peripherals::P0_30,
+    pub pin_led_green: Peri<'static, peripherals::P0_30>,
     /// Physical Pin: P0.06 (Internal) - Active-LOW Blue Telemetry LED
-    pub pin_led_blue: peripherals::P0_06,
+    pub pin_led_blue: Peri<'static, peripherals::P0_06>,
 
     // ==========================================
     // Internal IMU (LSM6DS3TR on TWISPI0)
     // ==========================================
     /// TWISPI0 hardware peripheral for 400kHz Fast-Mode I2C
-    pub twispi_imu: peripherals::TWISPI0,
+    pub twispi_imu: Peri<'static, peripherals::TWISPI0>,
     /// Physical Pin: P0.07 (Internal) - IMU I2C SDA
-    pub pin_imu_sda: peripherals::P0_07,
+    pub pin_imu_sda: Peri<'static, peripherals::P0_07>,
     /// Physical Pin: P0.27 (Internal) - IMU I2C SCL
-    pub pin_imu_scl: peripherals::P0_27,
+    pub pin_imu_scl: Peri<'static, peripherals::P0_27>,
     /// Physical Pin: P1.08 (Internal) - IMU Power Rail Enable (Active HIGH)
-    pub pin_imu_pwr: peripherals::P1_08,
+    pub pin_imu_pwr: Peri<'static, peripherals::P1_08>,
     /// Physical Pin: P0.11 (Internal) - IMU INT1 (Hardware Data-Ready Interrupt)
-    pub pin_imu_int1: peripherals::P0_11,
+    pub pin_imu_int1: Peri<'static, peripherals::P0_11>,
 
     // ==========================================
     // RC Receiver (Buffered EasyDMA UARTE0)
     // ==========================================
     /// UARTE0 hardware peripheral for non-blocking EasyDMA serial reception & telemetry
-    pub uarte_rc: peripherals::UARTE0,
+    pub uarte_rc: Peri<'static, peripherals::UARTE0>,
     /// Hardware TIMER0 dedicated to background DMA double-buffering & timeout detection
-    pub timer_rc: peripherals::TIMER0,
+    pub timer_rc: Peri<'static, peripherals::TIMER0>,
     /// Programmable Peripheral Interconnect channel 0
-    pub ppi_ch0: peripherals::PPI_CH0,
+    pub ppi_ch0: Peri<'static, peripherals::PPI_CH0>,
     /// Programmable Peripheral Interconnect channel 1
-    pub ppi_ch1: peripherals::PPI_CH1,
+    pub ppi_ch1: Peri<'static, peripherals::PPI_CH1>,
     /// Programmable Peripheral Interconnect Group 0
-    pub ppi_group0: peripherals::PPI_GROUP0,
+    pub ppi_group0: Peri<'static, peripherals::PPI_GROUP0>,
     /// Physical Pin: P1.12 (Silkscreen: D7) - RC Receiver RX (from receiver TX)
-    pub pin_rc_rx: peripherals::P1_12,
+    pub pin_rc_rx: Peri<'static, peripherals::P1_12>,
     /// Physical Pin: P1.11 (Silkscreen: D6) - RC Telemetry TX (to receiver RX)
-    pub pin_rc_tx: peripherals::P1_11,
+    pub pin_rc_tx: Peri<'static, peripherals::P1_11>,
 
     // ==========================================
     // GPS Receiver (EasyDMA UARTE1 - XIAO Sense Plus)
     // ==========================================
     #[cfg(feature = "gps")]
     /// UARTE1 hardware peripheral for GPS communication (Sense Plus variant)
-    pub uarte_gps: peripherals::UARTE1,
+    pub uarte_gps: Peri<'static, peripherals::UARTE1>,
     #[cfg(feature = "gps")]
     /// Physical Pin: P1.14 (Silkscreen: D9) - GPS UART RX
-    pub pin_gps_rx: peripherals::P1_14,
+    pub pin_gps_rx: Peri<'static, peripherals::P1_14>,
     #[cfg(feature = "gps")]
     /// Physical Pin: P1.15 (Silkscreen: D10) - GPS UART TX
-    pub pin_gps_tx: peripherals::P1_15,
+    pub pin_gps_tx: Peri<'static, peripherals::P1_15>,
 }
 
 impl BoardPins {

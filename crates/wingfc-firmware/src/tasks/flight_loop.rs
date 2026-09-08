@@ -1,5 +1,4 @@
-use embassy_nrf::twim;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Receiver;
 use embassy_sync::watch::Sender;
 #[cfg(not(feature = "dshot"))]
@@ -23,8 +22,8 @@ use crate::drivers::EscPwmDriver;
 use crate::drivers::Lsm6ds3Driver;
 use crate::tasks::telemetry::VisualStatus;
 
-pub struct FlightLoopState<'d, T: twim::Instance> {
-    pub imu: Lsm6ds3Driver<'d, T>,
+pub struct FlightLoopState<'d> {
+    pub imu: Lsm6ds3Driver<'d>,
     pub ahrs: MadgwickAHRS,
     pub gyro_lpf_x: Pt1Filter,
     pub gyro_lpf_y: Pt1Filter,
@@ -39,8 +38,8 @@ pub struct FlightLoopState<'d, T: twim::Instance> {
     pub status: ArmingStatus,
 }
 
-impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
-    pub fn new(imu: Lsm6ds3Driver<'d, T>) -> Self {
+impl<'d> FlightLoopState<'d> {
+    pub fn new(imu: Lsm6ds3Driver<'d>) -> Self {
         let mut gyro_lpf_x = Pt1Filter::new();
         let mut gyro_lpf_y = Pt1Filter::new();
         let mut gyro_lpf_z = Pt1Filter::new();
@@ -67,11 +66,11 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
 
     /// Initializes hardware, checks for ESC Throttle Calibration, and runs Gyro Calibration (Analog PWM)
     #[cfg(not(feature = "dshot"))]
-    pub async fn init<E: embassy_nrf::pwm::Instance>(
+    pub async fn init(
         &mut self,
-        rc_rx: &Receiver<'static, CriticalSectionRawMutex, RcChannels, 2>,
-        status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>,
-        esc_pwm: &mut EscPwmDriver<'_, E>,
+        rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
+        status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
+        esc_pwm: &mut EscPwmDriver<'_>,
     ) {
         // Step 1: Wait briefly (~500ms) to check if pilot powered on with Throttle HIGH for ESC Calibration
         let start = Instant::now();
@@ -134,10 +133,7 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
 
     /// Initializes hardware and runs Gyro Calibration (Digital DShot ESC - no analog calibration needed)
     #[cfg(feature = "dshot")]
-    pub async fn init(
-        &mut self,
-        status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>,
-    ) {
+    pub async fn init(&mut self, status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>) {
         // Gyro Stationary Calibration
         status_tx.send(VisualStatus::Calibration);
 
@@ -161,8 +157,8 @@ impl<'d, T: twim::Instance> FlightLoopState<'d, T> {
     /// Execute one 500Hz flight cycle
     pub async fn step(
         &mut self,
-        rc_rx: &Receiver<'static, CriticalSectionRawMutex, RcChannels, 2>,
-        status_tx: &Sender<'static, CriticalSectionRawMutex, VisualStatus, 2>,
+        rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
+        status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
     ) -> AirframeOutputs {
         // 1. Drain latest RC packet
         while let Ok(channels) = rc_rx.try_receive() {

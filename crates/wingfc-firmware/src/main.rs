@@ -12,10 +12,11 @@ use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::pwm::SimplePwm;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::uarte::{self, Baudrate};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
 use embassy_time::{Duration, Ticker};
+use static_cell::ConstStaticCell;
 
 use wingfc_core::protocol::RcChannels;
 
@@ -36,10 +37,10 @@ bind_interrupts!(struct Irqs {
     UARTE0 => buffered_uarte::InterruptHandler<embassy_nrf::peripherals::UARTE0>;
 });
 
-static RC_CHANNEL: Channel<CriticalSectionRawMutex, RcChannels, 2> = Channel::new();
-static STATUS_WATCH: Watch<CriticalSectionRawMutex, VisualStatus, 2> = Watch::new();
+static RC_CHANNEL: Channel<ThreadModeRawMutex, RcChannels, 2> = Channel::new();
+static STATUS_WATCH: Watch<ThreadModeRawMutex, VisualStatus, 2> = Watch::new();
 #[cfg(feature = "crsf")]
-static TELEMETRY_WATCH: Watch<CriticalSectionRawMutex, FlightTelemetrySnapshot, 2> = Watch::new();
+static TELEMETRY_WATCH: Watch<ThreadModeRawMutex, FlightTelemetrySnapshot, 2> = Watch::new();
 
 #[cfg(all(feature = "crsf", feature = "ibus"))]
 compile_error!("Features 'crsf' and 'ibus' are mutually exclusive. Exactly one receiver protocol must be selected.");
@@ -59,38 +60,41 @@ async fn main(spawner: Spawner) {
 
     // 1. Initialize Visual Telemetry (RGB LED)
     let led_driver = RgbLedDriver::new(pins.pin_led_red, pins.pin_led_green, pins.pin_led_blue);
-    spawner
-        .spawn(telemetry_led_task(
-            led_driver,
-            STATUS_WATCH.receiver().unwrap(),
-        ))
-        .unwrap();
+    spawner.spawn(telemetry_led_task(led_driver, STATUS_WATCH.receiver().unwrap()).unwrap());
 
     // 2. Initialize Actuators (PWM)
     // Motor 1 ESC on PWM1 (configurable 50Hz..400Hz analog or DShot)
-    let pwm_esc_dev = SimplePwm::new_1ch(pins.pwm_esc, pins.pin_motor1);
-    let mut esc_pwm = EscPwmDriver::new(pwm_esc_dev, ESC_PWM_HZ);
+    #[cfg(not(feature = "dshot"))]
+    let esc_config = EscPwmDriver::config(ESC_PWM_HZ);
+    #[cfg(not(feature = "dshot"))]
+    let pwm_esc_dev = SimplePwm::new_1ch(pins.pwm_esc, pins.pin_motor1, &esc_config);
+    #[cfg(not(feature = "dshot"))]
+    let mut esc_pwm = EscPwmDriver::new(pwm_esc_dev);
 
     // Servos (Elevons + Aux) on PWM0 (50Hz analog)
+    let servo_config = ServoPwmDriver::config(SERVO_PWM_HZ);
     let pwm_servos_dev = SimplePwm::new_3ch(
         pins.pwm_servos,
         pins.pin_servo_left,
         pins.pin_servo_right,
         pins.pin_servo_aux,
+        &servo_config,
     );
-    let mut servo_pwm = ServoPwmDriver::new(pwm_servos_dev, SERVO_PWM_HZ);
+    let mut servo_pwm = ServoPwmDriver::new(pwm_servos_dev);
 
     // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
-    let mut _pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::HighDrive);
+    let _imu_pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::HighDrive);
 
     let mut twim_config = twim::Config::default();
     twim_config.frequency = twim::Frequency::K400;
+    static TWIM_TX_BUF: ConstStaticCell<[u8; 16]> = ConstStaticCell::new([0; 16]);
     let twim = Twim::new(
         pins.twispi_imu,
         Irqs,
         pins.pin_imu_sda,
         pins.pin_imu_scl,
         twim_config,
+        TWIM_TX_BUF.take(),
     );
     let imu_int1 = Input::new(pins.pin_imu_int1, Pull::Down);
     let imu_driver = Lsm6ds3Driver::new(twim, imu_int1);
@@ -103,14 +107,12 @@ async fn main(spawner: Spawner) {
     }
     #[cfg(feature = "ibus")]
     {
-        uarte_config.baudrate = Baudrate::BAUD115200;
+        uarte_config.baudrate = Baudrate::Baud115200;
     }
-    uarte_config.parity = uarte::Parity::EXCLUDED;
+    uarte_config.parity = uarte::Parity::Excluded;
 
-    static mut RX_BUFFER: [u8; 512] = [0; 512];
-    static mut TX_BUFFER: [u8; 256] = [0; 256];
-    let rx_buf = unsafe { &mut *core::ptr::addr_of_mut!(RX_BUFFER) };
-    let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUFFER) };
+    static RX_BUFFER: ConstStaticCell<[u8; 512]> = ConstStaticCell::new([0; 512]);
+    static TX_BUFFER: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0; 256]);
 
     let uarte = BufferedUarte::new(
         pins.uarte_rc,
@@ -118,26 +120,22 @@ async fn main(spawner: Spawner) {
         pins.ppi_ch0,
         pins.ppi_ch1,
         pins.ppi_group0,
-        Irqs,
         pins.pin_rc_rx,
         pins.pin_rc_tx,
+        Irqs,
         uarte_config,
-        rx_buf,
-        tx_buf,
+        RX_BUFFER.take(),
+        TX_BUFFER.take(),
     );
     let (rx, tx) = uarte.split();
 
     // Spawn Buffered EasyDMA receiver task (channel inputs)
-    spawner
-        .spawn(receiver_task(rx, RC_CHANNEL.sender()))
-        .unwrap();
+    spawner.spawn(receiver_task(rx, RC_CHANNEL.sender()).unwrap());
 
     #[cfg(feature = "crsf")]
     {
         // Spawn EasyDMA telemetry task (telemetry downstream to receiver)
-        spawner
-            .spawn(crsf_telemetry_task(tx, TELEMETRY_WATCH.receiver().unwrap()))
-            .unwrap();
+        spawner.spawn(crsf_telemetry_task(tx, TELEMETRY_WATCH.receiver().unwrap()).unwrap());
     }
     #[cfg(not(feature = "crsf"))]
     {
@@ -181,6 +179,7 @@ async fn main(spawner: Spawner) {
         servo_pwm.set_channel_us(0, outputs.servo1_us);
         servo_pwm.set_channel_us(1, outputs.servo2_us);
         servo_pwm.set_channel_us(2, outputs.servo4_us);
+        #[cfg(not(feature = "dshot"))]
         esc_pwm.set_throttle_us(outputs.motor1_throttle);
     }
 }

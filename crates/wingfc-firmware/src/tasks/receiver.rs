@@ -1,5 +1,5 @@
 use embassy_nrf::buffered_uarte::BufferedUarteRx;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Sender;
 use wingfc_core::protocol::RcChannels;
 
@@ -13,12 +13,8 @@ compile_error!("Either feature `crsf` or `ibus` must be enabled.");
 
 #[embassy_executor::task]
 pub async fn receiver_task(
-    mut rx: BufferedUarteRx<
-        'static,
-        embassy_nrf::peripherals::UARTE0,
-        embassy_nrf::peripherals::TIMER0,
-    >,
-    channel_tx: Sender<'static, CriticalSectionRawMutex, RcChannels, 2>,
+    mut rx: BufferedUarteRx<'static>,
+    channel_tx: Sender<'static, ThreadModeRawMutex, RcChannels, 2>,
 ) {
     #[cfg(feature = "crsf")]
     {

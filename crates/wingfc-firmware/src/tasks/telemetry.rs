@@ -1,4 +1,4 @@
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Receiver;
 use embassy_time::{Duration, Ticker};
 use wingfc_core::safety::ArmingStatus;
@@ -72,7 +72,7 @@ impl Default for FlightTelemetrySnapshot {
 #[embassy_executor::task]
 pub async fn telemetry_led_task(
     mut led: RgbLedDriver,
-    mut status_rx: Receiver<'static, CriticalSectionRawMutex, VisualStatus, 2>,
+    mut status_rx: Receiver<'static, ThreadModeRawMutex, VisualStatus, 2>,
 ) {
     defmt::info!("Starting RGB LED Telemetry task...");
 
@@ -148,8 +148,8 @@ pub async fn telemetry_led_task(
 #[cfg(feature = "crsf")]
 #[embassy_executor::task]
 pub async fn crsf_telemetry_task(
-    mut tx: embassy_nrf::buffered_uarte::BufferedUarteTx<'static, embassy_nrf::peripherals::UARTE0>,
-    mut telem_rx: Receiver<'static, CriticalSectionRawMutex, FlightTelemetrySnapshot, 2>,
+    mut tx: embassy_nrf::buffered_uarte::BufferedUarteTx<'static>,
+    mut telem_rx: Receiver<'static, ThreadModeRawMutex, FlightTelemetrySnapshot, 2>,
 ) {
     use embassy_time::{Duration, Ticker};
     use wingfc_core::protocol::crsf::CrsfTelemetryEncoder;
