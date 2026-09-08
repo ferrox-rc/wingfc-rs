@@ -12,6 +12,8 @@ use embassy_nrf::Peri;
 /// Encapsulates all physical GPIOs and on-chip peripheral blocks allocated to flight
 /// control functions, motor ESC outputs, servo linkages, IMU buses, and telemetry.
 pub struct BoardPins {
+    /// Hardware Watchdog Timer
+    pub wdt: Peri<'static, peripherals::WDT>,
     // ==========================================
     // Actuators (PWM)
     // ==========================================
@@ -89,6 +91,7 @@ impl BoardPins {
     /// Extracts and groups pins from the initialized `embassy_nrf::Peripherals`.
     pub fn from_peripherals(p: embassy_nrf::Peripherals) -> Self {
         Self {
+            wdt: p.WDT,
             pwm_esc: p.PWM1,
             pin_motor1: p.P0_29,
             pwm_servos: p.PWM0,

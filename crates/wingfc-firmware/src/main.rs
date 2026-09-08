@@ -12,6 +12,7 @@ use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::pwm::SimplePwm;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::uarte::{self, Baudrate};
+use embassy_nrf::wdt::{self, Watchdog};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
@@ -55,6 +56,17 @@ const BAUD_420K: Baudrate = Baudrate::from_bits(0x06B50000u32);
 async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let pins = BoardPins::from_peripherals(p);
+
+    // Initialize 1000ms Hardware Watchdog Timer
+    let mut wdt_config = wdt::Config::default();
+    wdt_config.timeout_ticks = 32768; // 1000ms (32768 Hz LFCLK)
+    wdt_config.action_during_debug_halt = wdt::HaltConfig::Pause;
+    let (_wdt, [mut wdt_handle]) = match Watchdog::try_new(pins.wdt, wdt_config) {
+        Ok(res) => res,
+        Err(_) => {
+            defmt::panic!("Failed to initialize Hardware Watchdog!");
+        }
+    };
 
     info!("Initializing WingFC-rs bare-metal flight controller...");
 
@@ -164,6 +176,7 @@ async fn main(spawner: Spawner) {
 
     loop {
         ticker.next().await;
+        wdt_handle.pet();
         loop_counter = loop_counter.wrapping_add(1);
 
         let outputs = flight_loop.step(&rc_receiver, &status_sender).await;
