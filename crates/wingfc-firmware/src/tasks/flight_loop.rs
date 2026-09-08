@@ -96,7 +96,7 @@ impl<'d> FlightLoopState<'d> {
         // ESC Throttle Range Calibration Mode (Universal Rule #3)
         if in_esc_calib {
             defmt::warn!(">>> ESC Throttle Calibration Mode Requested! Pass-through active <<<");
-            status_tx.send(VisualStatus::EscCalibration);
+            status_tx.send(VisualStatus::esc_calibrating());
 
             loop {
                 if let Ok(rc) = rc_rx.try_receive() {
@@ -119,22 +119,22 @@ impl<'d> FlightLoopState<'d> {
         }
 
         // Step 2: Gyro Stationary Calibration
-        status_tx.send(VisualStatus::Calibration);
+        status_tx.send(VisualStatus::calibrating());
 
         if let Err(e) = self.imu.init().await {
             defmt::error!("IMU init failed: {:?}", e);
-            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
+            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
             return;
         }
 
         if let Err(e) = self.imu.calibrate_gyro(250).await {
             defmt::error!("Gyro calib failed: {:?}", e);
-            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
+            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
             return;
         }
 
         self.status = ArmingStatus::Disarmed;
-        status_tx.send(VisualStatus::Status(ArmingStatus::Disarmed));
+        status_tx.send(VisualStatus::status(ArmingStatus::Disarmed));
         defmt::info!("Flight controller initialized and ready!");
     }
 
@@ -142,22 +142,22 @@ impl<'d> FlightLoopState<'d> {
     #[cfg(feature = "dshot")]
     pub async fn init(&mut self, status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>) {
         // Gyro Stationary Calibration
-        status_tx.send(VisualStatus::Calibration);
+        status_tx.send(VisualStatus::calibrating());
 
         if let Err(e) = self.imu.init().await {
             defmt::error!("IMU init failed: {:?}", e);
-            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
+            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
             return;
         }
 
         if let Err(e) = self.imu.calibrate_gyro(250).await {
             defmt::error!("Gyro calib failed: {:?}", e);
-            status_tx.send(VisualStatus::Status(ArmingStatus::Failsafe));
+            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
             return;
         }
 
         self.status = ArmingStatus::Disarmed;
-        status_tx.send(VisualStatus::Status(ArmingStatus::Disarmed));
+        status_tx.send(VisualStatus::status(ArmingStatus::Disarmed));
         defmt::info!("Flight controller initialized and ready!");
     }
 
@@ -168,9 +168,11 @@ impl<'d> FlightLoopState<'d> {
         status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
     ) -> AirframeOutputs {
         // 1. Drain latest RC packet
+        let mut rc_packet_received = false;
         while let Ok(channels) = rc_rx.try_receive() {
             self.latest_rc = channels;
             self.last_packet_time = Instant::now();
+            rc_packet_received = true;
         }
 
         // 2. Failsafe timeout check
@@ -196,9 +198,18 @@ impl<'d> FlightLoopState<'d> {
             signal_lost,
         );
 
-        if new_status != self.status {
+        let mut visual = VisualStatus::status(new_status);
+        visual.rc_connected = !signal_lost;
+        visual.rc_packet_tick = rc_packet_received;
+        #[cfg(feature = "gps")]
+        {
+            visual.gps_sats = 0;
+            visual.gps_has_fix = false;
+        }
+
+        if new_status != self.status || rc_packet_received {
             self.status = new_status;
-            status_tx.send(VisualStatus::Status(new_status));
+            status_tx.send(visual);
         }
 
         // 5. Read IMU

@@ -67,6 +67,8 @@ pub struct BoardPins {
     pub pin_led_green: Peri<'static, peripherals::P0_30>,
     /// Physical Pin: P0.06 (Internal) - Active-LOW Blue Telemetry LED
     pub pin_led_blue: Peri<'static, peripherals::P0_06>,
+    /// Physical Pin: P0.17 (Internal) - Active-LOW Red Charge / Discrete User Telemetry LED
+    pub pin_user_led: Peri<'static, peripherals::P0_17>,
 
     // ==========================================
     // Internal IMU (LSM6DS3TR on TWISPI0)
@@ -140,6 +142,7 @@ impl BoardPins {
             pin_led_red: p.P0_26,
             pin_led_green: p.P0_30,
             pin_led_blue: p.P0_06,
+            pin_user_led: p.P0_17,
             twispi_imu: p.TWISPI0,
             pin_imu_sda: p.P0_07,
             pin_imu_scl: p.P0_27,

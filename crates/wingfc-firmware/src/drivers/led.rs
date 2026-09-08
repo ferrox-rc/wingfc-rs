@@ -17,6 +17,7 @@ pub struct RgbLedDriver {
     red: Output<'static>,
     green: Output<'static>,
     blue: Output<'static>,
+    user: Output<'static>,
 }
 
 impl RgbLedDriver {
@@ -24,13 +25,20 @@ impl RgbLedDriver {
         red_pin: Peri<'static, peripherals::P0_26>,
         green_pin: Peri<'static, peripherals::P0_30>,
         blue_pin: Peri<'static, peripherals::P0_06>,
+        user_pin: Peri<'static, peripherals::P0_17>,
     ) -> Self {
         // Active-low: start with all LEDs OFF (Level::High)
         let red = Output::new(red_pin, Level::High, OutputDrive::Standard);
         let green = Output::new(green_pin, Level::High, OutputDrive::Standard);
         let blue = Output::new(blue_pin, Level::High, OutputDrive::Standard);
+        let user = Output::new(user_pin, Level::High, OutputDrive::Standard);
 
-        Self { red, green, blue }
+        Self {
+            red,
+            green,
+            blue,
+            user,
+        }
     }
 
     /// Sets the physical RGB color immediately (Active-LOW: low = ON, high = OFF)
@@ -71,6 +79,15 @@ impl RgbLedDriver {
                 self.green.set_low();
                 self.blue.set_low();
             }
+        }
+    }
+
+    /// Controls the discrete User LED (P0.17, Active-LOW: on = low, off = high)
+    pub fn set_user_led(&mut self, on: bool) {
+        if on {
+            self.user.set_low();
+        } else {
+            self.user.set_high();
         }
     }
 }

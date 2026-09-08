@@ -71,7 +71,12 @@ async fn main(spawner: Spawner) {
     info!("Initializing WingFC-rs bare-metal flight controller...");
 
     // 1. Initialize Visual Telemetry (RGB LED)
-    let led_driver = RgbLedDriver::new(pins.pin_led_red, pins.pin_led_green, pins.pin_led_blue);
+    let led_driver = RgbLedDriver::new(
+        pins.pin_led_red,
+        pins.pin_led_green,
+        pins.pin_led_blue,
+        pins.pin_user_led,
+    );
     spawner.spawn(telemetry_led_task(led_driver, STATUS_WATCH.receiver().unwrap()).unwrap());
 
     // 2. Initialize Actuators (PWM)
