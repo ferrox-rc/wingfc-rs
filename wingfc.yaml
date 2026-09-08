@@ -17,6 +17,9 @@
 #   - 'xiao-sense-plus'  : XIAO nRF52840 Sense Plus (Required for GPS navigation & extra UART)
 board: xiao-sense
 
+# Board Mounting Orientation: default, cw90, cw180, cw270, flip, flip_cw90, flip_cw180, flip_cw270
+orientation: default
+
 # Receiver Serial Protocol & Failsafe
 receiver:
   # Options:

@@ -218,3 +218,36 @@ pub fn map_range(val: f32, in_min: f32, in_max: f32, out_min: f32, out_max: f32)
     }
     (val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 }
+
+/// Board mounting orientation transformations.
+/// Maps sensor axes (X=forward, Y=right, Z=down or sensor frame) to standard aircraft body frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum BoardOrientation {
+    #[default]
+    Default = 0,
+    CW90 = 1,
+    CW180 = 2,
+    CW270 = 3,
+    Flip = 4,
+    FlipCW90 = 5,
+    FlipCW180 = 6,
+    FlipCW270 = 7,
+}
+
+impl BoardOrientation {
+    /// Transforms a 3D vector from sensor frame to aircraft frame according to board orientation.
+    #[inline(always)]
+    pub fn transform(&self, v: Vector3) -> Vector3 {
+        match self {
+            BoardOrientation::Default => Vector3::new(v.x, v.y, v.z),
+            BoardOrientation::CW90 => Vector3::new(v.y, -v.x, v.z),
+            BoardOrientation::CW180 => Vector3::new(-v.x, -v.y, v.z),
+            BoardOrientation::CW270 => Vector3::new(-v.y, v.x, v.z),
+            BoardOrientation::Flip => Vector3::new(v.x, -v.y, -v.z),
+            BoardOrientation::FlipCW90 => Vector3::new(-v.y, -v.x, -v.z),
+            BoardOrientation::FlipCW180 => Vector3::new(-v.x, v.y, -v.z),
+            BoardOrientation::FlipCW270 => Vector3::new(v.y, v.x, -v.z),
+        }
+    }
+}

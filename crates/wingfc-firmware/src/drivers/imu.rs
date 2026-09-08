@@ -1,3 +1,4 @@
+use crate::config::BOARD_ORIENTATION;
 use embassy_nrf::gpio::Input;
 use embassy_nrf::twim::Twim;
 use embassy_time::{with_timeout, Duration, Timer};
@@ -120,6 +121,9 @@ impl<'d> Lsm6ds3Driver<'d> {
 
         let (raw_gyro, accel) = self.read_raw_scaled().await?;
         let gyro = raw_gyro - self.gyro_bias;
+        // Transform sensor axes to aircraft body frame based on board orientation
+        let gyro = BOARD_ORIENTATION.transform(gyro);
+        let accel = BOARD_ORIENTATION.transform(accel);
         Ok((gyro, accel))
     }
 

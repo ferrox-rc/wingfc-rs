@@ -80,6 +80,21 @@ def validate_config(cfg):
     if board not in valid_boards:
         errors.append(f"Invalid board '{board}'. Must be one of: {valid_boards}")
 
+    valid_orientations = {
+        "default": "BoardOrientation::Default",
+        "cw90": "BoardOrientation::CW90",
+        "cw180": "BoardOrientation::CW180",
+        "cw270": "BoardOrientation::CW270",
+        "flip": "BoardOrientation::Flip",
+        "flip_cw90": "BoardOrientation::FlipCW90",
+        "flip_cw180": "BoardOrientation::FlipCW180",
+        "flip_cw270": "BoardOrientation::FlipCW270",
+    }
+    raw_orientation = str(cfg.get("orientation", "default")).strip().lower()
+    if raw_orientation not in valid_orientations:
+        errors.append(f"Invalid orientation '{raw_orientation}'. Supported: {list(valid_orientations.keys())}")
+    orientation_rust = valid_orientations.get(raw_orientation, "BoardOrientation::Default")
+
     # 2. Receiver Protocol
     rc_cfg = cfg.get("receiver", {})
     proto = str(rc_cfg.get("protocol", "crsf")).strip().lower()
@@ -280,6 +295,7 @@ def validate_config(cfg):
 
     return {
         "board": board,
+        "orientation_rust": orientation_rust,
         "protocol": proto,
         "failsafe_ms": int(failsafe_ms),
         "arm_switch_threshold_us": arm_switch_threshold_us,
@@ -327,8 +343,11 @@ def generate_rust_config(cfg_vals):
 //! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
 use embassy_time::Duration;
-use wingfc_core::math::DEG_TO_RAD;
+use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
 use wingfc_core::pid::PidConfig;
+
+/// Board mounting orientation
+pub const BOARD_ORIENTATION: BoardOrientation = {cfg_vals['orientation_rust']};
 
 /// Hard real-time control loop time-step (500 Hz = 0.002s)
 pub const DT: f32 = 0.002;

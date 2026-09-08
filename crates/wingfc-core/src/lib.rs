@@ -23,7 +23,7 @@ pub use autolaunch::{AutolaunchConfig, AutolaunchController, AutolaunchState};
 pub use filter::{BiquadFilter, Pt1Filter};
 #[cfg(feature = "gps")]
 pub use gps::{GpsData, GpsFixType, GpsNavigation, NmeaParser, RthGuidance};
-pub use math::{Quaternion, Vector3};
+pub use math::{BoardOrientation, Quaternion, Vector3};
 pub use mixer::{AirframeMixer, AirframeOutputs, AirframeType, ServoConfig};
 pub use pid::{PidConfig, PidController};
 pub use protocol::{CrsfTelemetryEncoder, RcChannels};

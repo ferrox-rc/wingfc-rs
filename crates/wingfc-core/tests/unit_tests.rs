@@ -745,3 +745,58 @@ fn test_airframe_mixer_all_modes() {
     assert!(out_vt.servo1_us != 1500);
     assert!(out_vt.servo2_us != 1500);
 }
+
+#[test]
+fn test_board_orientation_transforms() {
+    use wingfc_core::math::{BoardOrientation, Vector3};
+
+    let v = Vector3::new(1.0, 2.0, 3.0);
+
+    // Default
+    assert_eq!(
+        BoardOrientation::Default.transform(v),
+        Vector3::new(1.0, 2.0, 3.0)
+    );
+
+    // CW90: (y, -x, z)
+    assert_eq!(
+        BoardOrientation::CW90.transform(v),
+        Vector3::new(2.0, -1.0, 3.0)
+    );
+
+    // CW180: (-x, -y, z)
+    assert_eq!(
+        BoardOrientation::CW180.transform(v),
+        Vector3::new(-1.0, -2.0, 3.0)
+    );
+
+    // CW270: (-y, x, z)
+    assert_eq!(
+        BoardOrientation::CW270.transform(v),
+        Vector3::new(-2.0, 1.0, 3.0)
+    );
+
+    // Flip: (x, -y, -z)
+    assert_eq!(
+        BoardOrientation::Flip.transform(v),
+        Vector3::new(1.0, -2.0, -3.0)
+    );
+
+    // FlipCW90: (-y, -x, -z)
+    assert_eq!(
+        BoardOrientation::FlipCW90.transform(v),
+        Vector3::new(-2.0, -1.0, -3.0)
+    );
+
+    // FlipCW180: (-x, y, -z)
+    assert_eq!(
+        BoardOrientation::FlipCW180.transform(v),
+        Vector3::new(-1.0, 2.0, -3.0)
+    );
+
+    // FlipCW270: (y, x, -z)
+    assert_eq!(
+        BoardOrientation::FlipCW270.transform(v),
+        Vector3::new(2.0, 1.0, -3.0)
+    );
+}
