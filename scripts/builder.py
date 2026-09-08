@@ -95,6 +95,19 @@ def validate_config(cfg):
         errors.append(f"Invalid orientation '{raw_orientation}'. Supported: {list(valid_orientations.keys())}")
     orientation_rust = valid_orientations.get(raw_orientation, "BoardOrientation::Default")
 
+    valid_airframes = {
+        "elevon": "AirframeType::Elevon",
+        "elevon_diff_thrust": "AirframeType::ElevonWithDiffThrust",
+        "single_aileron_t_tail": "AirframeType::SingleAileronTTail",
+        "dual_aileron_t_tail": "AirframeType::DualAileronTTail",
+        "single_aileron_v_tail": "AirframeType::SingleAileronVTail",
+        "dual_aileron_v_tail": "AirframeType::DualAileronVTail",
+    }
+    raw_airframe = str(cfg.get("airframe", "elevon")).strip().lower()
+    if raw_airframe not in valid_airframes:
+        errors.append(f"Invalid airframe '{raw_airframe}'. Supported: {list(valid_airframes.keys())}")
+    airframe_rust = valid_airframes.get(raw_airframe, "AirframeType::Elevon")
+
     # 2. Receiver Protocol
     rc_cfg = cfg.get("receiver", {})
     proto = str(rc_cfg.get("protocol", "crsf")).strip().lower()
@@ -296,6 +309,8 @@ def validate_config(cfg):
     return {
         "board": board,
         "orientation_rust": orientation_rust,
+        "orientation_rust": orientation_rust,
+        "airframe_rust": airframe_rust,
         "protocol": proto,
         "failsafe_ms": int(failsafe_ms),
         "arm_switch_threshold_us": arm_switch_threshold_us,
@@ -344,10 +359,14 @@ def generate_rust_config(cfg_vals):
 
 use embassy_time::Duration;
 use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
+use wingfc_core::mixer::AirframeType;
 use wingfc_core::pid::PidConfig;
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = {cfg_vals['orientation_rust']};
+
+/// Configured airframe mixer topology
+pub const AIRFRAME_TYPE: AirframeType = {cfg_vals['airframe_rust']};
 
 /// Hard real-time control loop time-step (500 Hz = 0.002s)
 pub const DT: f32 = 0.002;

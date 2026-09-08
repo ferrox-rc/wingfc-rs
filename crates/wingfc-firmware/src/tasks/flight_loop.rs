@@ -7,15 +7,15 @@ use embassy_time::{Duration, Instant};
 use wingfc_core::ahrs::MadgwickAHRS;
 use wingfc_core::filter::Pt1Filter;
 use wingfc_core::math::{map_range, Vector3};
-use wingfc_core::mixer::{AirframeMixer, AirframeOutputs, AirframeType};
+use wingfc_core::mixer::{AirframeMixer, AirframeOutputs};
 use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::{
-    AHRS_BETA, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ,
-    MAX_PITCH_ANGLE, MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG,
-    THROTTLE_ZERO_THRESHOLD,
+    AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT,
+    GYRO_LPF_CUTOFF_HZ, MAX_PITCH_ANGLE, MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE,
+    MAX_YAW_RATE, RATE_PID_CONFIG, THROTTLE_ZERO_THRESHOLD,
 };
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
@@ -56,7 +56,7 @@ impl<'d> FlightLoopState<'d> {
             pitch_pid: PidController::new(RATE_PID_CONFIG, DT),
             roll_pid: PidController::new(RATE_PID_CONFIG, DT),
             yaw_pid: PidController::new(RATE_PID_CONFIG, DT),
-            mixer: AirframeMixer::new(AirframeType::Elevon),
+            mixer: AirframeMixer::new(AIRFRAME_TYPE),
             safety: ArmingSafety::with_thresholds(ARM_SWITCH_THRESHOLD, THROTTLE_ZERO_THRESHOLD),
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),

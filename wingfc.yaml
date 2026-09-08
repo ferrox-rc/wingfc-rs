@@ -20,6 +20,15 @@ board: xiao-sense
 # Board Mounting Orientation: default, cw90, cw180, cw270, flip, flip_cw90, flip_cw180, flip_cw270
 orientation: default
 
+# Airframe Configuration:
+#   - elevon                   : Flying wing (Left/Right elevons + optional rudder)
+#   - elevon_diff_thrust       : Flying wing with twin differential thrust motors
+#   - single_aileron_t_tail    : Conventional airplane (S1: Aileron, S2: Elevator, S4: Rudder)
+#   - dual_aileron_t_tail      : Dual aileron airplane (S1: Left Ail, S2: Elevator, S4: Rudder, S5: Right Ail)
+#   - single_aileron_v_tail    : V-tail aircraft (S1: Aileron, S2: Right V-Tail, S4: Left V-Tail)
+#   - dual_aileron_v_tail      : Dual aileron V-tail (S1: Left Ail, S2: Right V-Tail, S4: Left V-Tail, S5: Right Ail)
+airframe: elevon
+
 # Receiver Serial Protocol & Failsafe
 receiver:
   # Options:

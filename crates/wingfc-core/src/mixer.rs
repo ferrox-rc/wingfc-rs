@@ -1,11 +1,14 @@
 use crate::math::{clamp, map_range};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AirframeType {
-    Elevon,               // Traditional Flying Wing (Left & Right elevons)
+    #[default]
+    Elevon, // Traditional Flying Wing (Left & Right elevons + optional rudder)
     ElevonWithDiffThrust, // Flying Wing with Twin Motors for Yaw authority
-    StandardFixedWing,    // Aileron, Elevator, Rudder
-    VTail,                // Left & Right V-Tail surfaces + Ailerons
+    SingleAileronTTail,   // S1: Aileron, S2: Elevator, S4: Rudder
+    DualAileronTTail,     // S1: Left Aileron, S2: Elevator, S4: Rudder, S5: Right Aileron
+    SingleAileronVTail,   // S1: Aileron, S2: Right V-Tail, S4: Left V-Tail
+    DualAileronVTail,     // S1: Left Aileron, S2: Right V-Tail, S4: Left V-Tail, S5: Right Aileron
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,7 +87,7 @@ impl AirframeMixer {
 
                 outputs.servo1_us = self.servos[0].apply(s1_norm);
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
-                outputs.servo4_us = self.servos[2].apply(0.0);
+                outputs.servo4_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
                 outputs.servo5_us = self.servos[3].apply(0.0);
                 outputs.servo6_us = self.servos[4].apply(0.0);
 
@@ -104,19 +107,47 @@ impl AirframeMixer {
                 outputs.motor2_throttle =
                     clamp((throttle_us as i16 + diff) as f32, 1000.0, 2000.0) as u16;
             }
-            AirframeType::StandardFixedWing => {
-                outputs.servo1_us = self.servos[0].apply(roll);
-                outputs.servo2_us = self.servos[1].apply(pitch);
-                outputs.servo6_us = self.servos[4].apply(yaw);
+            AirframeType::SingleAileronTTail => {
+                // S1: Aileron, S2: Elevator, S4: Rudder
+                outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
+                outputs.servo2_us = self.servos[1].apply(clamp(pitch, -1.0, 1.0));
+                outputs.servo4_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
                 outputs.motor1_throttle = throttle_us;
+                outputs.motor2_throttle = throttle_us;
             }
-            AirframeType::VTail => {
-                let s1_norm = clamp(0.5 * pitch - 0.5 * yaw, -1.0, 1.0);
-                let s2_norm = clamp(0.5 * pitch + 0.5 * yaw, -1.0, 1.0);
-                outputs.servo1_us = self.servos[0].apply(s1_norm);
-                outputs.servo2_us = self.servos[1].apply(s2_norm);
-                outputs.servo4_us = self.servos[2].apply(roll);
+            AirframeType::DualAileronTTail => {
+                // S1: Left Aileron, S2: Elevator, S4: Rudder, S5: Right Aileron (-roll)
+                outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
+                outputs.servo2_us = self.servos[1].apply(clamp(pitch, -1.0, 1.0));
+                outputs.servo4_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
+                outputs.servo5_us = self.servos[3].apply(clamp(-roll, -1.0, 1.0));
                 outputs.motor1_throttle = throttle_us;
+                outputs.motor2_throttle = throttle_us;
+            }
+            AirframeType::SingleAileronVTail => {
+                // S1: Aileron
+                // S2: Right V-Tail = 0.5 * Pitch + 0.5 * Yaw
+                // S4: Left V-Tail  = 0.5 * Pitch - 0.5 * Yaw
+                let s2_norm = clamp(0.5 * pitch + 0.5 * yaw, -1.0, 1.0);
+                let s4_norm = clamp(0.5 * pitch - 0.5 * yaw, -1.0, 1.0);
+                outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
+                outputs.servo2_us = self.servos[1].apply(s2_norm);
+                outputs.servo4_us = self.servos[2].apply(s4_norm);
+                outputs.motor1_throttle = throttle_us;
+                outputs.motor2_throttle = throttle_us;
+            }
+            AirframeType::DualAileronVTail => {
+                // S1: Left Aileron, S5: Right Aileron (-roll)
+                // S2: Right V-Tail = 0.5 * Pitch + 0.5 * Yaw
+                // S4: Left V-Tail  = 0.5 * Pitch - 0.5 * Yaw
+                let s2_norm = clamp(0.5 * pitch + 0.5 * yaw, -1.0, 1.0);
+                let s4_norm = clamp(0.5 * pitch - 0.5 * yaw, -1.0, 1.0);
+                outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
+                outputs.servo2_us = self.servos[1].apply(s2_norm);
+                outputs.servo4_us = self.servos[2].apply(s4_norm);
+                outputs.servo5_us = self.servos[3].apply(clamp(-roll, -1.0, 1.0));
+                outputs.motor1_throttle = throttle_us;
+                outputs.motor2_throttle = throttle_us;
             }
         }
 

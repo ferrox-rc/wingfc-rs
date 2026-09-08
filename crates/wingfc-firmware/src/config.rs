@@ -5,10 +5,14 @@
 
 use embassy_time::Duration;
 use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
+use wingfc_core::mixer::AirframeType;
 use wingfc_core::pid::PidConfig;
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = BoardOrientation::Default;
+
+/// Configured airframe mixer topology
+pub const AIRFRAME_TYPE: AirframeType = AirframeType::Elevon;
 
 /// Hard real-time control loop time-step (500 Hz = 0.002s)
 pub const DT: f32 = 0.002;
