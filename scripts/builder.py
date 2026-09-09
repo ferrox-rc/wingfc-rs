@@ -133,34 +133,7 @@ def validate_config(cfg):
     ch_yaw_idx = parse_rc_channel("yaw", 4)
     ch_arm_idx = parse_rc_channel("arm", 5)
     ch_mode_idx = parse_rc_channel("mode", 6)
-    # INAV-style Flight Mode Matrix
-    raw_modes = cfg.get("modes", [])
-    mode_ranges = []
-    if raw_modes and isinstance(raw_modes, list):
-        for entry in raw_modes:
-            m_name = str(entry.get("mode", "angle")).lower().replace("-", "_").replace(" ", "_")
-            variant = {
-                "acro": "FlightMode::Acro",
-                "angle": "FlightMode::Angle",
-                "heading_hold": "FlightMode::HeadingHold",
-                "headinghold": "FlightMode::HeadingHold",
-                "alt_hold": "FlightMode::AltHold",
-                "althold": "FlightMode::AltHold",
-                "rth": "FlightMode::Rth",
-            }.get(m_name, "FlightMode::Angle")
-            c_idx = max(0, min(15, int(entry.get("channel", 6)) - 1))
-            mn_us = int(entry.get("min_us", 1300))
-            mx_us = int(entry.get("max_us", 1700))
-            mode_ranges.append(f"ModeRange::new({variant}, {c_idx}, {mn_us}, {mx_us})")
-    if not mode_ranges:
-        # Default fallback: 2-position switch on CH6: Angle in [1000, 1500], Acro in [1501, 2000]
-        mode_ranges = [
-            f"ModeRange::new(FlightMode::Angle, {ch_mode_idx}, 1000, 1500)",
-            f"ModeRange::new(FlightMode::Acro, {ch_mode_idx}, 1501, 2000)",
-        ]
-    ranges_joined = ", ".join(mode_ranges)
-    mode_matrix_rust = f"ModeMatrix::new([{ranges_joined}])"
-    mode_count = len(mode_ranges)
+
     # Safety Interlocks & Thresholds
     safety_cfg = cfg.get("safety", {})
     arm_switch_threshold_us = int(safety_cfg.get("arm_switch_threshold_us", 1800))
@@ -332,6 +305,43 @@ def validate_config(cfg):
             f"    * CASA (Australia) / Transport Canada (CARs Part IX): 400 ft (120 m) AGL maximum ceiling.\n"
             f"    --> Operating above 120 m (400 ft) AGL without formal civil aviation authorization is ILLEGAL, creates extreme collision hazards for manned aviation, and exposes the operator to civil fines and criminal prosecution."
         )
+
+    # INAV-style Flight Mode Matrix
+    raw_modes = cfg.get("modes", [])
+    mode_ranges = []
+    if raw_modes and isinstance(raw_modes, list):
+        for entry in raw_modes:
+            m_name = str(entry.get("mode", "angle")).lower().replace("-", "_").replace(" ", "_")
+            if m_name in ("heading_hold", "headinghold"):
+                if not (nav_enabled or compass_enabled):
+                    errors.append("Mode 'heading_hold' configured in modes matrix, but navigation.compass.enabled is false.")
+                variant = "FlightMode::HeadingHold"
+            elif m_name in ("alt_hold", "althold"):
+                if not (nav_enabled or baro_enabled):
+                    errors.append("Mode 'alt_hold' configured in modes matrix, but navigation.barometer.enabled is false.")
+                variant = "FlightMode::AltHold"
+            elif m_name == "rth":
+                if not (nav_enabled or gps_enabled):
+                    errors.append("Mode 'rth' configured in modes matrix, but navigation.gps.enabled is false.")
+                variant = "FlightMode::Rth"
+            elif m_name == "acro":
+                variant = "FlightMode::Acro"
+            else:
+                variant = "FlightMode::Angle"
+
+            c_idx = max(0, min(15, int(entry.get("channel", 6)) - 1))
+            mn_us = int(entry.get("min_us", 1300))
+            mx_us = int(entry.get("max_us", 1700))
+            mode_ranges.append(f"ModeRange::new({variant}, {c_idx}, {mn_us}, {mx_us})")
+    if not mode_ranges:
+        # Default fallback: 2-position switch on CH6: Angle in [1000, 1500], Acro in [1501, 2000]
+        mode_ranges = [
+            f"ModeRange::new(FlightMode::Angle, {ch_mode_idx}, 1000, 1500)",
+            f"ModeRange::new(FlightMode::Acro, {ch_mode_idx}, 1501, 2000)",
+        ]
+    ranges_joined = ", ".join(mode_ranges)
+    mode_matrix_rust = f"ModeMatrix::new([{ranges_joined}])"
+    mode_count = len(mode_ranges)
 
     # 6. Tuning & Rates
     tuning_cfg = cfg.get("tuning", {})
@@ -520,7 +530,13 @@ pub const RC_CH_ARM: usize = {cfg_vals['ch_arm_idx']};
 pub const RC_CH_MODE: usize = {cfg_vals['ch_mode_idx']};
 
 /// INAV-style multi-switch Flight Mode Activation Matrix
+#[cfg(all(feature = "compass", feature = "baro", feature = "gps"))]
 pub const MODE_MATRIX: ModeMatrix<{cfg_vals['mode_count']}> = {cfg_vals['mode_matrix_rust']};
+#[cfg(not(all(feature = "compass", feature = "baro", feature = "gps")))]
+pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([
+    ModeRange::new(FlightMode::Angle, {cfg_vals['ch_mode_idx']}, 1000, 1500),
+    ModeRange::new(FlightMode::Acro, {cfg_vals['ch_mode_idx']}, 1501, 2000),
+]);
 
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = {cfg_vals['arm_switch_threshold_us']};

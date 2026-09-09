@@ -10,7 +10,6 @@ use wingfc_core::math::{map_range, Vector3};
 use wingfc_core::mixer::{AirframeMixer, AirframeOutputs};
 use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
-use wingfc_core::mode::{AltHoldController, HeadingHoldController};
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::DIFFERENTIAL_THRUST;
@@ -18,9 +17,13 @@ use crate::config::{
     AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT,
     GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED, MAX_PITCH_ANGLE,
     MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG, RC_CH_ARM,
-    MODE_MATRIX, RC_CH_MODE, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
+    MODE_MATRIX, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
     THROTTLE_ZERO_THRESHOLD,
 };
+#[cfg(feature = "compass")]
+use wingfc_core::mode::HeadingHoldController;
+#[cfg(feature = "baro")]
+use wingfc_core::mode::AltHoldController;
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
 use crate::drivers::Lsm6ds3Driver;
@@ -37,7 +40,9 @@ pub struct FlightLoopState<'d> {
     pub yaw_pid: PidController,
     pub mixer: AirframeMixer,
     pub safety: ArmingSafety,
+    #[cfg(feature = "compass")]
     pub heading_hold: HeadingHoldController,
+    #[cfg(feature = "baro")]
     pub alt_hold: AltHoldController,
     pub last_packet_time: Instant,
     pub latest_rc: RcChannels,
@@ -68,7 +73,9 @@ impl<'d> FlightLoopState<'d> {
                 m
             },
             safety: ArmingSafety::with_thresholds(ARM_SWITCH_THRESHOLD, THROTTLE_ZERO_THRESHOLD),
+            #[cfg(feature = "compass")]
             heading_hold: HeadingHoldController::default(),
+            #[cfg(feature = "baro")]
             alt_hold: AltHoldController::default(),
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
@@ -300,6 +307,7 @@ impl<'d> FlightLoopState<'d> {
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
                 throttle_out = throttle_raw;
             }
+            #[cfg(feature = "compass")]
             ArmingStatus::ArmedHeadingHold => {
                 // HEADING HOLD MODE: Cascaded heading controller onto Angle roll
                 let target_roll = self.heading_hold.update(_est_yaw, roll_stick, yaw_stick);
@@ -314,6 +322,7 @@ impl<'d> FlightLoopState<'d> {
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
                 throttle_out = throttle_raw;
             }
+            #[cfg(feature = "baro")]
             ArmingStatus::ArmedAltHold => {
                 // ALTITUDE HOLD MODE: Cascaded baro/KF altitude controller onto Angle pitch
                 // (Fallback to current est_pitch if baro/KF not yet integrated into loop state)
@@ -329,6 +338,7 @@ impl<'d> FlightLoopState<'d> {
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
                 throttle_out = alt_thr;
             }
+            #[cfg(feature = "gps")]
             ArmingStatus::ArmedRth => {
                 // RTH MODE: Autonomous navigation hold (Angle mode level flight fallback)
                 let target_pitch = 0.05; // Slight gentle climb

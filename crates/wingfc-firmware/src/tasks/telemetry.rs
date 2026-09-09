@@ -188,13 +188,16 @@ pub async fn telemetry_led_task(
                 ArmingStatus::ArmedAngle => {
                     led.set_color(LedColor::Cyan);
                 }
+                #[cfg(feature = "compass")]
                 ArmingStatus::ArmedHeadingHold => {
                     // Magenta / Purple (Red + Blue) or solid Blue with blink
                     led.set_color(LedColor::Cyan);
                 }
+                #[cfg(feature = "baro")]
                 ArmingStatus::ArmedAltHold => {
                     led.set_color(LedColor::Green);
                 }
+                #[cfg(feature = "gps")]
                 ArmingStatus::ArmedRth => {
                     // Fast blink Cyan
                     if (tick_counter / 2).is_multiple_of(2) {
@@ -240,13 +243,16 @@ pub async fn telemetry_led_task(
                 ArmingStatus::ArmedAngle => {
                     led.set_color(LedColor::Cyan);
                 }
+                #[cfg(feature = "compass")]
                 ArmingStatus::ArmedHeadingHold => {
                     // Magenta / Purple (Red + Blue) or solid Blue with blink
                     led.set_color(LedColor::Cyan);
                 }
+                #[cfg(feature = "baro")]
                 ArmingStatus::ArmedAltHold => {
                     led.set_color(LedColor::Green);
                 }
+                #[cfg(feature = "gps")]
                 ArmingStatus::ArmedRth => {
                     // Fast blink Cyan
                     if (tick_counter / 2).is_multiple_of(2) {
@@ -351,8 +357,11 @@ pub async fn crsf_telemetry_task(
                     ArmingStatus::Disarmed => "DISARM",
                     ArmingStatus::ArmedAcro => "ACRO",
                     ArmingStatus::ArmedAngle => "ANGLE",
+                    #[cfg(feature = "compass")]
                     ArmingStatus::ArmedHeadingHold => "HEADFREE",
+                    #[cfg(feature = "baro")]
                     ArmingStatus::ArmedAltHold => "ALTHOLD",
+                    #[cfg(feature = "gps")]
                     ArmingStatus::ArmedRth => "RTH",
                     ArmingStatus::Failsafe => "FAILSAFE",
                     ArmingStatus::RefusedThrottleRaised

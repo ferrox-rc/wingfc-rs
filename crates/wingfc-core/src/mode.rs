@@ -1,14 +1,23 @@
-//! INAV-style Flight Mode Selection Matrix and Cascaded Navigation Controllers.
+//! INAV-Style Flight Mode Selection Matrix & Cascaded Flight Controllers
 //!
-//! Provides multi-switch range-based flight mode evaluation and cascaded outer-loop
-//! controllers for Heading Hold and Altitude Hold.
+//! Provides multi-switch activation ranges for discrete flight modes:
+//! - `Acro`: Pure rate control (manual rates)
+//! - `Angle`: Self-leveling attitude stabilization
+//! - `HeadingHold`: Compass-locked heading hold (cascaded yaw/heading to bank angle)
+//! - `AltHold`: Barometer-locked altitude hold (cascaded climb-rate to pitch angle)
+//! - `Rth`: Return-to-Home autonomous navigation hold
+//!
+//! If multiple modes match active switch positions simultaneously, the safety
+//! priority hierarchy governs: RTH > AltHold > HeadingHold > Angle > Acro.
 
-use crate::math::DEG_TO_RAD;
+#[allow(unused_imports)]
 use core::f32::consts::PI;
 
-/// Normalizes an angle in radians to [-PI, PI].
-#[inline]
-pub fn wrap_to_pi(mut angle: f32) -> f32 {
+#[allow(dead_code)]
+const DEG_TO_RAD: f32 = PI / 180.0;
+
+#[allow(dead_code)]
+fn wrap_to_pi(mut angle: f32) -> f32 {
     while angle > PI {
         angle -= 2.0 * PI;
     }
@@ -27,10 +36,13 @@ pub enum FlightMode {
     /// Attitude self-leveling (bank & pitch angle limits)
     Angle,
     /// Compass/gyro heading lock (cascaded outer loop onto Angle roll)
+    #[cfg(feature = "compass")]
     HeadingHold,
     /// Barometer/vertical-KF altitude lock (cascaded outer loop onto Angle pitch)
+    #[cfg(feature = "baro")]
     AltHold,
     /// Full autonomous Return-to-Home (GPS navigation)
+    #[cfg(feature = "gps")]
     Rth,
 }
 
@@ -99,8 +111,11 @@ impl<const N: usize> ModeMatrix<N> {
         match mode {
             FlightMode::Acro => 0,
             FlightMode::Angle => 1,
+            #[cfg(feature = "compass")]
             FlightMode::HeadingHold => 2,
+            #[cfg(feature = "baro")]
             FlightMode::AltHold => 3,
+            #[cfg(feature = "gps")]
             FlightMode::Rth => 4,
         }
     }
@@ -119,6 +134,7 @@ impl<const N: usize> ModeMatrix<N> {
 // Cascaded Heading Hold Controller
 // =============================================================================
 
+#[cfg(feature = "compass")]
 #[derive(Debug, Clone, Copy)]
 pub struct HeadingHoldConfig {
     /// Proportional gain converting heading error (rad) to bank angle target (rad)
@@ -129,6 +145,7 @@ pub struct HeadingHoldConfig {
     pub stick_deadband: f32,
 }
 
+#[cfg(feature = "compass")]
 impl Default for HeadingHoldConfig {
     fn default() -> Self {
         Self {
@@ -139,18 +156,21 @@ impl Default for HeadingHoldConfig {
     }
 }
 
+#[cfg(feature = "compass")]
 pub struct HeadingHoldController {
     config: HeadingHoldConfig,
     target_heading_rad: f32,
     is_latched: bool,
 }
 
+#[cfg(feature = "compass")]
 impl Default for HeadingHoldController {
     fn default() -> Self {
         Self::new(HeadingHoldConfig::default())
     }
 }
 
+#[cfg(feature = "compass")]
 impl HeadingHoldController {
     pub const fn new(config: HeadingHoldConfig) -> Self {
         Self {
@@ -207,6 +227,7 @@ impl HeadingHoldController {
 // Cascaded Altitude Hold Controller
 // =============================================================================
 
+#[cfg(feature = "baro")]
 #[derive(Debug, Clone, Copy)]
 pub struct AltHoldConfig {
     /// Proportional gain converting altitude error (m) to target vertical speed (m/s)
@@ -223,6 +244,7 @@ pub struct AltHoldConfig {
     pub throttle_deadband_us: u16,
 }
 
+#[cfg(feature = "baro")]
 impl Default for AltHoldConfig {
     fn default() -> Self {
         Self {
@@ -236,18 +258,21 @@ impl Default for AltHoldConfig {
     }
 }
 
+#[cfg(feature = "baro")]
 pub struct AltHoldController {
     config: AltHoldConfig,
     target_altitude_m: f32,
     is_latched: bool,
 }
 
+#[cfg(feature = "baro")]
 impl Default for AltHoldController {
     fn default() -> Self {
         Self::new(AltHoldConfig::default())
     }
 }
 
+#[cfg(feature = "baro")]
 impl AltHoldController {
     pub const fn new(config: AltHoldConfig) -> Self {
         Self {
@@ -263,46 +288,44 @@ impl AltHoldController {
 
     /// Update altitude hold controller.
     ///
-    /// * `current_altitude_m`: Current altitude from Barometer / Vertical KF
-    /// * `vertical_velocity_ms`: Current vertical climb rate in m/s
-    /// * `pilot_pitch_stick`: Pilot normalized pitch stick in [-1.0, 1.0]
-    /// * `pilot_throttle_us`: Pilot raw throttle stick in microseconds
+    /// * `current_altitude_m`: Current altitude Above Ground Level or relative barometric altitude
+    /// * `current_climb_rate_ms`: Vertical velocity from Vertical Kalman Filter
+    /// * `pilot_pitch_stick`: Normalized elevator stick in [-1.0, 1.0]
+    /// * `pilot_throttle_us`: Current throttle pulse in microseconds
     ///
-    /// Returns: `(target_pitch_rad, output_throttle_us)`
+    /// Returns: `(target_pitch_angle_rad, target_throttle_us)`
     pub fn update(
         &mut self,
         current_altitude_m: f32,
-        vertical_velocity_ms: f32,
+        current_climb_rate_ms: f32,
         pilot_pitch_stick: f32,
         pilot_throttle_us: u16,
     ) -> (f32, u16) {
-        // Pilot can command climb/descent via pitch stick or throttle stick
-        let throttle_centered = (pilot_throttle_us as i32 - self.config.cruise_throttle_us as i32)
-            .unsigned_abs() as u16
-            <= self.config.throttle_deadband_us;
-
-        if pilot_pitch_stick.abs() > 0.08 || !throttle_centered || !self.is_latched {
+        // If pilot gives significant pitch stick command, relinquish lock and track current altitude
+        if pilot_pitch_stick.abs() > 0.05 || !self.is_latched {
             self.target_altitude_m = current_altitude_m;
             self.is_latched = true;
-            let commanded_pitch = pilot_pitch_stick * self.config.max_pitch_rad;
-            return (commanded_pitch, pilot_throttle_us);
+            return (pilot_pitch_stick * self.config.max_pitch_rad, pilot_throttle_us);
         }
 
-        // Altitude error: target - current
+        // Target climb rate proportional to altitude error
         let alt_error = self.target_altitude_m - current_altitude_m;
-
-        // Outer P-loop: Altitude error -> Target vertical velocity
-        let target_vz = (self.config.kp_alt * alt_error).clamp(
+        let target_climb_rate = (self.config.kp_alt * alt_error).clamp(
             -self.config.max_climb_rate_ms,
             self.config.max_climb_rate_ms,
         );
 
-        // Inner P-loop: Vertical velocity error -> Commanded pitch angle
-        let vz_error = target_vz - vertical_velocity_ms;
-        let pitch_target = (self.config.kp_climb * vz_error)
-            .clamp(-self.config.max_pitch_rad, self.config.max_pitch_rad);
+        // Commanded pitch angle proportional to climb rate error
+        let climb_error = target_climb_rate - current_climb_rate_ms;
+        let pitch_command = (self.config.kp_climb * climb_error).clamp(
+            -self.config.max_pitch_rad,
+            self.config.max_pitch_rad,
+        );
 
-        (pitch_target, self.config.cruise_throttle_us)
+        // Throttle management: default to configured cruise throttle
+        let target_throttle = self.config.cruise_throttle_us;
+
+        (pitch_command, target_throttle)
     }
 
     pub fn target_altitude_m(&self) -> f32 {

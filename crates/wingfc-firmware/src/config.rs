@@ -31,7 +31,13 @@ pub const RC_CH_ARM: usize = 4;
 pub const RC_CH_MODE: usize = 5;
 
 /// INAV-style multi-switch Flight Mode Activation Matrix
-pub const MODE_MATRIX: ModeMatrix<4> = ModeMatrix::new([ModeRange::new(FlightMode::Angle, 5, 1300, 1700), ModeRange::new(FlightMode::HeadingHold, 5, 1701, 2100), ModeRange::new(FlightMode::AltHold, 6, 1700, 2100), ModeRange::new(FlightMode::Rth, 7, 1800, 2100)]);
+#[cfg(all(feature = "compass", feature = "baro", feature = "gps"))]
+pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([ModeRange::new(FlightMode::Angle, 5, 1000, 1500), ModeRange::new(FlightMode::Acro, 5, 1501, 2000)]);
+#[cfg(not(all(feature = "compass", feature = "baro", feature = "gps")))]
+pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([
+    ModeRange::new(FlightMode::Angle, 5, 1000, 1500),
+    ModeRange::new(FlightMode::Acro, 5, 1501, 2000),
+]);
 
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = 1800;

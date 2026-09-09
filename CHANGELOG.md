@@ -5,56 +5,86 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2026-09-08
-
-### 🚀 Features & Architecture Improvements
-- **Unified 8-Servo Architecture & Sequential Nomenclature:** Expanded servo management to 8 fully independent, sequentially indexed outputs (`servo1` through `servo8`) across `PWM1` (channels 0..3) and `PWM2` (channels 0..3 on Sense Plus).
-- **Dual-LED Visual Telemetry:** Added support for the discrete User/Charge indicator LED (`P0.17`) alongside the 3-color RGB LED. Non-GPS builds feature RC connection status, heartbeat, and packet streaming pulses. GPS builds provide satellite acquisition cadence, 3D fix strobe, and solid home lock indication.
-- **Configurable Multi-Channel Actuator Architecture:** 
-  - Dedicated `PWM0` to ESC throttle control for up to 2 motors with differential thrust support.
-  - Dedicated `PWM1` as the primary 4-channel servo driver for standard and Sense Plus boards.
-  - Dedicated `PWM2` as an expansion 4-channel servo driver on Seeed Studio XIAO nRF52840 Sense Plus.
-  - Standardized all PWM pin drive outputs to `OutputDrive::Standard`.
-- **In-Flight Dynamic PID Potentiometer Tuning:** Added real-time PID parameter adjustment via transmitter RC channels with deadband filtering and range scaling.
-- **Hardware Watchdog Timer (WDT):** Integrated a 1000ms hardware watchdog in `main.rs` actively supervised by the 500 Hz flight loop.
-- **Granular Per-Servo Endpoint & Sub-Trim Calibration:** Added individual `min_us`, `max_us`, `subtrim_us`, and `reversed` configurations in `wingfc.yaml`.
-- **Multi-Airframe Mixing Matrix:** Expanded flight core mixer to support 6 airframe topologies: `elevon`, `elevon_diff_thrust`, `single_aileron_t_tail`, `dual_aileron_t_tail`, `single_aileron_v_tail`, and `dual_aileron_v_tail`.
-- **8-Way Board Mounting Orientation Matrix:** Added sensor transform matrices for all 8 orthogonal mounting orientations (`default`, `cw90`, `cw180`, `cw270`, `flip`, `flip_cw90`, `flip_cw180`, `flip_cw270`).
-- **Configurable Outer Angle P-Gain:** Exposed `angle_p_gain` in `wingfc.yaml` for tuning attitude self-leveling responsiveness.
-- **Configurable RC Channel Selection:** Added explicit channel mapping in `wingfc.yaml` (`roll`, `pitch`, `throttle`, `yaw`, `arm`, `mode`) supporting various transmitter switch/pot layouts.
-- **Idiomatic Embassy Async Drivers:** Upgraded UART receiver to double-buffered DMA driver and transitioned shared state channels to `ThreadModeRawMutex`.
-- **UART Communication & Crossover Verification:** Audited all documentation and drivers to strictly enforce proper UART TX/RX crossovers and pin mappings (`D6`/`P1.11` TX, `D7`/`P1.12` RX on `UARTE0`; `D14`/`P0.09` RX, `D15`/`P0.10` TX on `UARTE1`).
-
-## [0.1.2] - 2026-09-07
+## [0.3.0] - 2026-09-09
 
 ### 🚀 Features
-- Add DShot digital motor protocol and zero-cost compile-time feature selection
-- Complete Phase 4: Production release matrix, sizing verification, and CI/CD validation
-- Refactor and document complete release matrix for all 8 firmware permutations
 
+- Feat(compass): Add selectable external QMC5883L and HMC5883L I2C drivers on TWISPI1
+- Feat(flight-modes): Add INAV-style mode matrix, cascaded Heading Hold, and Altitude Hold controllers
+
+### 🚜 Refactor
+
+- Refactor(firmware): Restrict board pin mappings strictly to physical castellated edge pads and allocate TWISPI1 for external I2C
+## [0.2.0] - 2026-09-09
+
+### ⚙️ Miscellaneous Tasks
+
+- Chore(release): Release v0.2.0
+- Ci: Gate firmware matrix build and packaging to release tags and manual dispatch
+- Ci: Pin toolchain 1.98.0 and install rustfmt and clippy components in CI
+
+### 💼 Other Changes
+
+- Update pin mappings and upgrade UART receiver to buffered driver
+- Update dependencies and embassy-nrf drivers; Improved `wingfc-firmware`
+- Expand PWM driver support for multi-motor and multi-servo setups
+
+### 📚 Documentation
+
+- Docs(changelog): Update crate-level changelogs for v0.1.2
+- Docs: Correct UART RX/TX crossover definitions and pin mapping representations
+
+### 🚀 Features
+
+- Add configurable angle P gain for flight loop
+- Feat: Add 8-way board mounting orientation transform
+- Feat: Add T-tail and V-tail airframe mixing profiles
+- Feat: Add per-servo endpoints, sub-trim, and reversal support
+- Feat: Add hardware watchdog timer supervision
+- Feat: Add in-flight PID tuning via RC channels
+- Feat: Add dual-LED visual telemetry with discrete User LED
+- Feat: Add unified 8-servo sequential mapping, configurable RC channels, and updated documentation
+- Feat: Make differential thrust authority configurable in wingfc.yaml and mixer
+## [0.1.2] - 2026-09-06
+
+### ⚙️ Miscellaneous Tasks
+
+- Chore(release): Release v0.1.2
+
+### 📚 Documentation
+
+- Docs: Document comprehensive unit test coverage across README, ARCHITECTURE, CONFIG, and RELEASE_MATRIX
+
+### 🚀 Features
+
+- Feat: Add multi-method flash engine with interactive UF2 deployment, update pinouts and memory layout, and add deployment guide
 ## [0.1.1] - 2026-09-05
 
 ### ⚙️ Miscellaneous Tasks
-- Transition to cargo-workspace inheritance at v0.1.1 across all crates
+
+- Bump version to v0.5.1 across wingfc-core and wingfc-firmware
 
 ### 🚀 Features
+
 - Add GPS navigation subsystem, NMEA parser, RTH guidance, and documentation
 - Add configurable arming and throttle safety thresholds, update documentation and release matrix
 - Add GitHub Actions CI/CD pipeline and clean up clippy linter warnings
 - Implement bidirectional CRSF telemetry protocol and asynchronous DMA broadcast task
 - Add Receiver & Telemetry specification doc and update release matrix with measured binary sizes
-- Added uf2conv to scripts
-
+- Added uf2conv to scripts;
+- Feat: Integrate cargo-workspace inheritance, cargo-release automation, and git-cliff changelog
 ## [0.1.0] - 2026-09-04
 
 ### 💼 Other Changes
-- Initial commit: High-performance Rust flight controller workspace with `#![no_std]` core, Madgwick AHRS, Acro Rate PID, and Embassy firmware
-- Configure workspace cargo aliases and enable default host testing for `wingfc-core`
+
+- Initial commit: High-performance Rust flight controller workspace with #![no_std] core, Madgwick AHRS, Acro Rate PID, and Embassy firmware
+- Configure workspace cargo aliases and enable default host testing for wingfc-core
 
 ### 🚀 Features
+
 - Add full FlySky iBus receiver protocol parser, 16-bit checksum verification, unified RcChannels abstraction, and unit tests
 - Complete Phase 2: Dual multi-frequency PWM drivers, LSM6DS3TR I2C driver, EasyDMA UART receiver with CRSF/iBus, and gyro vibration filtering
-- Implement build-time Cargo features for protocol selection (`crsf` vs `ibus`) with zero-cost dead-code elimination
+- Implement build-time Cargo features for protocol selection (crsf vs ibus) with zero-cost dead-code elimination
 - Complete Phase 3: Arming safety interlocks, RGB LED visual telemetry, zero-surge failsafe recovery, and safety unit tests
 - Implement early ESC PWM startup (Step 0) and high-throttle ESC range calibration pass-through mode
 - Implement and unit test FeedForward (FF) Rate PID, Hand Autolaunch, 9-DoF Madgwick AHRS, Vertical Kalman Filter, and Altitude Safety controllers

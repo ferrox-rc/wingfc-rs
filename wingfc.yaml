@@ -85,24 +85,21 @@ safety:
 # Configure multi-switch activation ranges for your transmitter channels (1-16).
 # If multiple ranges match simultaneously, safety priority order applies:
 #   RTH > AltHold > HeadingHold > Angle > Acro (manual fallback)
+#
+# Hardware Dependency Note:
+#   - angle and acro are always available (6-DoF onboard IMU).
+#   - heading_hold requires navigation.compass.enabled: true (or navigation.enabled: true).
+#   - alt_hold requires navigation.barometer: true (or navigation.enabled: true).
+#   - rth requires navigation.gps: true (or navigation.enabled: true).
 modes:
   - mode: angle             # Self-leveling attitude stabilization
-    channel: 6              # CH6 / AUX2 (e.g. 3-position switch)
-    min_us: 1300
-    max_us: 1700
-  - mode: heading_hold      # Compass/gyro heading lock
+    channel: 6              # CH6 / AUX2 (e.g. 2-position switch)
+    min_us: 1000
+    max_us: 1500
+  - mode: acro              # Full rate manual / acrobatic mode
     channel: 6
-    min_us: 1701
-    max_us: 2100
-  - mode: alt_hold          # Baro/vertical-KF altitude hold
-    channel: 7              # CH7 / AUX3
-    min_us: 1700
-    max_us: 2100
-  - mode: rth               # Emergency Return-to-Home
-    channel: 8              # CH8 / AUX4 (Highest priority override switch)
-    min_us: 1800
-    max_us: 2100
-
+    min_us: 1501
+    max_us: 2000
 
 # Servo Actuator Output Configuration
 servos:

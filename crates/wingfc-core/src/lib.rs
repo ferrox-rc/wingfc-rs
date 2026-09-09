@@ -27,10 +27,11 @@ pub use filter::{BiquadFilter, Pt1Filter};
 pub use gps::{GpsData, GpsFixType, GpsNavigation, NmeaParser, RthGuidance};
 pub use math::{BoardOrientation, Quaternion, Vector3};
 pub use mixer::{AirframeMixer, AirframeOutputs, AirframeType, ServoConfig};
-pub use mode::{
-    AltHoldConfig, AltHoldController, FlightMode, HeadingHoldConfig, HeadingHoldController,
-    ModeMatrix, ModeRange,
-};
+#[cfg(feature = "baro")]
+pub use mode::{AltHoldConfig, AltHoldController};
+pub use mode::{FlightMode, ModeMatrix, ModeRange};
+#[cfg(feature = "compass")]
+pub use mode::{HeadingHoldConfig, HeadingHoldController};
 pub use pid::{PidConfig, PidController};
 pub use protocol::{CrsfTelemetryEncoder, RcChannels};
 pub use safety::{ArmingSafety, ArmingStatus};

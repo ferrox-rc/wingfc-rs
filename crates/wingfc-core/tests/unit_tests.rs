@@ -870,64 +870,77 @@ fn test_mode_matrix_evaluation_and_priority() {
 
     let matrix = ModeMatrix::new([
         ModeRange::new(FlightMode::Angle, 5, 1300, 1700), // CH6: 1300..1700 = Angle
+        ModeRange::new(FlightMode::Acro, 5, 1701, 2100),  // CH6: >1700 = Acro
+    ]);
+
+    let mut ch = [1500u16; 16];
+    ch[5] = 1000; // CH6 low -> Default Acro
+    assert_eq!(matrix.evaluate(&ch), FlightMode::Acro);
+
+    ch[5] = 1500; // CH6 mid -> Angle
+    assert_eq!(matrix.evaluate(&ch), FlightMode::Angle);
+}
+
+#[cfg(all(feature = "compass", feature = "baro", feature = "gps"))]
+#[test]
+fn test_mode_matrix_full_nav_priority() {
+    use wingfc_core::mode::{FlightMode, ModeMatrix, ModeRange};
+
+    let matrix = ModeMatrix::new([
+        ModeRange::new(FlightMode::Angle, 5, 1300, 1700), // CH6: 1300..1700 = Angle
         ModeRange::new(FlightMode::HeadingHold, 5, 1701, 2100), // CH6: >1700 = HeadingHold
         ModeRange::new(FlightMode::AltHold, 6, 1700, 2100), // CH7: >1700 = AltHold
         ModeRange::new(FlightMode::Rth, 7, 1800, 2100), // CH8: >1800 = Emergency RTH
     ]);
 
-    // Channels: Roll, Pitch, Thr, Yaw, Arm, CH6, CH7, CH8
     let mut ch = [1500u16; 16];
-    ch[5] = 1000; // CH6 low -> Acro
+    ch[5] = 1000;
     assert_eq!(matrix.evaluate(&ch), FlightMode::Acro);
 
-    ch[5] = 1500; // CH6 mid -> Angle
+    ch[5] = 1500;
     assert_eq!(matrix.evaluate(&ch), FlightMode::Angle);
 
-    ch[5] = 1900; // CH6 high -> HeadingHold
+    ch[5] = 1900;
     assert_eq!(matrix.evaluate(&ch), FlightMode::HeadingHold);
 
-    ch[6] = 1900; // CH7 high -> AltHold overrides HeadingHold
+    ch[6] = 1900;
     assert_eq!(matrix.evaluate(&ch), FlightMode::AltHold);
 
-    ch[7] = 2000; // CH8 high -> Emergency RTH highest priority!
+    ch[7] = 2000;
     assert_eq!(matrix.evaluate(&ch), FlightMode::Rth);
 }
 
+#[cfg(feature = "compass")]
 #[test]
 fn test_cascaded_heading_hold() {
     use wingfc_core::mode::{HeadingHoldConfig, HeadingHoldController};
 
     let mut controller = HeadingHoldController::new(HeadingHoldConfig::default());
 
-    // First call latches current heading (e.g. 0.0 rad)
     let roll_cmd = controller.update(0.0, 0.0, 0.0);
     assert_eq!(roll_cmd, 0.0);
 
-    // Aircraft drifts right to +0.2 rad (+11.5 deg). Controller should bank left (negative roll)
     let roll_cmd2 = controller.update(0.2, 0.0, 0.0);
     assert!(roll_cmd2 < 0.0);
 
-    // Aircraft drifts left to -0.2 rad. Controller should bank right (positive roll)
     let roll_cmd3 = controller.update(-0.2, 0.0, 0.0);
     assert!(roll_cmd3 > 0.0);
 }
 
+#[cfg(feature = "baro")]
 #[test]
 fn test_cascaded_alt_hold() {
     use wingfc_core::mode::{AltHoldConfig, AltHoldController};
 
     let mut controller = AltHoldController::new(AltHoldConfig::default());
 
-    // First call latches current altitude (e.g. 50.0m)
     let (pitch_cmd, thr_cmd) = controller.update(50.0, 0.0, 0.0, 1500);
     assert_eq!(pitch_cmd, 0.0);
     assert_eq!(thr_cmd, 1500);
 
-    // Aircraft drops to 45.0m (5m below target). Controller should pitch UP (positive pitch)
     let (pitch_cmd2, _) = controller.update(45.0, 0.0, 0.0, 1500);
     assert!(pitch_cmd2 > 0.0);
 
-    // Aircraft climbs to 55.0m. Controller should pitch DOWN (negative pitch)
     let (pitch_cmd3, _) = controller.update(55.0, 0.0, 0.0, 1500);
     assert!(pitch_cmd3 < 0.0);
 }

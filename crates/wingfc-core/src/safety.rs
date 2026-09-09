@@ -15,8 +15,11 @@ pub enum ArmingStatus {
     Disarmed,
     ArmedAcro,
     ArmedAngle,
+    #[cfg(feature = "compass")]
     ArmedHeadingHold,
+    #[cfg(feature = "baro")]
     ArmedAltHold,
+    #[cfg(feature = "gps")]
     ArmedRth,
     RefusedThrottleRaised,
     RefusedSwitchArmedAtBoot,
@@ -119,8 +122,11 @@ impl ArmingSafety {
             match active_mode {
                 FlightMode::Acro => ArmingStatus::ArmedAcro,
                 FlightMode::Angle => ArmingStatus::ArmedAngle,
+                #[cfg(feature = "compass")]
                 FlightMode::HeadingHold => ArmingStatus::ArmedHeadingHold,
+                #[cfg(feature = "baro")]
                 FlightMode::AltHold => ArmingStatus::ArmedAltHold,
+                #[cfg(feature = "gps")]
                 FlightMode::Rth => ArmingStatus::ArmedRth,
             }
         } else {
