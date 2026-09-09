@@ -17,7 +17,7 @@ The GPS navigation engine resides in the `#![no_std]` core crate ([`crates/wingf
             | 115,200 baud NMEA Stream ($..GGA, $..RMC)
             v
   +--------------------+
-  |    UARTE1 RX       | (Physical Pin: P0.09 / D9 on XIAO Sense Plus)
+  |    UARTE1 RX       | (Physical Pin: P0.09 / D14 on XIAO Sense Plus, connects to GPS TX)
   +---------+----------+
             | Async EasyDMA Byte Stream
             v
@@ -46,21 +46,40 @@ The GPS navigation engine resides in the `#![no_std]` core crate ([`crates/wingf
 ## 2. Hardware Requirements & Board Selection
 
 ### Standard XIAO vs. XIAO Sense Plus
-* **Standard XIAO nRF52840 Sense:** Exposes 8 physical GPIO pins (`D0`&ndash;`D7`). Under the baseline flight controller architecture, all 8 pins are fully committed to Elevon Servos (`D0`, `D1`), Auxiliary Rudder (`D2`), ESC Motor (`D3`), External I2C Bus (`D4`, `D5`), RC Receiver Serial (`D6`), and Status/Beeper (`D7`). **Standard XIAO cannot connect to a GPS receiver.**
+* **Standard XIAO nRF52840 Sense:** Exposes 8 physical GPIO pins (`D0`&ndash;`D7`). Under the baseline flight controller architecture, all 8 pins are fully committed to Elevon Servos (`D0`, `D1`), Auxiliary Rudder (`D2`), ESC Motor (`D3`), External I2C Bus (`D4`, `D5`), CRSF Telemetry TX (`D6`), and RC Receiver Serial RX (`D7`). **Standard XIAO cannot connect to a GPS receiver.**
 * **XIAO nRF52840 Sense Plus:** Provides extended castellated header pins (`D8`&ndash;`D11`) and exposes the secondary asynchronous hardware serial engine (**`UARTE1`**).
 
 ### Physical Pin Assignments
 
 | Signal | Peripheral | nRF52840 Pin | Silkscreen | Electrical Spec |
 | :--- | :--- | :--- | :--- | :--- |
-| **GPS Serial RX** | `UARTE1` RX | `P0.09` | `D9` | 3.3V LVCMOS Input (115,200 Baud) |
-| **GPS Serial TX** | `UARTE1` TX | `P0.10` | `D10` | 3.3V LVCMOS Output (Optional Config) |
+| **Flight Controller RX** | `UARTE1` RX | `P0.09` | `D14` (NFC1) | Connects to GPS Module **TX** (3.3V LVCMOS Input, 115,200 Baud) |
+| **Flight Controller TX** | `UARTE1` TX | `P0.10` | `D15` (NFC2) | Connects to GPS Module **RX** (3.3V LVCMOS Output, 115,200 Baud) |
 | **GPS Power** | System 5V | &mdash; | `5V` (VBUS) | 5V DC Supply from Flight Battery BEC |
 | **Ground** | Ground | &mdash; | `GND` | Common Ground Reference |
 
 > [!IMPORTANT]
 > **nRF52840 Hardware NFC Pin Reconfiguration:**
 > Physical SoC pins `P0.09` and `P0.10` are configured as hardware Near Field Communication (NFC) antenna pins by default in silicon. To enable them as standard high-speed digital GPIOs, `wingfc-firmware` enables the `nfc-pins-as-gpio` feature in `embassy-nrf`. This disables the internal NFC clamping diodes at system startup.
+
+
+### GPS Module Physical Wiring (Crossover Connection)
+
+As with all UART serial connections, communication lines must be crossed over: Flight Controller RX connects to GPS Module TX, and Flight Controller TX connects to GPS Module RX.
+
+```
++---------------------------+             +---------------------------+
+|  XIAO Sense Plus (FC)     |             |  GPS Module (NMEA / UBX)  |
+|                           |             |                           |
+|      D14 (P0.09 / RX) <---|-------------|-- TX (Serial NMEA Out)    |
+|      D15 (P0.10 / TX) ----|------------>|-- RX (Configuration In)   |
+|                    5V ----|------------>|-- 5V / VCC Power Supply   |
+|                   GND ----|-------------|-- GND Common Reference    |
++---------------------------+             +---------------------------+
+```
+
+> [!WARNING]
+> **UART Crossover Rule:** Always wire Flight Controller RX (`D14` / `P0.09`) to GPS Module **TX**, and Flight Controller TX (`D15` / `P0.10`) to GPS Module **RX**. Never connect TX-to-TX or RX-to-RX.
 
 ---
 

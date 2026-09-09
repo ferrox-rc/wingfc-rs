@@ -26,7 +26,7 @@ Firmware releases compose into 8 discrete, mutually exclusive production binarie
 
 > **Resource Footprint & Overhead:** Total nRF52840 resources are 1,024 KB Flash and 256 KB RAM. The entire firmware consumes less than **3.7% of Flash** and **2.3% of RAM**, leaving &gt;96% of chip resources available for future flight scripting, complex autonomous missions, and extended telemetry buffers.
 >
-> CRSF builds incorporate the asynchronous EasyDMA telemetry broadcast engine (transmitting attitude, flight mode, battery, and GPS frames @ 50 Hz over pin `D7` / `P0.11`) requiring only &approx; 3.6 KB additional flash.
+> CRSF builds incorporate the asynchronous EasyDMA telemetry broadcast engine (transmitting attitude, flight mode, battery, and GPS frames @ 50 Hz over pin `D6` / `P1.11`) requiring only &approx; 3.6 KB additional flash.
 >
 > DShot builds consume &approx; 1.2&ndash;1.3 KB less flash than analog PWM builds because legacy analog ESC throttle calibration routines and pass-through tables are eliminated at compile time.
 

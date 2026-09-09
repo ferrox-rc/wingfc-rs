@@ -102,7 +102,7 @@ The CRSF protocol operates at 420,000 baud with low latency, 16-channel resoluti
 
 ### 3.2 Downlink: Bidirectional Telemetry Architecture
 
-The telemetry engine in [`crates/wingfc-firmware/src/tasks/telemetry.rs`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/src/tasks/telemetry.rs) operates on a 50 Hz round-robin slot scheduler. It streams real-time aircraft data back to the handset via `UARTE0_TX` (`D7` / `P0.11`):
+The telemetry engine in [`crates/wingfc-firmware/src/tasks/telemetry.rs`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/src/tasks/telemetry.rs) operates on a 50 Hz round-robin slot scheduler. It streams real-time aircraft data back to the handset via `UARTE0_TX` (`D6` / `P1.11`):
 
 ```
 +-----------------------------------------------------------------------------------+
@@ -283,8 +283,8 @@ When using CRSF / ExpressLRS:
 
 | Symptom | Likely Cause | Recommended Action |
 | :--- | :--- | :--- |
-| **Slow Blink Red LED continuously** | Receiver not communicating or unpowered | Check wiring: Receiver TX must connect to `D6`. Verify receiver has power LED illuminated. |
+| **Slow Blink Red LED continuously** | Receiver not communicating or unpowered | Check wiring: Receiver TX must connect to `D7` (P1.12). Verify receiver has power LED illuminated. |
 | **Double Blink Yellow LED on arming** | Arming refused (Throttle raised or switch armed at boot) | Lower throttle stick to zero. Ensure arm switch is toggled down before attempting to arm. |
-| **RC channels respond but no telemetry on radio** | `D7` (TX) pin disconnected or reversed | Connect receiver RX pin to XIAO `D7` (`P0.11`). Run "Discover new sensors" on transmitter. |
+| **RC channels respond but no telemetry on radio** | `D7` (TX) pin disconnected or reversed | Connect receiver RX pin to XIAO `D6` (`P1.11`). Run "Discover new sensors" on transmitter. |
 | **Channels twitch or jump unexpectedly** | Incompatible receiver baud rate or signal noise | Ensure firmware was compiled with the matching protocol (`--features crsf` for ELRS, `--features ibus` for FlySky). |
 | **Motors do not spin when armed** | ESC throttle range mismatch | Run ESC calibration or verify `motor.pwm_frequency_hz` matches ESC specifications in `wingfc.yaml`. |

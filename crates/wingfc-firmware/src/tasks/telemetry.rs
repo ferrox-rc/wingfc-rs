@@ -282,7 +282,7 @@ pub async fn telemetry_led_task(
 /// Asynchronous CRSF / ExpressLRS telemetry broadcaster.
 ///
 /// Sends Attitude (10Hz), Flight Mode (10Hz), Battery (10Hz), and Navigation/Baro
-/// frames out through UARTE0 TX (Pin D7 / P0.11) to the receiver using non-blocking EasyDMA.
+/// frames out through UARTE0 TX (Pin D6 / P1.11) to the receiver using non-blocking EasyDMA.
 #[cfg(feature = "crsf")]
 #[embassy_executor::task]
 pub async fn crsf_telemetry_task(

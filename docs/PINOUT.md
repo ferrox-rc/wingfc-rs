@@ -150,8 +150,8 @@ Autonomous GPS navigation and high-channel actuators utilize the **Sense Plus** 
 
 | Subsystem | Peripheral | Physical Pin | Header Silkscreen | Role / Description |
 | :--- | :--- | :--- | :--- | :--- |
-| **GPS Serial RX** | `UARTE1` RX | `P0.09` | `D14` (NFC1) | NMEA / UBX GPS Receiver Data Input (115,200 baud) |
-| **GPS Serial TX** | `UARTE1` TX | `P0.10` | `D15` (NFC2) | NMEA / UBX GPS Configuration Commands (115,200 baud) |
+| **GPS Serial RX** | `UARTE1` RX | `P0.09` | `D14` (NFC1) | Flight Controller RX (Connects to GPS Module **TX**, 115,200 baud) |
+| **GPS Serial TX** | `UARTE1` TX | `P0.10` | `D15` (NFC2) | Flight Controller TX (Connects to GPS Module **RX**, 115,200 baud) |
 | **Servo 5** | `PWM2` Ch 0 | `P1.13` | `D8` | Auxiliary Servo 5 (50..400 Hz) |
 | **Servo 6** | `PWM2` Ch 1 | `P1.14` | `D9` | Auxiliary Servo 6 (50..400 Hz) |
 | **Servo 7** | `PWM2` Ch 2 | `P1.15` | `D10` | Auxiliary Servo 7 (50..400 Hz) |
