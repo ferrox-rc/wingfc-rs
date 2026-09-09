@@ -8,6 +8,7 @@ use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
 use wingfc_core::mixer::{AirframeType, ServoConfig};
 use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
 use wingfc_core::pid::PidConfig;
+use wingfc_core::mode::{FlightMode, ModeMatrix, ModeRange};
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = BoardOrientation::Default;
@@ -28,6 +29,9 @@ pub const RC_CH_THROTTLE: usize = 2;
 pub const RC_CH_YAW: usize = 3;
 pub const RC_CH_ARM: usize = 4;
 pub const RC_CH_MODE: usize = 5;
+
+/// INAV-style multi-switch Flight Mode Activation Matrix
+pub const MODE_MATRIX: ModeMatrix<4> = ModeMatrix::new([ModeRange::new(FlightMode::Angle, 5, 1300, 1700), ModeRange::new(FlightMode::HeadingHold, 5, 1701, 2100), ModeRange::new(FlightMode::AltHold, 6, 1700, 2100), ModeRange::new(FlightMode::Rth, 7, 1800, 2100)]);
 
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = 1800;

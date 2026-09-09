@@ -1,6 +1,8 @@
 //! Arming and Failsafe Safety State Manager
 //! Enforces physical safety interlocks to prevent unintended motor spin-up.
 
+use crate::mode::FlightMode;
+
 pub const DEFAULT_THROTTLE_ZERO_THRESHOLD: u16 = 1050; // Throttle must be <= 1050us to arm
 pub const DEFAULT_ARM_SWITCH_THRESHOLD: u16 = 1800; // Switch value > 1800 considered "ARM"
 
@@ -13,6 +15,9 @@ pub enum ArmingStatus {
     Disarmed,
     ArmedAcro,
     ArmedAngle,
+    ArmedHeadingHold,
+    ArmedAltHold,
+    ArmedRth,
     RefusedThrottleRaised,
     RefusedSwitchArmedAtBoot,
     Failsafe,
@@ -69,16 +74,16 @@ impl ArmingSafety {
         self.throttle_zero_threshold
     }
 
-    /// Evaluates current RC switch and throttle inputs to determine safe arming state.
+    /// Evaluates current RC switch, flight mode, and throttle inputs to determine safe arming state.
     ///
     /// * `arm_switch_value`: Microsecond value of Arm channel (typically CH5)
-    /// * `mode_switch_value`: Microsecond value of Mode channel (CH6: <1500 = Angle, >=1500 = Acro)
+    /// * `active_mode`: Evaluated flight mode from INAV-style mode matrix
     /// * `throttle_us`: Current throttle channel position in microseconds
     /// * `signal_lost`: True if RC packet timeout or link loss occurred
-    pub fn update(
+    pub fn update_with_mode(
         &mut self,
         arm_switch_value: u16,
-        mode_switch_value: u16,
+        active_mode: FlightMode,
         throttle_us: u16,
         signal_lost: bool,
     ) -> ArmingStatus {
@@ -110,17 +115,35 @@ impl ArmingSafety {
                 }
             }
 
-            // Successfully armed: choose Acro vs Angle mode
-            if mode_switch_value < 1500 {
-                ArmingStatus::ArmedAngle
-            } else {
-                ArmingStatus::ArmedAcro
+            // Successfully armed: map active FlightMode to ArmingStatus
+            match active_mode {
+                FlightMode::Acro => ArmingStatus::ArmedAcro,
+                FlightMode::Angle => ArmingStatus::ArmedAngle,
+                FlightMode::HeadingHold => ArmingStatus::ArmedHeadingHold,
+                FlightMode::AltHold => ArmingStatus::ArmedAltHold,
+                FlightMode::Rth => ArmingStatus::ArmedRth,
             }
         } else {
             // Switch is in DISARM position
             self.is_armed = false;
             ArmingStatus::Disarmed
         }
+    }
+
+    /// Legacy convenience wrapper evaluating binary mode switch (<1500 = Angle, >=1500 = Acro).
+    pub fn update(
+        &mut self,
+        arm_switch_value: u16,
+        mode_switch_value: u16,
+        throttle_us: u16,
+        signal_lost: bool,
+    ) -> ArmingStatus {
+        let mode = if mode_switch_value < 1500 {
+            FlightMode::Angle
+        } else {
+            FlightMode::Acro
+        };
+        self.update_with_mode(arm_switch_value, mode, throttle_us, signal_lost)
     }
 
     #[inline(always)]

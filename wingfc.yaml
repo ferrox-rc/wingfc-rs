@@ -40,6 +40,7 @@ receiver:
   # In failsafe: motors are cut to 0 and elevons neutralize to level flight
   failsafe_timeout_ms: 500
 
+
   # RC Channel Mapping (1-16):
   # Standard defaults: AETR (Aileron/Roll=1, Elevator/Pitch=2, Throttle=3, Rudder/Yaw=4)
   # Channels 5+ are typically assigned to switches and potentiometers/sliders.
@@ -79,6 +80,29 @@ safety:
   #   laceration injuries, property damage, or runaway aircraft!
   # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   throttle_zero_threshold_us: 1050
+
+# INAV-Style Flight Mode Selection Matrix
+# Configure multi-switch activation ranges for your transmitter channels (1-16).
+# If multiple ranges match simultaneously, safety priority order applies:
+#   RTH > AltHold > HeadingHold > Angle > Acro (manual fallback)
+modes:
+  - mode: angle             # Self-leveling attitude stabilization
+    channel: 6              # CH6 / AUX2 (e.g. 3-position switch)
+    min_us: 1300
+    max_us: 1700
+  - mode: heading_hold      # Compass/gyro heading lock
+    channel: 6
+    min_us: 1701
+    max_us: 2100
+  - mode: alt_hold          # Baro/vertical-KF altitude hold
+    channel: 7              # CH7 / AUX3
+    min_us: 1700
+    max_us: 2100
+  - mode: rth               # Emergency Return-to-Home
+    channel: 8              # CH8 / AUX4 (Highest priority override switch)
+    min_us: 1800
+    max_us: 2100
+
 
 # Servo Actuator Output Configuration
 servos:

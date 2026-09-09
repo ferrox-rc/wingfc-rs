@@ -10,6 +10,7 @@ use wingfc_core::math::{map_range, Vector3};
 use wingfc_core::mixer::{AirframeMixer, AirframeOutputs};
 use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
+use wingfc_core::mode::{AltHoldController, HeadingHoldController};
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::DIFFERENTIAL_THRUST;
@@ -17,7 +18,7 @@ use crate::config::{
     AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT,
     GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED, MAX_PITCH_ANGLE,
     MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG, RC_CH_ARM,
-    RC_CH_MODE, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
+    MODE_MATRIX, RC_CH_MODE, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
     THROTTLE_ZERO_THRESHOLD,
 };
 #[cfg(not(feature = "dshot"))]
@@ -36,6 +37,8 @@ pub struct FlightLoopState<'d> {
     pub yaw_pid: PidController,
     pub mixer: AirframeMixer,
     pub safety: ArmingSafety,
+    pub heading_hold: HeadingHoldController,
+    pub alt_hold: AltHoldController,
     pub last_packet_time: Instant,
     pub latest_rc: RcChannels,
     pub status: ArmingStatus,
@@ -65,6 +68,8 @@ impl<'d> FlightLoopState<'d> {
                 m
             },
             safety: ArmingSafety::with_thresholds(ARM_SWITCH_THRESHOLD, THROTTLE_ZERO_THRESHOLD),
+            heading_hold: HeadingHoldController::default(),
+            alt_hold: AltHoldController::default(),
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
             status: ArmingStatus::Disarmed,
@@ -209,10 +214,11 @@ impl<'d> FlightLoopState<'d> {
             IN_FLIGHT_TUNING.update(&self.latest_rc, &mut self.pitch_pid, &mut self.roll_pid);
         }
 
-        // 4. Update Arming Safety State Machine
-        let new_status = self.safety.update(
+        // 4. Update Arming Safety State Machine with INAV-style Mode Matrix
+        let evaluated_mode = MODE_MATRIX.evaluate(&self.latest_rc.channels);
+        let new_status = self.safety.update_with_mode(
             self.latest_rc.channels[RC_CH_ARM],
-            self.latest_rc.channels[RC_CH_MODE],
+            evaluated_mode,
             throttle_raw,
             signal_lost,
         );
@@ -285,7 +291,6 @@ impl<'d> FlightLoopState<'d> {
                 let target_pitch = pitch_stick * MAX_PITCH_ANGLE;
                 let target_roll = roll_stick * MAX_ROLL_ANGLE;
 
-                // Outer P-loop calculates target rates from angle errors
                 let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
@@ -294,6 +299,49 @@ impl<'d> FlightLoopState<'d> {
                 pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
                 throttle_out = throttle_raw;
+            }
+            ArmingStatus::ArmedHeadingHold => {
+                // HEADING HOLD MODE: Cascaded heading controller onto Angle roll
+                let target_roll = self.heading_hold.update(_est_yaw, roll_stick, yaw_stick);
+                let target_pitch = pitch_stick * MAX_PITCH_ANGLE;
+
+                let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
+                let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
+                let target_yaw_rate = 0.0; // Heading hold locks yaw via roll banking
+
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                throttle_out = throttle_raw;
+            }
+            ArmingStatus::ArmedAltHold => {
+                // ALTITUDE HOLD MODE: Cascaded baro/KF altitude controller onto Angle pitch
+                // (Fallback to current est_pitch if baro/KF not yet integrated into loop state)
+                let (target_pitch, alt_thr) = self.alt_hold.update(0.0, 0.0, pitch_stick, throttle_raw);
+                let target_roll = roll_stick * MAX_ROLL_ANGLE;
+
+                let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
+                let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
+                let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
+
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                throttle_out = alt_thr;
+            }
+            ArmingStatus::ArmedRth => {
+                // RTH MODE: Autonomous navigation hold (Angle mode level flight fallback)
+                let target_pitch = 0.05; // Slight gentle climb
+                let target_roll = 0.0;  // Level wings
+
+                let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
+                let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
+                let target_yaw_rate = 0.0;
+
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                throttle_out = 1500; // Safe cruise throttle
             }
             ArmingStatus::Failsafe => {
                 // Motor cut + level flight surfaces neutralized

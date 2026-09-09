@@ -188,6 +188,21 @@ pub async fn telemetry_led_task(
                 ArmingStatus::ArmedAngle => {
                     led.set_color(LedColor::Cyan);
                 }
+                ArmingStatus::ArmedHeadingHold => {
+                    // Magenta / Purple (Red + Blue) or solid Blue with blink
+                    led.set_color(LedColor::Cyan);
+                }
+                ArmingStatus::ArmedAltHold => {
+                    led.set_color(LedColor::Green);
+                }
+                ArmingStatus::ArmedRth => {
+                    // Fast blink Cyan
+                    if (tick_counter / 2).is_multiple_of(2) {
+                        led.set_color(LedColor::Cyan);
+                    } else {
+                        led.set_color(LedColor::Off);
+                    }
+                }
                 ArmingStatus::RefusedThrottleRaised | ArmingStatus::RefusedSwitchArmedAtBoot => {
                     let phase = tick_counter % 20; // 1-second cadence
                     if phase == 0 || phase == 1 || phase == 4 || phase == 5 {
@@ -224,6 +239,21 @@ pub async fn telemetry_led_task(
                 }
                 ArmingStatus::ArmedAngle => {
                     led.set_color(LedColor::Cyan);
+                }
+                ArmingStatus::ArmedHeadingHold => {
+                    // Magenta / Purple (Red + Blue) or solid Blue with blink
+                    led.set_color(LedColor::Cyan);
+                }
+                ArmingStatus::ArmedAltHold => {
+                    led.set_color(LedColor::Green);
+                }
+                ArmingStatus::ArmedRth => {
+                    // Fast blink Cyan
+                    if (tick_counter / 2).is_multiple_of(2) {
+                        led.set_color(LedColor::Cyan);
+                    } else {
+                        led.set_color(LedColor::Off);
+                    }
                 }
                 ArmingStatus::RefusedThrottleRaised | ArmingStatus::RefusedSwitchArmedAtBoot => {
                     let phase = tick_counter % 20;
@@ -321,6 +351,9 @@ pub async fn crsf_telemetry_task(
                     ArmingStatus::Disarmed => "DISARM",
                     ArmingStatus::ArmedAcro => "ACRO",
                     ArmingStatus::ArmedAngle => "ANGLE",
+                    ArmingStatus::ArmedHeadingHold => "HEADFREE",
+                    ArmingStatus::ArmedAltHold => "ALTHOLD",
+                    ArmingStatus::ArmedRth => "RTH",
                     ArmingStatus::Failsafe => "FAILSAFE",
                     ArmingStatus::RefusedThrottleRaised
                     | ArmingStatus::RefusedSwitchArmedAtBoot => "REFUSED",

@@ -10,6 +10,7 @@ pub mod filter;
 pub mod gps;
 pub mod math;
 pub mod mixer;
+pub mod mode;
 pub mod pid;
 pub mod protocol;
 pub mod safety;
@@ -26,6 +27,10 @@ pub use filter::{BiquadFilter, Pt1Filter};
 pub use gps::{GpsData, GpsFixType, GpsNavigation, NmeaParser, RthGuidance};
 pub use math::{BoardOrientation, Quaternion, Vector3};
 pub use mixer::{AirframeMixer, AirframeOutputs, AirframeType, ServoConfig};
+pub use mode::{
+    AltHoldConfig, AltHoldController, FlightMode, HeadingHoldConfig, HeadingHoldController,
+    ModeMatrix, ModeRange,
+};
 pub use pid::{PidConfig, PidController};
 pub use protocol::{CrsfTelemetryEncoder, RcChannels};
 pub use safety::{ArmingSafety, ArmingStatus};

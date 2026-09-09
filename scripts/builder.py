@@ -133,6 +133,34 @@ def validate_config(cfg):
     ch_yaw_idx = parse_rc_channel("yaw", 4)
     ch_arm_idx = parse_rc_channel("arm", 5)
     ch_mode_idx = parse_rc_channel("mode", 6)
+    # INAV-style Flight Mode Matrix
+    raw_modes = cfg.get("modes", [])
+    mode_ranges = []
+    if raw_modes and isinstance(raw_modes, list):
+        for entry in raw_modes:
+            m_name = str(entry.get("mode", "angle")).lower().replace("-", "_").replace(" ", "_")
+            variant = {
+                "acro": "FlightMode::Acro",
+                "angle": "FlightMode::Angle",
+                "heading_hold": "FlightMode::HeadingHold",
+                "headinghold": "FlightMode::HeadingHold",
+                "alt_hold": "FlightMode::AltHold",
+                "althold": "FlightMode::AltHold",
+                "rth": "FlightMode::Rth",
+            }.get(m_name, "FlightMode::Angle")
+            c_idx = max(0, min(15, int(entry.get("channel", 6)) - 1))
+            mn_us = int(entry.get("min_us", 1300))
+            mx_us = int(entry.get("max_us", 1700))
+            mode_ranges.append(f"ModeRange::new({variant}, {c_idx}, {mn_us}, {mx_us})")
+    if not mode_ranges:
+        # Default fallback: 2-position switch on CH6: Angle in [1000, 1500], Acro in [1501, 2000]
+        mode_ranges = [
+            f"ModeRange::new(FlightMode::Angle, {ch_mode_idx}, 1000, 1500)",
+            f"ModeRange::new(FlightMode::Acro, {ch_mode_idx}, 1501, 2000)",
+        ]
+    ranges_joined = ", ".join(mode_ranges)
+    mode_matrix_rust = f"ModeMatrix::new([{ranges_joined}])"
+    mode_count = len(mode_ranges)
     # Safety Interlocks & Thresholds
     safety_cfg = cfg.get("safety", {})
     arm_switch_threshold_us = int(safety_cfg.get("arm_switch_threshold_us", 1800))
@@ -403,6 +431,8 @@ def validate_config(cfg):
         "ch_yaw_idx": ch_yaw_idx,
         "ch_arm_idx": ch_arm_idx,
         "ch_mode_idx": ch_mode_idx,
+        "mode_matrix_rust": mode_matrix_rust,
+        "mode_count": mode_count,
         "arm_switch_threshold_us": arm_switch_threshold_us,
         "throttle_zero_threshold_us": throttle_zero_threshold_us,
         "servo_pwm_hz": servo_pwm_hz,
@@ -467,6 +497,7 @@ use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
 use wingfc_core::mixer::{{AirframeType, ServoConfig}};
 use wingfc_core::tuning::{{InFlightTuning, TuneParameter, TuneSlot}};
 use wingfc_core::pid::PidConfig;
+use wingfc_core::mode::{{FlightMode, ModeMatrix, ModeRange}};
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = {cfg_vals['orientation_rust']};
@@ -487,6 +518,9 @@ pub const RC_CH_THROTTLE: usize = {cfg_vals['ch_throttle_idx']};
 pub const RC_CH_YAW: usize = {cfg_vals['ch_yaw_idx']};
 pub const RC_CH_ARM: usize = {cfg_vals['ch_arm_idx']};
 pub const RC_CH_MODE: usize = {cfg_vals['ch_mode_idx']};
+
+/// INAV-style multi-switch Flight Mode Activation Matrix
+pub const MODE_MATRIX: ModeMatrix<{cfg_vals['mode_count']}> = {cfg_vals['mode_matrix_rust']};
 
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = {cfg_vals['arm_switch_threshold_us']};
