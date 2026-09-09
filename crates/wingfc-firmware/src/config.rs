@@ -95,6 +95,9 @@ pub const SERVO_CONFIGS: [ServoConfig; 8] = [
 /// Legacy airplane ESCs require 50 Hz; high-speed multirotor ESCs support 400 Hz.
 pub const ESC_PWM_HZ: u32 = 400;
 
+/// Differential thrust authority for twin-motor airframes (0.0 .. 1.0 fraction of throttle range)
+pub const DIFFERENTIAL_THRUST: f32 = 0.1500;
+
 /// Maximum commanded roll rate in Acro / Rates mode (rad/s)
 pub const MAX_ROLL_RATE: f32 = 600.0 * DEG_TO_RAD;
 
@@ -119,14 +122,14 @@ pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {
     slot_a: TuneSlot {
         parameter: TuneParameter::None,
         channel_idx: 5,
-        min_val: 0.0500,
-        max_val: 0.5000,
+        min_val: 0.0000,
+        max_val: 1.0000,
     },
     slot_b: TuneSlot {
         parameter: TuneParameter::None,
         channel_idx: 6,
-        min_val: 0.0050,
-        max_val: 0.0500,
+        min_val: 0.0000,
+        max_val: 1.0000,
     },
 };
 

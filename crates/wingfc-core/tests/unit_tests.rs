@@ -724,12 +724,19 @@ fn test_airframe_mixer_all_modes() {
 
     // Elevon with differential thrust
     let mixer = AirframeMixer::new(AirframeType::ElevonWithDiffThrust);
-    let out = mixer.mix(0.0, 0.0, 0.5, 1500); // 1500us throttle, 50% positive yaw
+    let out = mixer.mix(0.0, 0.0, 0.5, 1500); // 1500us throttle, 50% positive yaw (0.5 * 0.15 * 1000 = 75us)
     assert!(
         out.motor2_throttle > out.motor1_throttle,
         "Motor 2 should spin faster on positive yaw"
     );
-    assert!(out.motor1_throttle > 0 && out.motor2_throttle > 0);
+    assert_eq!(out.motor1_throttle, 1425);
+    assert_eq!(out.motor2_throttle, 1575);
+
+    // Test custom differential thrust weighting (e.g. 0.25 -> 250us max authority)
+    let mixer_custom = AirframeMixer::with_diff_thrust(AirframeType::ElevonWithDiffThrust, 0.25);
+    let out_custom = mixer_custom.mix(0.0, 0.0, 0.5, 1500); // 0.5 * 0.25 * 1000 = 125us
+    assert_eq!(out_custom.motor1_throttle, 1375);
+    assert_eq!(out_custom.motor2_throttle, 1625);
 
     // Single Aileron T-Tail
     let mixer_tt = AirframeMixer::new(AirframeType::SingleAileronTTail);

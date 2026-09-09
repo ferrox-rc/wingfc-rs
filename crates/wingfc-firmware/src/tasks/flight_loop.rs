@@ -12,6 +12,7 @@ use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
+use crate::config::DIFFERENTIAL_THRUST;
 use crate::config::{
     AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT,
     GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED, MAX_PITCH_ANGLE,
@@ -59,7 +60,7 @@ impl<'d> FlightLoopState<'d> {
             roll_pid: PidController::new(RATE_PID_CONFIG, DT),
             yaw_pid: PidController::new(RATE_PID_CONFIG, DT),
             mixer: {
-                let mut m = AirframeMixer::new(AIRFRAME_TYPE);
+                let mut m = AirframeMixer::with_diff_thrust(AIRFRAME_TYPE, DIFFERENTIAL_THRUST);
                 m.servos = SERVO_CONFIGS;
                 m
             },

@@ -236,6 +236,10 @@ def validate_config(cfg):
     if motor_proto not in ["pwm", "dshot"]:
         errors.append(f"Invalid motor.protocol '{motor_proto}'. Must be 'pwm' or 'dshot'.")
 
+    diff_thrust = float(motor_cfg.get("differential_thrust", 0.15))
+    if diff_thrust < 0.0 or diff_thrust > 1.0:
+        errors.append(f"motor.differential_thrust ({diff_thrust}) out of bounds! Must be between 0.0 and 1.0.")
+
     motor_pwm_hz = int(motor_cfg.get("pwm_frequency_hz", 400))
     if motor_proto == "pwm":
         if motor_pwm_hz < MIN_PWM_HZ or motor_pwm_hz > MAX_PWM_HZ:
@@ -406,6 +410,7 @@ def validate_config(cfg):
         "slot_b_rust": slot_b_rust,
         "motor_proto": motor_proto,
         "motor_pwm_hz": motor_pwm_hz,
+        "diff_thrust": diff_thrust,
         "nav_enabled": nav_enabled,
         "gps_enabled": gps_enabled,
         "rth_min_sats": rth_min_sats,
@@ -496,6 +501,9 @@ pub const SERVO_CONFIGS: [ServoConfig; 8] = [
 /// Configured PWM frame frequency for analog ESC output in Hz ({MIN_PWM_HZ}Hz - {MAX_PWM_HZ}Hz).
 /// Legacy airplane ESCs require 50 Hz; high-speed multirotor ESCs support 400 Hz.
 pub const ESC_PWM_HZ: u32 = {cfg_vals['motor_pwm_hz']};
+
+/// Differential thrust authority for twin-motor airframes (0.0 .. 1.0 fraction of throttle range)
+pub const DIFFERENTIAL_THRUST: f32 = {cfg_vals['diff_thrust']:.4f};
 
 /// Maximum commanded roll rate in Acro / Rates mode (rad/s)
 pub const MAX_ROLL_RATE: f32 = {cfg_vals['roll_dps']:.1f} * DEG_TO_RAD;

@@ -66,6 +66,7 @@ pub struct AirframeOutputs {
 pub struct AirframeMixer {
     pub airframe_type: AirframeType,
     pub servos: [ServoConfig; 8], // index 0..7 corresponds to Servo 1..8
+    pub diff_thrust_weight: f32,  // 0.0 .. 1.0 fraction of throttle range (1000us)
 }
 
 impl AirframeMixer {
@@ -73,6 +74,15 @@ impl AirframeMixer {
         Self {
             airframe_type,
             servos: [ServoConfig::default(); 8],
+            diff_thrust_weight: 0.15,
+        }
+    }
+
+    pub fn with_diff_thrust(airframe_type: AirframeType, diff_thrust_weight: f32) -> Self {
+        Self {
+            airframe_type,
+            servos: [ServoConfig::default(); 8],
+            diff_thrust_weight,
         }
     }
 
@@ -113,7 +123,7 @@ impl AirframeMixer {
                 outputs.servo1_us = self.servos[0].apply(s1_norm);
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
 
-                let diff = (yaw * 150.0) as i16;
+                let diff = (yaw * self.diff_thrust_weight * 1000.0) as i16;
                 outputs.motor1_throttle =
                     clamp((throttle_us as i16 - diff) as f32, 1000.0, 2000.0) as u16;
                 outputs.motor2_throttle =
