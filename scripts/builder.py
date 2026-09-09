@@ -260,7 +260,16 @@ def validate_config(cfg):
     nav_cfg = cfg.get("navigation", {})
     nav_enabled = bool(nav_cfg.get("enabled", False))
     baro_enabled = bool(nav_cfg.get("barometer", False)) or nav_enabled
-    compass_enabled = bool(nav_cfg.get("compass", False)) or nav_enabled
+    compass_raw = nav_cfg.get("compass", False)
+    if isinstance(compass_raw, dict):
+        compass_enabled = bool(compass_raw.get("enabled", False)) or nav_enabled
+        compass_model = str(compass_raw.get("model", "qmc5883l")).lower().strip()
+    else:
+        compass_enabled = bool(compass_raw) or nav_enabled
+        compass_model = str(nav_cfg.get("compass_model", "qmc5883l")).lower().strip()
+
+    if compass_enabled and compass_model not in ["qmc5883l", "hmc5883l"]:
+        errors.append(f"Invalid compass model '{compass_model}'. Supported models: 'qmc5883l', 'hmc5883l'.")
     gps_enabled = bool(nav_cfg.get("gps", False)) or nav_enabled
 
     rth_cfg = nav_cfg.get("rth", {})
@@ -412,6 +421,9 @@ def validate_config(cfg):
         "motor_pwm_hz": motor_pwm_hz,
         "diff_thrust": diff_thrust,
         "nav_enabled": nav_enabled,
+        "compass_enabled": compass_enabled,
+        "compass_model": compass_model,
+        "compass_model_rust": "CompassModel::" + ("Qmc5883l" if compass_model == "qmc5883l" else "Hmc5883l"),
         "gps_enabled": gps_enabled,
         "rth_min_sats": rth_min_sats,
         "rth_max_hdop": rth_max_hdop,
@@ -532,6 +544,15 @@ pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {{
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};
+
+/// GPS autonomous navigation and Return-to-Home parameters
+#[cfg(feature = "compass")]
+pub use crate::drivers::CompassModel;
+
+/// External Compass / Magnetometer configuration
+pub const COMPASS_ENABLED: bool = {str(cfg_vals['compass_enabled']).lower()};
+#[cfg(feature = "compass")]
+pub const COMPASS_MODEL: CompassModel = {cfg_vals['compass_model_rust']};
 
 /// GPS autonomous navigation and Return-to-Home parameters
 pub const GPS_ENABLED: bool = {str(cfg_vals['gps_enabled']).lower()};

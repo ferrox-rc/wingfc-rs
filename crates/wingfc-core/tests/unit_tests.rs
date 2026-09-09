@@ -847,3 +847,19 @@ fn test_in_flight_tuning_pots() {
     tuning.update(&rc, &mut pitch_pid, &mut roll_pid);
     assert!((pitch_pid.config.kp - 0.3).abs() < 1e-4);
 }
+
+#[test]
+fn test_compass_scaling_qmc5883l() {
+    const SCALE_TO_UT: f32 = 100.0 / 3000.0;
+    let raw_x: i16 = 300; // 0.1 Gauss = 10 uT
+    let ut_x = (raw_x as f32) * SCALE_TO_UT;
+    assert!((ut_x - 10.0).abs() < 1e-3);
+}
+
+#[test]
+fn test_compass_scaling_hmc5883l() {
+    const SCALE_TO_UT: f32 = 100.0 / 1090.0;
+    let raw_x: i16 = 109; // 0.1 Gauss = 10 uT
+    let ut_x = (raw_x as f32) * SCALE_TO_UT;
+    assert!((ut_x - 10.0).abs() < 1e-2);
+}

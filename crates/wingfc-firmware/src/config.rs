@@ -6,8 +6,8 @@
 use embassy_time::Duration;
 use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
 use wingfc_core::mixer::{AirframeType, ServoConfig};
-use wingfc_core::pid::PidConfig;
 use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
+use wingfc_core::pid::PidConfig;
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = BoardOrientation::Default;
@@ -41,54 +41,14 @@ pub const SERVO_PWM_HZ: u32 = 50;
 
 /// Per-servo output endpoint, subtrim, and inversion calibration profiles
 pub const SERVO_CONFIGS: [ServoConfig; 8] = [
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
-    ServoConfig {
-        min_us: 1000,
-        max_us: 2000,
-        subtrim_us: 0,
-        reversed: false,
-    },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
 ];
 
 /// Configured PWM frame frequency for analog ESC output in Hz (50Hz - 400Hz).
@@ -119,22 +79,21 @@ pub const ANGLE_P_GAIN: f32 = 4.00;
 /// In-flight real-time PID potentiometer tuning configuration
 pub const IN_FLIGHT_TUNING_ENABLED: bool = false;
 pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {
-    slot_a: TuneSlot {
-        parameter: TuneParameter::None,
-        channel_idx: 5,
-        min_val: 0.0000,
-        max_val: 1.0000,
-    },
-    slot_b: TuneSlot {
-        parameter: TuneParameter::None,
-        channel_idx: 6,
-        min_val: 0.0000,
-        max_val: 1.0000,
-    },
+    slot_a: TuneSlot { parameter: TuneParameter::None, channel_idx: 5, min_val: 0.0500, max_val: 0.5000 },
+    slot_b: TuneSlot { parameter: TuneParameter::None, channel_idx: 6, min_val: 0.0050, max_val: 0.0500 },
 };
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = 15.0;
+
+/// GPS autonomous navigation and Return-to-Home parameters
+#[cfg(feature = "compass")]
+pub use crate::drivers::CompassModel;
+
+/// External Compass / Magnetometer configuration
+pub const COMPASS_ENABLED: bool = false;
+#[cfg(feature = "compass")]
+pub const COMPASS_MODEL: CompassModel = CompassModel::Qmc5883l;
 
 /// GPS autonomous navigation and Return-to-Home parameters
 pub const GPS_ENABLED: bool = false;
