@@ -5,11 +5,22 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-08
+
+### 🚀 Features
+- Add dual-LED visual telemetry with discrete User LED (`P0.17`)
+- Allocate dedicated `PWM0` (ESCs 1&2), `PWM1` (Servos 1..4), and `PWM2` (Servos 5..8)
+- Standardize all PWM output drive strengths to `OutputDrive::Standard`
+- Add 1000ms hardware watchdog timer (`WDT`) supervision
+- Upgrade UART receiver to double-buffered EasyDMA driver with `ThreadModeRawMutex`
+- Enforce strict UART RX/TX crossover rules and pin mapping consistency
+
 ## [0.1.2] - 2026-09-06
 
 ### 🚀 Features
 
 - Feat: Add multi-method flash engine with interactive UF2 deployment, update pinouts and memory layout, and add deployment guide
+
 ## [0.1.1] - 2026-09-05
 
 ### ⚙️ Miscellaneous Tasks
@@ -22,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add configurable arming and throttle safety thresholds, update documentation and release matrix
 - Implement bidirectional CRSF telemetry protocol and asynchronous DMA broadcast task
 - Feat: Integrate cargo-workspace inheritance, cargo-release automation, and git-cliff changelog
+
 ## [0.1.0] - 2026-09-04
 
 ### 💼 Other Changes

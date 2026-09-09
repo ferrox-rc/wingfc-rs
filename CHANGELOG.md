@@ -5,9 +5,10 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-08
 
 ### 🚀 Features & Architecture Improvements
+- **Unified 8-Servo Architecture & Sequential Nomenclature:** Expanded servo management to 8 fully independent, sequentially indexed outputs (`servo1` through `servo8`) across `PWM1` (channels 0..3) and `PWM2` (channels 0..3 on Sense Plus).
 - **Dual-LED Visual Telemetry:** Added support for the discrete User/Charge indicator LED (`P0.17`) alongside the 3-color RGB LED. Non-GPS builds feature RC connection status, heartbeat, and packet streaming pulses. GPS builds provide satellite acquisition cadence, 3D fix strobe, and solid home lock indication.
 - **Configurable Multi-Channel Actuator Architecture:** 
   - Dedicated `PWM0` to ESC throttle control for up to 2 motors with differential thrust support.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configurable Outer Angle P-Gain:** Exposed `angle_p_gain` in `wingfc.yaml` for tuning attitude self-leveling responsiveness.
 - **Configurable RC Channel Selection:** Added explicit channel mapping in `wingfc.yaml` (`roll`, `pitch`, `throttle`, `yaw`, `arm`, `mode`) supporting various transmitter switch/pot layouts.
 - **Idiomatic Embassy Async Drivers:** Upgraded UART receiver to double-buffered DMA driver and transitioned shared state channels to `ThreadModeRawMutex`.
+- **UART Communication & Crossover Verification:** Audited all documentation and drivers to strictly enforce proper UART TX/RX crossovers and pin mappings (`D6`/`P1.11` TX, `D7`/`P1.12` RX on `UARTE0`; `D14`/`P0.09` RX, `D15`/`P0.10` TX on `UARTE1`).
 
 ## [0.1.2] - 2026-09-07
 

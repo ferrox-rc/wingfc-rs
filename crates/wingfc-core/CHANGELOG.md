@@ -5,11 +5,23 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-08
+
+### 🚀 Features
+- Complete multi-airframe mixing suite (Elevon, Diff Thrust, T-Tail, V-Tail)
+- Expand to unified 8-servo sequential architecture (`[ServoConfig; 8]`, `servo1_us`..`servo8_us`)
+- Add per-servo limits, sub-trim offset, and direction reversal support
+- Add 8-way board mounting orientation transform matrix
+- Add in-flight dynamic PID potentiometer tuning via RC channels
+- Add configurable outer angle P-gain for attitude control
+- Add configurable RC channel mapping (1..16)
+
 ## [0.1.2] - 2026-09-06
 
 ### 📚 Documentation
 
 - Docs: Document comprehensive unit test coverage across README, ARCHITECTURE, CONFIG, and RELEASE_MATRIX
+
 ## [0.1.1] - 2026-09-05
 
 ### ⚙️ Miscellaneous Tasks
@@ -23,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add GitHub Actions CI/CD pipeline and clean up clippy linter warnings
 - Implement bidirectional CRSF telemetry protocol and asynchronous DMA broadcast task
 - Feat: Integrate cargo-workspace inheritance, cargo-release automation, and git-cliff changelog
+
 ## [0.1.0] - 2026-09-04
 
 ### 💼 Other Changes
