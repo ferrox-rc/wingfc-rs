@@ -34,29 +34,29 @@ pub struct BoardPins {
     pub pin_servo1: Peri<'static, peripherals::P0_02>,
     /// Physical Pin: P0.03 (Silkscreen: D1) - Servo 2 (Right Elevon / Elevator / Right V-Tail)
     pub pin_servo2: Peri<'static, peripherals::P0_03>,
-    /// Physical Pin: P0.28 (Silkscreen: D2) - Servo 4 (Rudder / Left V-Tail / Aux)
-    pub pin_servo4: Peri<'static, peripherals::P0_28>,
-    /// Physical Pin: P0.05 (Silkscreen: D5) - Servo 5 (Secondary Aileron / Flap / Aux)
-    pub pin_servo5: Peri<'static, peripherals::P0_05>,
+    /// Physical Pin: P0.28 (Silkscreen: D2) - Servo 3 (Rudder / Left V-Tail / Aux)
+    pub pin_servo3: Peri<'static, peripherals::P0_28>,
+    /// Physical Pin: P0.05 (Silkscreen: D5) - Servo 4 (Secondary Aileron / Flap / Aux)
+    pub pin_servo4: Peri<'static, peripherals::P0_05>,
 
     // ==========================================
-    // Actuators (PWM2: Secondary Servos 6..9 - Sense Plus Only)
+    // Actuators (PWM2: Secondary Servos 5..8 - Sense Plus Only)
     // ==========================================
     #[cfg(feature = "gps")]
     /// PWM2 peripheral dedicated to secondary 4 servo outputs (Sense Plus variant only)
     pub pwm2_servos: Peri<'static, peripherals::PWM2>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P1.13 (Silkscreen: D8) - Servo 6 (Secondary Elevator / Aux)
-    pub pin_servo6: Peri<'static, peripherals::P1_13>,
+    /// Physical Pin: P1.13 (Silkscreen: D8) - Servo 5 (Aux / Flap / Gear)
+    pub pin_servo5: Peri<'static, peripherals::P1_13>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P1.14 (Silkscreen: D9) - Servo 7 (Aux)
-    pub pin_servo7: Peri<'static, peripherals::P1_14>,
+    /// Physical Pin: P1.14 (Silkscreen: D9) - Servo 6 (Aux / Pan)
+    pub pin_servo6: Peri<'static, peripherals::P1_14>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P1.15 (Silkscreen: D10) - Servo 8 (Aux)
-    pub pin_servo8: Peri<'static, peripherals::P1_15>,
+    /// Physical Pin: P1.15 (Silkscreen: D10) - Servo 7 (Aux / Tilt)
+    pub pin_servo7: Peri<'static, peripherals::P1_15>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P0.15 (Silkscreen: D11) - Servo 9 (Aux)
-    pub pin_servo9: Peri<'static, peripherals::P0_15>,
+    /// Physical Pin: P0.15 (Silkscreen: D11) - Servo 8 (Aux / Drop)
+    pub pin_servo8: Peri<'static, peripherals::P0_15>,
 
     // ==========================================
     // Visual Telemetry (RGB LED)
@@ -127,18 +127,18 @@ impl BoardPins {
             pwm1_servos: p.PWM1,
             pin_servo1: p.P0_02,
             pin_servo2: p.P0_03,
-            pin_servo4: p.P0_28,
-            pin_servo5: p.P0_05,
+            pin_servo3: p.P0_28,
+            pin_servo4: p.P0_05,
             #[cfg(feature = "gps")]
             pwm2_servos: p.PWM2,
             #[cfg(feature = "gps")]
-            pin_servo6: p.P1_13,
+            pin_servo5: p.P1_13,
             #[cfg(feature = "gps")]
-            pin_servo7: p.P1_14,
+            pin_servo6: p.P1_14,
             #[cfg(feature = "gps")]
-            pin_servo8: p.P1_15,
+            pin_servo7: p.P1_15,
             #[cfg(feature = "gps")]
-            pin_servo9: p.P0_15,
+            pin_servo8: p.P0_15,
             pin_led_red: p.P0_26,
             pin_led_green: p.P0_30,
             pin_led_blue: p.P0_06,

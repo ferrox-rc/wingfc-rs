@@ -57,19 +57,22 @@ nano wingfc.yaml
 
 ---
 
-## Visual Status & RGB LED Matrix
+## Dual-LED Visual Telemetry Matrix
 
-The onboard tri-color RGB LED provides instant visual status of the aircraft state:
+WingFC-rs uses a synchronized dual-LED system: the primary **RGB LED** reports vehicle safety/arming modes, while the discrete **User LED (`P0.17`)** provides link quality and GPS lock feedback.
 
-| LED Color | Visual Pattern | Frequency | Status / Flight Mode | Meaning & Pilot Action |
-| :--- | :--- | :--- | :--- | :--- |
-| **White** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `Calibration` | **Gyro Calibration:** Measuring stationary sensor bias at boot (250 samples). Keep aircraft flat and motionless. |
-| **Yellow** | Fast Flash | 5 Hz (100ms ON / 100ms OFF) | `EscCalibration` | **ESC Calibration Mode:** Throttle was high (&gt;1850 &mu;s) at boot. ESC endpoints calibration active (PWM only). |
-| **Yellow** | Double Blink | 2 pulses / second | `Refused` | **Arming Refused:** Safety lockout active. Either throttle &gt; 1050 &mu;s or arm switch was active at boot. Lower throttle and cycle switch. |
-| **Red** | Slow Blink | 2 Hz (250ms ON / 250ms OFF) | `Failsafe` | **Failsafe / Link Lost:** No RC frames received within timeout (500ms). Check receiver binding and wiring on D7 (`P1.12`). |
-| **Green** | Solid ON | Constant | `Disarmed` | **Disarmed & Ready:** Valid RC link active, gyro calibrated, motors safe. Ready to arm. |
-| **Blue** | Solid ON | Constant | `ArmedAcro` | **Armed (Acro / Rates Mode):** Motors live, raw angular rate PID stabilization active. |
-| **Cyan** | Solid ON | Constant | `ArmedAngle` | **Armed (Angle / Self-Leveling):** Motors live, self-leveling attitude stabilization active. |
+| LED Indicator | Pattern / Color | Meaning |
+| :--- | :--- | :--- |
+| **RGB LED** | **White (5 Hz)** | Stationary gyro calibration at boot. |
+| **RGB LED** | **Yellow (5 Hz)** | ESC throttle calibration pass-through active. |
+| **RGB LED** | **Yellow (Double Blink)** | Arming refused / safety lockout (throttle raised or switch armed at boot). |
+| **RGB LED** | **Red (Slow 2 Hz)** | Failsafe / Link lost. |
+| **RGB LED** | **Green (Solid)** | Disarmed & safe. Ready to arm. |
+| **RGB LED** | **Blue (Solid)** | Armed (Acro / Rate mode). |
+| **RGB LED** | **Cyan (Solid)** | Armed (Angle / Self-leveling mode). |
+| **User LED (`P0.17`)** | **Heartbeat / Pulse** | *Non-GPS builds:* Solid ON when RC link is healthy; pulses on packet arrival.<br>*GPS builds:* 1 Hz pulse searching, 2 Hz double-flash on 3D fix, Solid ON when locked (&ge;8 sats). |
+
+For complete cadence details and wiring specifications, see the [Pin Configuration Specification](docs/PINOUT.md).
 
 ---
 

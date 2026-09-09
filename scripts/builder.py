@@ -118,6 +118,21 @@ def validate_config(cfg):
     if not isinstance(failsafe_ms, (int, float)) or failsafe_ms < 50 or failsafe_ms > 5000:
         errors.append(f"receiver.failsafe_timeout_ms ({failsafe_ms}) must be between 50 and 5000 ms.")
 
+
+    # Receiver Channel Mapping
+    ch_cfg = rc_cfg.get("channels", {})
+    def parse_rc_channel(name, default_ch):
+        val = int(ch_cfg.get(name, default_ch))
+        if val < 1 or val > 16:
+            errors.append(f"receiver.channels.{name} ({val}) out of bounds [1, 16]")
+        return val - 1 # 0-indexed for Rust arrays
+
+    ch_roll_idx = parse_rc_channel("roll", 1)
+    ch_pitch_idx = parse_rc_channel("pitch", 2)
+    ch_throttle_idx = parse_rc_channel("throttle", 3)
+    ch_yaw_idx = parse_rc_channel("yaw", 4)
+    ch_arm_idx = parse_rc_channel("arm", 5)
+    ch_mode_idx = parse_rc_channel("mode", 6)
     # Safety Interlocks & Thresholds
     safety_cfg = cfg.get("safety", {})
     arm_switch_threshold_us = int(safety_cfg.get("arm_switch_threshold_us", 1800))
@@ -177,9 +192,12 @@ def validate_config(cfg):
 
     servo1_rust = parse_servo("servo1")
     servo2_rust = parse_servo("servo2")
+    servo3_rust = parse_servo("servo3")
     servo4_rust = parse_servo("servo4")
     servo5_rust = parse_servo("servo5")
     servo6_rust = parse_servo("servo6")
+    servo7_rust = parse_servo("servo7")
+    servo8_rust = parse_servo("servo8")
 
     # In-Flight Dynamic PID Tuning (Slots A & B)
     param_map = {
@@ -366,14 +384,23 @@ def validate_config(cfg):
         "airframe_rust": airframe_rust,
         "protocol": proto,
         "failsafe_ms": int(failsafe_ms),
+        "ch_roll_idx": ch_roll_idx,
+        "ch_pitch_idx": ch_pitch_idx,
+        "ch_throttle_idx": ch_throttle_idx,
+        "ch_yaw_idx": ch_yaw_idx,
+        "ch_arm_idx": ch_arm_idx,
+        "ch_mode_idx": ch_mode_idx,
         "arm_switch_threshold_us": arm_switch_threshold_us,
         "throttle_zero_threshold_us": throttle_zero_threshold_us,
         "servo_pwm_hz": servo_pwm_hz,
         "servo1_rust": servo1_rust,
         "servo2_rust": servo2_rust,
+        "servo3_rust": servo3_rust,
         "servo4_rust": servo4_rust,
         "servo5_rust": servo5_rust,
         "servo6_rust": servo6_rust,
+        "servo7_rust": servo7_rust,
+        "servo8_rust": servo8_rust,
         "ift_enabled": "true" if ift_enabled else "false",
         "slot_a_rust": slot_a_rust,
         "slot_b_rust": slot_b_rust,
@@ -436,6 +463,14 @@ pub const DT: f32 = 0.002;
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis({cfg_vals['failsafe_ms']});
 
+/// Configured RC channel indexes (0-indexed)
+pub const RC_CH_ROLL: usize = {cfg_vals['ch_roll_idx']};
+pub const RC_CH_PITCH: usize = {cfg_vals['ch_pitch_idx']};
+pub const RC_CH_THROTTLE: usize = {cfg_vals['ch_throttle_idx']};
+pub const RC_CH_YAW: usize = {cfg_vals['ch_yaw_idx']};
+pub const RC_CH_ARM: usize = {cfg_vals['ch_arm_idx']};
+pub const RC_CH_MODE: usize = {cfg_vals['ch_mode_idx']};
+
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = {cfg_vals['arm_switch_threshold_us']};
 
@@ -447,12 +482,15 @@ pub const THROTTLE_ZERO_THRESHOLD: u16 = {cfg_vals['throttle_zero_threshold_us']
 pub const SERVO_PWM_HZ: u32 = {cfg_vals['servo_pwm_hz']};
 
 /// Per-servo output endpoint, subtrim, and inversion calibration profiles
-pub const SERVO_CONFIGS: [ServoConfig; 5] = [
+pub const SERVO_CONFIGS: [ServoConfig; 8] = [
     {cfg_vals['servo1_rust']},
     {cfg_vals['servo2_rust']},
+    {cfg_vals['servo3_rust']},
     {cfg_vals['servo4_rust']},
     {cfg_vals['servo5_rust']},
     {cfg_vals['servo6_rust']},
+    {cfg_vals['servo7_rust']},
+    {cfg_vals['servo8_rust']},
 ];
 
 /// Configured PWM frame frequency for analog ESC output in Hz ({MIN_PWM_HZ}Hz - {MAX_PWM_HZ}Hz).

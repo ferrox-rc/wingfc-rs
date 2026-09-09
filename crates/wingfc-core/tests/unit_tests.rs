@@ -737,28 +737,28 @@ fn test_airframe_mixer_all_modes() {
     assert_eq!(out_tt.motor1_throttle, 1600);
     assert!(out_tt.servo1_us != 1500); // Aileron
     assert!(out_tt.servo2_us != 1500); // Elevator
-    assert!(out_tt.servo4_us != 1500); // Rudder
+    assert!(out_tt.servo3_us != 1500); // Rudder
 
     // Dual Aileron T-Tail (differential ailerons)
     let mixer_dtt = AirframeMixer::new(AirframeType::DualAileronTTail);
     let out_dtt = mixer_dtt.mix(0.0, 0.5, 0.0, 1500);
     assert!(out_dtt.servo1_us > 1500); // Left aileron up
-    assert!(out_dtt.servo5_us < 1500); // Right aileron down
+    assert!(out_dtt.servo4_us < 1500); // Right aileron down
 
     // Single Aileron V-Tail
     let mixer_vt = AirframeMixer::new(AirframeType::SingleAileronVTail);
     let out_vt = mixer_vt.mix(0.2, 0.3, 0.0, 1500);
     assert!(out_vt.servo1_us != 1500);
     assert!(out_vt.servo2_us != 1500);
-    assert!(out_vt.servo4_us != 1500);
+    assert!(out_vt.servo3_us != 1500);
 
     // Dual Aileron V-Tail
     let mixer_dvt = AirframeMixer::new(AirframeType::DualAileronVTail);
     let out_dvt = mixer_dvt.mix(0.2, 0.3, 0.1, 1500);
     assert!(out_dvt.servo1_us != 1500);
-    assert!(out_dvt.servo5_us != 1500);
+    assert!(out_dvt.servo3_us != 1500);
     assert!(out_dvt.servo2_us != 1500);
-    assert!(out_dvt.servo4_us != 1500);
+    assert!(out_dvt.servo3_us != 1500);
 }
 
 #[test]

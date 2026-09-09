@@ -14,7 +14,7 @@
 # Target Board Hardware
 # Options:
 #   - 'xiao-sense'       : Standard Seeed Studio XIAO nRF52840 Sense (6-DoF onboard IMU)
-#   - 'xiao-sense-plus'  : XIAO nRF52840 Sense Plus (Required for GPS navigation & extra UART)
+#   - 'xiao-sense-plus'  : XIAO nRF52840 Sense Plus (Required for GPS navigation with extra UART)
 board: xiao-sense
 
 # Board Mounting Orientation: default, cw90, cw180, cw270, flip, flip_cw90, flip_cw180, flip_cw270
@@ -39,6 +39,17 @@ receiver:
   # Duration in milliseconds without a valid RC frame before failsafe engages
   # In failsafe: motors are cut to 0 and elevons neutralize to level flight
   failsafe_timeout_ms: 500
+
+  # RC Channel Mapping (1-16):
+  # Standard defaults: AETR (Aileron/Roll=1, Elevator/Pitch=2, Throttle=3, Rudder/Yaw=4)
+  # Channels 5+ are typically assigned to switches and potentiometers/sliders.
+  channels:
+    roll: 1      # Roll / Aileron stick
+    pitch: 2     # Pitch / Elevator stick
+    throttle: 3  # Throttle stick
+    yaw: 4       # Yaw / Rudder stick
+    arm: 5       # Arm switch (CH5 / AUX1)
+    mode: 6      # Flight mode switch (CH6 / AUX2: Acro vs Angle)
 
 # Safety Interlocks & Arming Thresholds
 safety:
@@ -90,37 +101,52 @@ servos:
   # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   pwm_frequency_hz: 50
 
-  # Per-Servo Limits, Sub-trim, and Reversals:
-  # Servo 1: Left Elevon / Primary Aileron
+  # Per-Servo Limits, Sub-trim, and Reversals (servo1 .. servo8):
+  # Primary Servos (PWM1: D0, D1, D2, D5)
   servo1:
     min_us: 1000
     max_us: 2000
     subtrim_us: 0
     reversed: false
 
-  # Servo 2: Right Elevon / Elevator / Right V-Tail
   servo2:
     min_us: 1000
     max_us: 2000
     subtrim_us: 0
     reversed: false
 
-  # Servo 4: Rudder / Left V-Tail / Aux
+  servo3:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
   servo4:
     min_us: 1000
     max_us: 2000
     subtrim_us: 0
     reversed: false
 
-  # Servo 5: Secondary Aileron (Dual Aileron airframes)
+  # Secondary Expansion Servos (PWM2: D8, D9, D10, D11 - Sense Plus)
   servo5:
     min_us: 1000
     max_us: 2000
     subtrim_us: 0
     reversed: false
 
-  # Servo 6: Secondary Elevator / Aux
   servo6:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
+  servo7:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+
+  servo8:
     min_us: 1000
     max_us: 2000
     subtrim_us: 0

@@ -15,7 +15,8 @@ use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 use crate::config::{
     AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT,
     GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED, MAX_PITCH_ANGLE,
-    MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG, SERVO_CONFIGS,
+    MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG, RC_CH_ARM,
+    RC_CH_MODE, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
     THROTTLE_ZERO_THRESHOLD,
 };
 #[cfg(not(feature = "dshot"))]
@@ -85,7 +86,7 @@ impl<'d> FlightLoopState<'d> {
             if let Ok(rc) = rc_rx.try_receive() {
                 self.latest_rc = rc;
                 self.last_packet_time = Instant::now();
-                if rc.channels[2] > 1900 {
+                if rc.channels[RC_CH_THROTTLE] > 1900 {
                     in_esc_calib = true;
                     break;
                 }
@@ -101,7 +102,7 @@ impl<'d> FlightLoopState<'d> {
             loop {
                 if let Ok(rc) = rc_rx.try_receive() {
                     self.latest_rc = rc;
-                    let throttle = rc.channels[2].clamp(1000, 2000);
+                    let throttle = rc.channels[RC_CH_THROTTLE].clamp(1000, 2000);
                     esc_pwm.set_throttle_us(0, throttle);
                     esc_pwm.set_throttle_us(1, throttle);
 
@@ -178,12 +179,29 @@ impl<'d> FlightLoopState<'d> {
         // 2. Failsafe timeout check
         let signal_lost = Instant::now().duration_since(self.last_packet_time) > FAILSAFE_TIMEOUT;
 
-        // 3. Channel Mapping:
-        // CH1: Roll (0), CH2: Pitch (1), CH3: Throttle (2), CH4: Yaw (3), CH5: Arm (4), CH6: Mode (5)
-        let roll_stick = map_range(self.latest_rc.channels[0] as f32, 988.0, 2012.0, -1.0, 1.0);
-        let pitch_stick = map_range(self.latest_rc.channels[1] as f32, 988.0, 2012.0, -1.0, 1.0);
-        let throttle_raw = self.latest_rc.channels[2].clamp(1000, 2000);
-        let yaw_stick = map_range(self.latest_rc.channels[3] as f32, 988.0, 2012.0, -1.0, 1.0);
+        // 3. Configurable Channel Mapping
+        let roll_stick = map_range(
+            self.latest_rc.channels[RC_CH_ROLL] as f32,
+            988.0,
+            2012.0,
+            -1.0,
+            1.0,
+        );
+        let pitch_stick = map_range(
+            self.latest_rc.channels[RC_CH_PITCH] as f32,
+            988.0,
+            2012.0,
+            -1.0,
+            1.0,
+        );
+        let throttle_raw = self.latest_rc.channels[RC_CH_THROTTLE].clamp(1000, 2000);
+        let yaw_stick = map_range(
+            self.latest_rc.channels[RC_CH_YAW] as f32,
+            988.0,
+            2012.0,
+            -1.0,
+            1.0,
+        );
 
         // Optional in-flight potentiometer PID tuning
         if IN_FLIGHT_TUNING_ENABLED {
@@ -192,8 +210,8 @@ impl<'d> FlightLoopState<'d> {
 
         // 4. Update Arming Safety State Machine
         let new_status = self.safety.update(
-            self.latest_rc.channels[4],
-            self.latest_rc.channels[5],
+            self.latest_rc.channels[RC_CH_ARM],
+            self.latest_rc.channels[RC_CH_MODE],
             throttle_raw,
             signal_lost,
         );

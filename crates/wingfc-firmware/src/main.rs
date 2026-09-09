@@ -95,8 +95,8 @@ async fn main(spawner: Spawner) {
         pins.pwm1_servos,
         pins.pin_servo1,
         pins.pin_servo2,
+        pins.pin_servo3,
         pins.pin_servo4,
-        pins.pin_servo5,
         &servo_config,
     );
     let mut servo_pwm = ServoPwmDriver::new(pwm1_servos_dev);
@@ -104,10 +104,10 @@ async fn main(spawner: Spawner) {
     #[cfg(feature = "gps")]
     let pwm2_servos_dev = SimplePwm::new_4ch(
         pins.pwm2_servos,
+        pins.pin_servo5,
         pins.pin_servo6,
         pins.pin_servo7,
         pins.pin_servo8,
-        pins.pin_servo9,
         &servo_config,
     );
     #[cfg(feature = "gps")]
@@ -210,10 +210,15 @@ async fn main(spawner: Spawner) {
         // Apply physical PWM output updates
         servo_pwm.set_channel_us(0, outputs.servo1_us);
         servo_pwm.set_channel_us(1, outputs.servo2_us);
-        servo_pwm.set_channel_us(2, outputs.servo4_us);
-        servo_pwm.set_channel_us(3, outputs.servo5_us);
+        servo_pwm.set_channel_us(2, outputs.servo3_us);
+        servo_pwm.set_channel_us(3, outputs.servo4_us);
         #[cfg(feature = "gps")]
-        servo_pwm_ext.set_channel_us(0, outputs.servo6_us);
+        {
+            servo_pwm_ext.set_channel_us(0, outputs.servo5_us);
+            servo_pwm_ext.set_channel_us(1, outputs.servo6_us);
+            servo_pwm_ext.set_channel_us(2, outputs.servo7_us);
+            servo_pwm_ext.set_channel_us(3, outputs.servo8_us);
+        }
         #[cfg(not(feature = "dshot"))]
         {
             esc_pwm.set_throttle_us(0, outputs.motor1_throttle);

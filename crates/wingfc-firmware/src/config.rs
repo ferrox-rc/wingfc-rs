@@ -21,6 +21,14 @@ pub const DT: f32 = 0.002;
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// Configured RC channel indexes (0-indexed)
+pub const RC_CH_ROLL: usize = 0;
+pub const RC_CH_PITCH: usize = 1;
+pub const RC_CH_THROTTLE: usize = 2;
+pub const RC_CH_YAW: usize = 3;
+pub const RC_CH_ARM: usize = 4;
+pub const RC_CH_MODE: usize = 5;
+
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = 1800;
 
@@ -32,7 +40,25 @@ pub const THROTTLE_ZERO_THRESHOLD: u16 = 1050;
 pub const SERVO_PWM_HZ: u32 = 50;
 
 /// Per-servo output endpoint, subtrim, and inversion calibration profiles
-pub const SERVO_CONFIGS: [ServoConfig; 5] = [
+pub const SERVO_CONFIGS: [ServoConfig; 8] = [
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
     ServoConfig {
         min_us: 1000,
         max_us: 2000,

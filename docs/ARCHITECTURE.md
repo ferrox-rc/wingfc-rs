@@ -1,62 +1,32 @@
 # WingFC-rs System Architecture & Design Specification
 
-`wingfc-rs` is a bare-metal, high-performance, `#![no_std]` flight controller firmware and flight dynamics core written entirely in Rust for the ARM Cortex-M4F architecture (specifically targetting the Nordic nRF52840 SoC on the Seeed Studio XIAO nRF52840 Sense, and custom derivative PCBs).
+`wingfc-rs` is a bare-metal, high-performance, `#![no_std]` flight controller firmware and flight dynamics core written entirely in Rust for the ARM Cortex-M4F architecture (specifically targetting the Nordic nRF52840 SoC on the Seeed Studio XIAO nRF52840 Sense / Sense Plus, and custom derivative PCBs).
 
 ---
 
 ## 1. System Design Principles
 
 1. **Deterministic Execution:** Zero heap allocations (`no_std`), zero garbage collection pauses, and hard real-time execution at 500Hz (2000&mu;s period).
-2. **Zero-Cost Abstractions:** Build-time Cargo feature flags eliminate inactive protocols, algorithms, and drivers at compile time via dead-code elimination.
-3. **Defense-in-Depth Safety:** Multi-layered arming interlocks, zero-surge failsafe recovery, and physical separation between core logic (`wingfc-core`) and peripheral drivers (`wingfc-firmware`).
-4. **Modularity for Rapid Testing:** Pure flight control algorithms are isolated in `wingfc-core` and fully testable on host platforms via standard `cargo test` (achieving 88.4% line coverage and 89.8% region coverage across 20 unit tests).
-5. **Zero-Code User Configuration:** End users configure aircraft hardware, protocols, flight dynamics, and PID tunes using a friendly configuration file ([`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml)) without touching Rust source code or build files (see [Aircraft Configuration Guide](file:///home/bryansouza/Repos/wingfc-rs/docs/CONFIG.md)).
+2. **Hardware Watchdog Supervision:** 1000ms hardware watchdog timer (`WDT`) supervised directly by the 500 Hz flight loop.
+3. **Zero-Cost Abstractions:** Build-time Cargo feature flags eliminate inactive protocols, algorithms, and drivers at compile time via dead-code elimination.
+4. **Defense-in-Depth Safety:** Multi-layered arming interlocks, zero-surge failsafe recovery, and physical separation between core logic (`wingfc-core`) and peripheral drivers (`wingfc-firmware`).
+5. **Modularity for Rapid Testing:** Pure flight control algorithms are isolated in `wingfc-core` and fully testable on host platforms via standard `cargo test` (achieving 88.4% line coverage and 89.8% region coverage across 20 unit tests).
+6. **Zero-Code User Configuration:** End users configure aircraft hardware, protocols, flight dynamics, per-servo limits, and PID tunes using a friendly configuration file ([`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml)) without touching Rust source code or build files (see the [Aircraft Configuration Guide](file:///home/bryansouza/Repos/wingfc-rs/docs/CONFIG.md)).
 
 ---
 
-## 2. Hardware Architecture & Pin Configuration System
+## 2. Hardware Architecture & Peripheral Allocation
 
-Board pin definitions and peripheral bindings are centralized in [`crates/wingfc-firmware/src/pins.rs`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/src/pins.rs) via the `BoardPins` abstraction. For detailed electrical specs, peripheral conflict analysis, and expansion wiring diagrams, see the dedicated [Pin Configuration & Hardware Allocation Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/PINOUT.md).
+Physical pinout allocations, wiring isolation guidelines, electrical specs, and peripheral conflict matrices are detailed in the [Pin Configuration & Hardware Allocation Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/PINOUT.md).
 
-### Base Target: Seeed Studio XIAO nRF52840 Sense
-* **MCU:** Nordic Semiconductor nRF52840 (ARM Cortex-M4F with hardware FPU @ 64 MHz).
-* **Memory:** 1,024 KB Flash, 256 KB RAM.
-* **Onboard IMU:** STMicroelectronics LSM6DS3TR (3-axis Gyroscope + 3-axis Accelerometer).
-
-```
-                            Seeed XIAO nRF52840 Sense
-                         +-----------------------------+
-   Elevon Left  (PWM0) --| D0 (P0.02)         (P0.06)  |-- Blue LED (Telemetry)
-   Elevon Right (PWM0) --| D1 (P0.03)         (P0.30)  |-- Green LED (Telemetry)
-   Aux Servo    (PWM0) --| D2 (P0.28)         (P0.26)  |-- Red LED (Telemetry)
-   ESC Motor 1  (PWM1) --| D3 (P0.29)         (P0.07)  |-- IMU SCL (TWISPI0)
-   Available / Ext SDA --| D4 (P0.04)         (P0.27)  |-- IMU SDA (TWISPI0)
-   Available / Ext SCL --| D5 (P0.05)         (P0.15)  |-- IMU Power Rail Enable
-   RC RX (EasyDMA UARTE)-| D6 (P1.00)         (3.3V)   |
-   RC Telemetry TX     --| D7 (P0.11)         (GND)    |
-                         +-----------------------------+
-```
-
-### Pinout Reference:
-| Peripheral | Pin | Description | Driver / Subsystem |
-| :--- | :--- | :--- | :--- |
-| **Servo 1** | `P0.02` (D0) | Left Elevon (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 0) |
-| **Servo 2** | `P0.03` (D1) | Right Elevon (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 1) |
-| **Servo 3** | `P0.28` (D2) | Auxiliary Servo (50..400Hz PWM, 1000..2000 &mu;s) | `ServoPwmDriver` (PWM0, Ch 2) |
-| **Motor 1** | `P0.29` (D3) | Motor ESC (50..400Hz PWM or DShot) | `EscPwmDriver` (PWM1) |
-| **RC Input** | `P1.00` (D6) | EasyDMA UART RX (CRSF @ 420kBaud / iBus @ 115.2kBaud) | `UarteRx` (UARTE0) |
-| **RC Telemetry** | `P0.11` (D7) | EasyDMA UART TX (CRSF Telemetry @ 420kBaud) | `UarteTx` (UARTE0) |
-| **IMU SCL** | `P0.07` | I2C Clock (400 kHz Fast Mode) | `Twim` (TWISPI0) |
-| **IMU SDA** | `P0.27` | I2C Data (400 kHz Fast Mode) | `Twim` (TWISPI0) |
-| **IMU PWR** | `P0.15` | Internal Sensor Rail Enable (Active HIGH) | `Output` (GPIO) |
-| **LED Red** | `P0.26` | Active-LOW Visual Telemetry Indicator | `RgbLedDriver` (GPIO) |
-| **LED Green**| `P0.30` | Active-LOW Visual Telemetry Indicator | `RgbLedDriver` (GPIO) |
-| **LED Blue** | `P0.06` | Active-LOW Visual Telemetry Indicator | `RgbLedDriver` (GPIO) |
-
-### Future GPS Hardware Requirement: XIAO nRF52840 Sense Plus
-Integrating autonomous GPS navigation (NMEA / UBX) requires upgrading from the standard XIAO Sense to the **Seeed Studio XIAO nRF52840 Sense Plus** variant:
-- **Secondary UART Allocation (`UARTE1`):** `UARTE0` is dedicated to high-speed RC reception (`P1.00`). GPS reception and configuration require a second asynchronous serial engine (`UARTE1` RX/TX) operating at 115,200 baud.
-- **Pin Availability:** The standard XIAO form factor exposes only 8 external GPIOs (`D0`&ndash;`D7`), which are exhausted once 4 PWM channels, RC input, and isolated external I2C (magnetometer/barometer) are wired. The **Sense Plus** breaks out additional pins (`D8`, `D9`, `D10`, `D11` and solder pads), providing dedicated lines for GPS serial, analog battery voltage sensing, and buzzer alarms.
+### Summary of Assigned On-Chip Blocks:
+* **`PWM0` (ESCs 1 & 2):** Drives Motor 1 (`D3`/`P0.29`) and Motor 2 (`D4`/`P0.04`) for single-motor or differential-thrust twins. Supports 50..400 Hz analog PWM or digital DShot frames.
+* **`PWM1` (Primary Servos 1..4):** Drives standard flight control surfaces (`D0`/`P0.02`, `D1`/`P0.03`, `D2`/`P0.28`, `D5`/`P0.05`).
+* **`PWM2` (Secondary Servos 5..8):** Available on Seeed Studio XIAO nRF52840 Sense Plus for auxiliary gear, pan/tilt, or extra control surfaces.
+* **`TWISPI0` (Internal IMU):** Dedicated 400 kHz Fast-Mode I2C bus communicating with the onboard ST LSM6DS3TR 6-DoF sensor (`P0.07` SDA, `P0.27` SCL, `P1.08` Power Rail, `P0.11` Data-Ready Interrupt).
+* **`UARTE0` (RC Receiver & Telemetry):** Buffered EasyDMA UART engine servicing high-speed RC protocols (CRSF/ELRS @ 420 kBaud or FlySky iBus @ 115.2 kBaud) and bidirectional telemetry transmission (see the [Receiver & Telemetry Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/RECEIVERS.md)).
+* **`UARTE1` (Autonomous GPS):** Secondary EasyDMA serial engine on Sense Plus (`D14`/`P0.09` RX, `D15`/`P0.10` TX) running the zero-allocation NMEA navigation parser (see the [GPS Navigation Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/GPS_NAVIGATION.md)).
+* **Visual Telemetry:** Coordinated dual-LED system featuring the 3-color RGB LED (`P0.26`, `P0.30`, `P0.06`) and discrete User LED (`P0.17`).
 
 ---
 
@@ -70,6 +40,9 @@ Execution runs on Embassy's cooperative async executor with prioritized DMA even
                   +---------------------------------------------------+
                                             |
                                             v
+                                  [Pet Hardware WDT]
+                                            |
+                                            v
                                  [Drain Latest RC Packet]
                                             |
                                             v
@@ -79,7 +52,13 @@ Execution runs on Embassy's cooperative async executor with prioritized DMA even
                              [Update Arming Safety State Machine]
                                             |
                                             v
+                             [Apply In-Flight Pot PID Tuning]
+                                            |
+                                            v
                              [Sample LSM6DS3TR IMU via I2C]
+                                            |
+                                            v
+                           [Apply 8-Way Board Mounting Matrix]
                                             |
                                             v
                            [PT1 Gyro Harmonic Vibration Filter]
@@ -91,158 +70,22 @@ Execution runs on Embassy's cooperative async executor with prioritized DMA even
                        [Inner/Outer PID Loop (Rate / Angle / FF)]
                                             |
                                             v
-                                  [Elevon Airframe Mixer]
+                                 [Multi-Airframe Mixer]
                                             |
                                             v
-                       [Output Actuation: Servos (50..400Hz) & ESC (50..400Hz/DShot)]
+                       [Per-Servo Calibration (Min, Max, Trim, Rev)]
+                                            |
+                                            v
+                       [Output Actuation: Servos (PWM1/2) & ESC (PWM0)]
 ```
 
 ### Control Pipeline Steps:
-1. **RC Ingestion:** Non-blocking drain of the async channel queue populated by the EasyDMA UART receiver task.
-2. **Failsafe Monitoring:** If the duration since the last valid packet exceeds 500ms, the system enters failsafe mode (motors cut to zero throttle, control surfaces held level).
-3. **Safety State Machine:** Evaluates arming switch (CH5), mode switch (CH6), throttle position, and failsafe flag to determine the operational state.
-4. **IMU Interrupt-Driven DMA Ingestion:** Synchronizes with hardware Data-Ready interrupt (`INT1` on `P0.11`), initiating a 12-byte EasyDMA burst read over TWISPI0 (`0x22` through `0x2D`) to fetch angular velocity and acceleration with zero CPU polling latency.
-5. **Harmonic Vibration Filtering:** Raw gyroscope rates pass through single-pole PT1 low-pass filters with a 90Hz cutoff frequency (DT = 0.002s) to reject motor and propeller vibrations before entering AHRS or PID calculations:
-   <br>&alpha; = (2&pi; &middot; f<sub>c</sub> &middot; &Delta;t) / (1 + 2&pi; &middot; f<sub>c</sub> &middot; &Delta;t), &nbsp;&nbsp; y<sub>k</sub> = y<sub>k-1</sub> + &alpha;(x<sub>k</sub> - y<sub>k-1</sub>)
-6. **Attitude Estimation (Madgwick AHRS):**
-   * Computes quaternion attitude updates with dynamic G-rejection: acceleration corrections are only integrated when total G-force is within [0.65g, 1.35g] (1.0 &plusmn; 0.35g). In violent aerobatic maneuvers, pure gyroscope integration prevents centripetal acceleration distortion.
-   * When `nav` / `compass` is enabled, 9-DoF magnetometer data is fused to eliminate yaw drift and lock heading to magnetic North.
-7. **PID Controllers with FeedForward:**
-   * **Acro / Rate Mode:** Command rates directly from pilot stick inputs up to 600&deg;/s Roll, 200&deg;/s Pitch, 100&deg;/s Yaw.
-   * **Angle / Stabilized Mode:** Outer proportional loop converts pitch/roll angle error into target rates, which are tracked by the inner rate PID.
-   * **FeedForward (FF):** Stick derivative is filtered through a 45Hz PT1 filter and injected directly into the actuator command, eliminating phase lag on aggressive stick maneuvers.
-   * **Anti-Windup:** Accumulators are clamped to `max_integral` (0.40), and reset immediately when disarmed.
-8. **Airframe Mixer (Elevon):**
-   <br>Servo<sub>1</sub> = clamp(1500 &minus; Roll + Pitch), &nbsp;&nbsp; Servo<sub>2</sub> = clamp(1500 &minus; Roll &minus; Pitch)
-   <br>Linear throttle output is clamped to 1000..2000 &mu;s (or mapped to 0..2047 for DShot).
-
----
-
-## 4. Actuator Outputs, PWM Drivers & Protocols
-
-The nRF52840 PWM peripheral is driven by a 16MHz clock prescaled to 1MHz (`Prescaler::Div16`), yielding an exact 1.0 &mu;s timer tick resolution.
-
-### A. Servo PWM Driver (`ServoPwmDriver` on PWM0)
-* **Channels:** 3 channels (`D0` Left Elevon, `D1` Right Elevon, `D2` Auxiliary).
-* **Configurable Refresh Rate:** 50 Hz to 400 Hz (default 50 Hz).
-* **Hardware Warning & Limits:**
-  * **Analog Servos:** Must strictly operate at 50 Hz (max 60 Hz). Frequencies above 60 Hz cause analog servos to rapidly overheat, chatter violently, and burn out their internal drive motors.
-  * **High-Speed Digital Servos:** High-end digital servos natively accept 200 Hz, 250 Hz, 333 Hz, or up to 400 Hz, significantly reducing phase lag on elevon control surfaces.
-  * **Physical Upper Bound:** 400 Hz maximum. At 400 Hz, the total frame period is 2500 &mu;s, leaving a 500 &mu;s low-level off-time following a 2000 &mu;s high pulse. Frequencies &gt;400 Hz leave insufficient falling-edge detection time.
-
-### B. ESC Motor Driver (`EscPwmDriver` on PWM1)
-* **Analog PWM (`not(feature = "dshot")`):**
-  * **Configurable Refresh Rate:** 50 Hz to 400 Hz (default 400 Hz).
-  * **Fixed-Wing Compatibility Warning:** While multirotor ESCs (BLHeli_S/32, AM32) run at 400 Hz without issue, many budget or legacy fixed-wing airplane ESCs only tolerate 50 Hz or 60 Hz. If an analog ESC refuses to arm or beeps error codes, set `motor.pwm_frequency_hz: 50`.
-  * **Early PWM Startup (Step 0):** Hardware PWM is initialized to 1000 &mu;s immediately upon boot before I2C/UART initialization, allowing analog ESCs to start arming sequences promptly.
-  * **Calibration Pass-Through Mode:** If the pilot powers the aircraft on with full throttle (&gt;1900 &mu;s), the controller enters pass-through calibration mode (fast blinking yellow LED) until the throttle is lowered to zero (&lt;1050 &mu;s).
-* **DShot Digital Protocol (`feature = "dshot"`):**
-  * Transmits 16-bit digital packets with 4-bit XOR checksum over DMA.
-  * Range: 0 (Disarm / Motor Stop), 48 (Minimum Throttle), 2047 (Maximum Throttle).
-  * Eliminates analog endpoint calibration completely.
-
----
-
-## 5. Navigation Suite Architecture (`feature = "nav"`)
-
-The unified `nav` feature combines the barometer and compass subsystem:
-
-### A. Vertical Kalman Filter (`baro`)
-Fuses high-rate (500Hz) vertical accelerometer predictions with lower-rate (20-50Hz) barometric altitude measurements:
-* **State Vector:** [z, z&#775;]<sup>T</sup> (altitude in meters, vertical velocity in m/s).
-* **Covariance Propagation:** Accommodates accelerometer variance Q<sub>accel</sub> and barometric sensor noise R<sub>baro</sub>.
-* Yields smooth, low-latency vertical speed estimation for energy management, climb monitoring, and altitude safety.
-
-### B. Altitude Safety Controller (`baro`) & Regulatory Legality
-* **Hard Deck Floor:** If the aircraft breaches the hard floor (e.g., &lt;15 m AGL) with negative vertical speed, it overrides pilot commands to apply positive climb pitch and climb throttle.
-* **Statutory Ceiling Limiter (120 m AGL):** Under FAA 14 CFR &sect; 107.51 / 49 U.S.C. &sect; 44809 (USA) and EASA Regulation (EU) 2019/947 UAS.OPEN.010 (Europe), sUAS flight is strictly limited to 120 meters (400 feet) AGL in open category airspace. The ceiling limiter prevents breaching this regulatory limit by automatically pitching the nose down and throttling back. Exceeding 120m AGL without prior civil aviation authority airspace authorization is illegal and introduces severe mid-air collision hazards with manned aviation.
-* **Stall Recovery:** Detects rapid sink rates at level flight attitudes and pitches the nose down while commanding full throttle to recover airspeed.
-
-### C. 9-DoF Madgwick AHRS (`compass`)
-* Fuses 3-axis magnetometer readings with the gravity-aligned attitude quaternion.
-* Rotates measured magnetic vectors to the Earth frame (h = q &otimes; [0, m] &otimes; q<sup>*</sup>) and calculates gradient descent corrections against Earth magnetic field components b<sub>x</sub>, b<sub>z</sub>.
-* Guarantees true heading lock with zero drift during prolonged straight-line navigation.
-
-### D. Autonomous GPS Navigation & Return-to-Home (`gps`)
-* **Zero-Allocation NMEA 0183 Parser:** High-efficiency, `#![no_std]` streaming parser consuming GGA and RMC sentences byte-by-byte with XOR checksum verification.
-* **Telemetry Decoded:** Latitude, longitude, altitude MSL, speed over ground (SOG), course over ground (COG), satellite count, HDOP, and fix quality (2D, 3D, DGPS).
-* **Automatic Home Point Latching:** Latches initial launch coordinates and baseline altitude upon achieving a high-precision 3D lock (&ge; 6 satellites, HDOP &le; 2.5).
-* **Equirectangular Flat-Earth Projection:** Calculates real-time distance and bearing to the latched home point with &lt;0.1% distortion over tactical flight ranges (&lt;100 km).
-* **Return-to-Home (RTH) Guidance Vector:** Emits continuous bearing-to-home, heading error relative to ground track (&plusmn;180&deg;), and safe climb altitude targets (Home MSL + 30m AGL).
-* **Hardware Requirement:** Demands the **Seeed Studio XIAO nRF52840 Sense Plus** variant with secondary asynchronous serial engine (`UARTE1` on pins `D9`/`D10`), as standard XIAO exhausts all 8 GPIOs.
-* **Dedicated Specification:** For full protocol parsing specifications, mathematical models, and wiring diagrams, see the [GPS Navigation & Return-to-Home Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/GPS_NAVIGATION.md).
-
----
-
-## 6. Visual Telemetry (RGB LED) States
-
-Visual telemetry is driven by an asynchronous 20Hz task monitoring the global `STATUS_WATCH` channel:
-
-| Visual Pattern | State | Description |
-| :--- | :--- | :--- |
-| **Fast Blink Yellow** (100ms on, 100ms off) | `EscCalibration` | ESC Throttle Range Calibration Mode (PWM only) |
-| **Fast Blink White** (100ms on, 100ms off) | `Calibration` | Stationary Gyroscope Bias Calibration in progress |
-| **Solid Green** | `Disarmed` | System safe, sensors calibrated, ready for arming |
-| **Solid Blue** | `ArmedAcro` | Aircraft armed in Acro / Rates mode |
-| **Solid Cyan** | `ArmedAngle` | Aircraft armed in Angle / Stabilized self-leveling mode |
-| **Double Blink Yellow** (1-sec cycle) | `ArmingRefused` | Arming refused: switch armed at boot or throttle raised |
-| **Slow Blink Red** (250ms on, 250ms off) | `Failsafe` | Failsafe active: loss of RC link or sensor failure |
-
----
-
-## 7. Safety Interlocks & Pre-Arm Rules
-
-1. **Pre-Arm Switch Interlock:** If the arm switch (CH5) is already in the armed position (&gt;`ARM_SWITCH_THRESHOLD`, user-configurable in `wingfc.yaml`, default 1800 &mu;s) when the flight controller powers on, arming is refused (`RefusedSwitchArmedAtBoot`) until the pilot cycles the switch to DISARM.
-2. **Throttle Zero Interlock:** Arming is refused (`RefusedThrottleRaised`) if throttle stick is &gt;`THROTTLE_ZERO_THRESHOLD` (user-configurable in `wingfc.yaml`, default 1050 &mu;s) when attempting to arm, preventing violent unexpected propeller spin-up.
-3. **Zero-Surge Failsafe Recovery:** When link recovery occurs following a failsafe, the controller will NOT re-arm mid-air if the pilot's throttle stick is high; it requires safe, intentional pilot input to clear.
-4. **Hand Autolaunch Safety:** Finger-safety motor delay (200ms) ensures the motor does not spin until the aircraft has physically left the pilot's hand, followed by a 400ms throttle ramp to prevent torque roll.
-
----
-
-## 8. Real-Time Telemetry & Blackbox Logging Architecture
-
-1. **Bench & In-Flight Debugging (SEGGER RTT):**
-   * Operates over SWD (`SWDIO`/`SWDCLK`) directly into host tools (`probe-rs`) with sub-microsecond RAM write overhead, avoiding UART buffer stalls in the 500Hz loop.
-   * Multi-channel RTT ring buffers isolate string logs (`defmt`), raw binary telemetry (Channel 1: 500Hz 28-byte blackbox struct), and command injection.
-2. **Autonomous Onboard Blackbox & Companion Co-Processor:**
-   * Because the bare Seeed XIAO nRF52840 lacks onboard high-speed NOR flash, an SD slot, and available GPIOs, custom derivative PCBs incorporate a companion co-processor (RP2040 / ESP32) linked via SPI or SWD.
-   * The companion chip handles FatFS SD card block writes and wear-leveling asynchronously, preserving the nRF52840 500Hz flight loop jitter-free (<1 &mu;s timing variation).
-   * For complete hardware layouts, packet binary structures, and flight log analysis tools, see the [SEGGER RTT & Blackbox Logging Architecture Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/RTT_BLACKBOX_LOGGING.md).
-
-
----
-
-## 9. Core Algorithm Verification & Test Coverage
-
-To ensure aerospace-grade reliability in safety-critical code, `wingfc-core` separates all mathematical modeling, protocol framing, filter dynamics, and safety interlocks from hardware peripheral bindings.
-
-The core suite is validated on the host development machine without requiring hardware or target emulation:
-```bash
-# Execute 20 host unit tests
-./scripts/build.sh test
-
-# Generate code coverage report via cargo-llvm-cov
-cargo llvm-cov -p wingfc-core --all-features
-```
-
-### Test Coverage Breakdown (cargo-llvm-cov)
-* **Overall Line Coverage:** **88.42%** (1,130 / 1,278 lines)
-* **Overall Region Coverage:** **89.79%** (1,424 / 1,586 regions)
-* **Overall Function Coverage:** **89.38%** (101 / 113 functions)
-
-| Subsystem / Module | Source File | Line Coverage | Function Coverage | Region Coverage | Verified Dynamics |
-| :--- | :--- | :---: | :---: | :---: | :--- |
-| **Altitude Safety & Terrain** | [`altitude_safety.rs`](crates/wingfc-core/src/altitude_safety.rs) | **100.0%** | **100.0%** | **100.0%** | Ceiling override, floor intervention, proportional pull-up |
-| **Airframe Mixer** | [`mixer.rs`](crates/wingfc-core/src/mixer.rs) | **100.0%** | **100.0%** | **100.0%** | Elevon, diff thrust, standard fixed wing, V-tail, trimming |
-| **Vertical Kalman Filter** | [`vertical_kf.rs`](crates/wingfc-core/src/vertical_kf.rs) | **97.9%** | **100.0%** | **98.1%** | Accel/baro sensor fusion, vertical velocity, state reset |
-| **Hand Autolaunch** | [`autolaunch.rs`](crates/wingfc-core/src/autolaunch.rs) | **97.8%** | **100.0%** | **96.9%** | Throw acceleration trigger, motor delay, climb, stick abort |
-| **Signal Filtering** | [`filter.rs`](crates/wingfc-core/src/filter.rs) | **96.9%** | **100.0%** | **97.1%** | PT1 1st-order step response, 2nd-order Biquad low-pass |
-| **CRSF Protocol & Telemetry** | [`protocol/crsf.rs`](crates/wingfc-core/src/protocol/crsf.rs) | **95.7%** | **91.7%** | **96.3%** | CRC8 DVB-S2, RC channels, telemetry frames (att/bat/gps/baro) |
-| **Math & Quaternion Library** | [`math.rs`](crates/wingfc-core/src/math.rs) | **94.1%** | **94.7%** | **95.6%** | Vector cross/dot/norm, Quaternion multiplication/conjugate |
-| **Arming Safety Interlocks** | [`safety.rs`](crates/wingfc-core/src/safety.rs) | **88.1%** | **75.0%** | **85.4%** | Configurable thresholds, high-throttle lockout, zero-surge |
-| **Rate PID & FeedForward** | [`pid.rs`](crates/wingfc-core/src/pid.rs) | **84.5%** | **80.0%** | **82.8%** | Anti-windup clamping, dynamic FeedForward transient & decay |
-| **FlySky iBus Protocol** | [`protocol/ibus.rs`](crates/wingfc-core/src/protocol/ibus.rs) | **82.3%** | **71.4%** | **85.7%** | 16-bit inverse checksum, 14-channel unpacking, failsafe bits |
-| **GPS & NMEA Navigation** | [`gps.rs`](crates/wingfc-core/src/gps.rs) | **79.6%** | **85.7%** | **84.8%** | NMEA GGA/RMC parsing, home latching, RTH bearing & error |
-| **Madgwick 9-DoF AHRS** | [`ahrs.rs`](crates/wingfc-core/src/ahrs.rs) | **79.5%** | **100.0%** | **84.3%** | 6-DoF gravity alignment, 9-DoF mag fusion, zero-mag fallback |
-| **DShot Motor Protocol** | [`dshot.rs`](crates/wingfc-core/src/dshot.rs) | **76.9%** | **66.7%** | **82.9%** | 16-bit packet encoding, nibble checksum, SPI MOSI bitstream |
-| **Total `wingfc-core` Suite** | **All Modules** | **88.4%** | **89.4%** | **89.8%** | **20 unit tests, 100% passing** |
+1. **Watchdog Servicing:** The 500 Hz task pets the 1000ms hardware watchdog (`wdt_handle.pet()`). Any hang or lockup exceeding 1000ms triggers an automated hardware MCU reset.
+2. **RC Input & Channel Mapping:** Non-blocking reception from `UARTE0`. Channels are mapped according to [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml) (`roll`, `pitch`, `throttle`, `yaw`, `arm`, `mode`).
+3. **Failsafe Monitoring:** If no valid RC packet is received within `failsafe_timeout_ms`, the aircraft enters `Failsafe` state (throttle cut to zero, surfaces trimmed for level glide).
+4. **Arming Safety State Machine:** Enforces arm-switch thresholds, zero-throttle interlocks, and boot-time switch positions.
+5. **In-Flight Dynamic Tuning:** Real-time adjustment of selected PID gains via designated transmitter sliders or pots.
+6. **IMU Sampling & Transformation:** Accel and gyro vectors are read and transformed through the configured 8-way mounting orientation matrix (`default`, `cw90`, `cw180`, `cw270`, `flip`, etc.).
+7. **Attitude Estimation & Control Loop:** The Madgwick AHRS filters gyro rates and computes pitch/roll attitude. Inner angular rate PID loops and outer attitude P loops generate normalized mixer demands.
+8. **Airframe Mixing & Per-Servo Calibration:** Mixer maps demands across the selected topology (`elevon`, `elevon_diff_thrust`, `single_aileron_t_tail`, `dual_aileron_t_tail`, `single_aileron_v_tail`, `dual_aileron_v_tail`). Each output is individually clamped, trimmed, and inverted according to its `ServoConfig`.
+9. **Physical Actuator Dispatch:** `PWM0` updates ESC pulse widths; `PWM1` (and `PWM2` on Sense Plus) updates servo pulse widths.

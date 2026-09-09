@@ -51,45 +51,57 @@ impl ServoConfig {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AirframeOutputs {
-    pub servo1_us: u16,       // Left Elevon / Aileron
-    pub servo2_us: u16,       // Right Elevon / Elevator
-    pub servo4_us: u16,       // Flap / Aux Servo
-    pub servo5_us: u16,       // Flap / Aux Servo
-    pub servo6_us: u16,       // Rudder / Aux Servo
+    pub servo1_us: u16,       // Primary Servo 1 (e.g. Left Elevon / Aileron)
+    pub servo2_us: u16,       // Primary Servo 2 (e.g. Right Elevon / Elevator / Right V-Tail)
+    pub servo3_us: u16,       // Primary Servo 3 (e.g. Rudder / Left V-Tail / Aux)
+    pub servo4_us: u16,       // Primary Servo 4 (e.g. Right Aileron / Flap / Aux)
+    pub servo5_us: u16,       // Expansion Servo 5 (Sense Plus PWM2 Ch 0)
+    pub servo6_us: u16,       // Expansion Servo 6 (Sense Plus PWM2 Ch 1)
+    pub servo7_us: u16,       // Expansion Servo 7 (Sense Plus PWM2 Ch 2)
+    pub servo8_us: u16,       // Expansion Servo 8 (Sense Plus PWM2 Ch 3)
     pub motor1_throttle: u16, // 1000..2000 us (or DShot 0..2047)
     pub motor2_throttle: u16, // Twin motor if configured
 }
 
 pub struct AirframeMixer {
     pub airframe_type: AirframeType,
-    pub servos: [ServoConfig; 5], // index 0..4 corresponds to Servo 1, 2, 4, 5, 6
+    pub servos: [ServoConfig; 8], // index 0..7 corresponds to Servo 1..8
 }
 
 impl AirframeMixer {
     pub fn new(airframe_type: AirframeType) -> Self {
         Self {
             airframe_type,
-            servos: [ServoConfig::default(); 5],
+            servos: [ServoConfig::default(); 8],
         }
     }
 
     /// Mixes normalized pitch, roll, yaw commands in [-1.0, 1.0] and throttle in [1000, 2000]
     pub fn mix(&self, pitch: f32, roll: f32, yaw: f32, throttle_us: u16) -> AirframeOutputs {
-        let mut outputs = AirframeOutputs::default();
+        let mut outputs = AirframeOutputs {
+            servo1_us: self.servos[0].apply(0.0),
+            servo2_us: self.servos[1].apply(0.0),
+            servo3_us: self.servos[2].apply(0.0),
+            servo4_us: self.servos[3].apply(0.0),
+            servo5_us: self.servos[4].apply(0.0),
+            servo6_us: self.servos[5].apply(0.0),
+            servo7_us: self.servos[6].apply(0.0),
+            servo8_us: self.servos[7].apply(0.0),
+            ..AirframeOutputs::default()
+        };
 
         match self.airframe_type {
             AirframeType::Elevon => {
                 // Elevon mixing:
-                // Left Elevon  =  0.5 * Pitch + 0.5 * Roll
-                // Right Elevon = -0.5 * Pitch + 0.5 * Roll
+                // S1 (Left Elevon)  =  0.5 * Pitch + 0.5 * Roll
+                // S2 (Right Elevon) = -0.5 * Pitch + 0.5 * Roll
+                // S3 (Optional Rudder / Aux) = Yaw
                 let s1_norm = clamp(0.5 * pitch + 0.5 * roll, -1.0, 1.0);
                 let s2_norm = clamp(-0.5 * pitch + 0.5 * roll, -1.0, 1.0);
 
                 outputs.servo1_us = self.servos[0].apply(s1_norm);
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
-                outputs.servo4_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
-                outputs.servo5_us = self.servos[3].apply(0.0);
-                outputs.servo6_us = self.servos[4].apply(0.0);
+                outputs.servo3_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
 
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
@@ -108,44 +120,44 @@ impl AirframeMixer {
                     clamp((throttle_us as i16 + diff) as f32, 1000.0, 2000.0) as u16;
             }
             AirframeType::SingleAileronTTail => {
-                // S1: Aileron, S2: Elevator, S4: Rudder
+                // S1: Aileron, S2: Elevator, S3: Rudder
                 outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
                 outputs.servo2_us = self.servos[1].apply(clamp(pitch, -1.0, 1.0));
-                outputs.servo4_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
+                outputs.servo3_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
             }
             AirframeType::DualAileronTTail => {
-                // S1: Left Aileron, S2: Elevator, S4: Rudder, S5: Right Aileron (-roll)
+                // S1: Left Aileron, S2: Elevator, S3: Rudder, S4: Right Aileron (-roll)
                 outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
                 outputs.servo2_us = self.servos[1].apply(clamp(pitch, -1.0, 1.0));
-                outputs.servo4_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
-                outputs.servo5_us = self.servos[3].apply(clamp(-roll, -1.0, 1.0));
+                outputs.servo3_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
+                outputs.servo4_us = self.servos[3].apply(clamp(-roll, -1.0, 1.0));
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
             }
             AirframeType::SingleAileronVTail => {
                 // S1: Aileron
                 // S2: Right V-Tail = 0.5 * Pitch + 0.5 * Yaw
-                // S4: Left V-Tail  = 0.5 * Pitch - 0.5 * Yaw
+                // S3: Left V-Tail  = 0.5 * Pitch - 0.5 * Yaw
                 let s2_norm = clamp(0.5 * pitch + 0.5 * yaw, -1.0, 1.0);
-                let s4_norm = clamp(0.5 * pitch - 0.5 * yaw, -1.0, 1.0);
+                let s3_norm = clamp(0.5 * pitch - 0.5 * yaw, -1.0, 1.0);
                 outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
-                outputs.servo4_us = self.servos[2].apply(s4_norm);
+                outputs.servo3_us = self.servos[2].apply(s3_norm);
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
             }
             AirframeType::DualAileronVTail => {
-                // S1: Left Aileron, S5: Right Aileron (-roll)
+                // S1: Left Aileron, S4: Right Aileron (-roll)
                 // S2: Right V-Tail = 0.5 * Pitch + 0.5 * Yaw
-                // S4: Left V-Tail  = 0.5 * Pitch - 0.5 * Yaw
+                // S3: Left V-Tail  = 0.5 * Pitch - 0.5 * Yaw
                 let s2_norm = clamp(0.5 * pitch + 0.5 * yaw, -1.0, 1.0);
-                let s4_norm = clamp(0.5 * pitch - 0.5 * yaw, -1.0, 1.0);
+                let s3_norm = clamp(0.5 * pitch - 0.5 * yaw, -1.0, 1.0);
                 outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
-                outputs.servo4_us = self.servos[2].apply(s4_norm);
-                outputs.servo5_us = self.servos[3].apply(clamp(-roll, -1.0, 1.0));
+                outputs.servo3_us = self.servos[2].apply(s3_norm);
+                outputs.servo4_us = self.servos[3].apply(clamp(-roll, -1.0, 1.0));
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
             }

@@ -2,7 +2,7 @@
 
 `wingfc-rs` features a human-friendly YAML configuration system modeled after leading flight control ecosystems (such as Betaflight, INAV, and EdgeTX/ExpressLRS). 
 
-Pilots and builders can configure aircraft hardware, receiver protocols, motor drivers, servo refresh frequencies, PID gains, rates, and navigation features directly in [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml) without ever touching Rust source files, Cargo manifests, or linker scripts.
+Pilots and builders configure aircraft hardware, receiver protocols, motor drivers, servo refresh frequencies, per-servo calibration, PID gains, rates, and navigation features directly in [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml) without touching Rust source files, Cargo manifests, or linker scripts.
 
 ---
 
@@ -15,68 +15,87 @@ To configure and compile firmware for your aircraft:
 ```
 This single command automatically:
 1. Validates all parameters in [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml) (range checks, enum validation, hardware refresh limits, safety bounds, and airspace legality checks).
-2. Generates the embedded flight controller configuration.
-3. Automatically maps options to the exact Cargo build features (`crsf` vs `ibus`, `dshot` vs `pwm`, `nav`).
+2. Generates the embedded flight controller configuration ([`crates/wingfc-firmware/src/config.rs`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/src/config.rs)).
+3. Maps options to the exact Cargo build features (`crsf` vs `ibus`, `dshot` vs `pwm`, `nav`).
 4. Compiles an optimized release binary for the ARM Cortex-M4F target (`thumbv7em-none-eabihf`).
 5. Generates `.elf`, `.bin`, and `.hex` artifacts in `dist/` with cryptographic SHA256 checksums and Flash/RAM resource metrics.
 
-### Check Configuration Syntax
-To verify your settings and test compilation in under a second without generating full release artifacts:
-```bash
-./scripts/build.sh check
-```
+### Build & Verification Commands
 
-### Run Host Test Suite
-To execute the core unit test suite on your local development machine:
-```bash
-./scripts/build.sh test
-```
-*Coverage Overview:* The host test suite executes 20 unit tests across `wingfc-core` achieving **88.4% Line Coverage**, **89.8% Region Coverage**, and **89.4% Function Coverage** (including 100% line coverage of Altitude Safety and Airframe Mixers, and 95.7%+ across CRSF and Signal Filtering). Detailed coverage reports can be generated with `cargo llvm-cov -p wingfc-core --all-features`.
-
-### Reset to Default Configuration
-To generate or reset a fresh template of `wingfc.yaml` (existing file is automatically backed up to `wingfc.yaml.bak`):
-```bash
-./scripts/build.sh init
-```
-
-### Flash Firmware
-To deploy firmware to the Seeed Studio XIAO nRF52840 Sense:
-```bash
-# Auto-detect connected device or mounted bootloader drive (Recommended)
-./scripts/build.sh flash
-
-# Or explicitly select your preferred method:
-./scripts/build.sh flash --method uf2           # USB mass storage drag-and-drop
-./scripts/build.sh flash --method nrfjprog      # Nordic J-Link SWD via self-addressing Intel HEX
-./scripts/build.sh flash --method dfu           # adafruit-nrfutil serial DFU over USB
-./scripts/build.sh flash --method probe-rs-hex  # probe-rs Intel HEX download
-./scripts/build.sh flash --method probe-rs-run  # probe-rs SWD run with live defmt RTT logging
-```
-For detailed explanations of memory addressing (`0x27000`), Intel HEX safety advantages, and bootloader mechanics, see the [Firmware Deployment & Flashing Guide](file:///home/bryansouza/Repos/wingfc-rs/docs/FLASHING.md).
+| Command | Purpose & Description |
+| :--- | :--- |
+| `./scripts/build.sh check` | Validates YAML parameters and checks compilation in <0.5s without generating binaries. |
+| `./scripts/build.sh test` | Runs host unit test suite across `wingfc-core` (~89% coverage, 17+ tests). |
+| `./scripts/build.sh matrix check` | Verifies all 8 target firmware permutations against the ARM toolchain. |
+| `./scripts/build.sh matrix build` | Compiles and packages all 8 release firmware binaries into `dist/`. |
+| `./scripts/build.sh init` | Resets a clean default template of `wingfc.yaml` (backs up current file to `.bak`). |
+| `./scripts/build.sh flash` | Auto-detects UF2 bootloader drive, J-Link SWD, or serial DFU (see [Flashing Guide](file:///home/bryansouza/Repos/wingfc-rs/docs/FLASHING.md)). |
 
 ---
 
 ## 2. Configuration Reference (`wingfc.yaml`)
 
-### Target Board
+### Target Board & Mounting Orientation
 ```yaml
 board: xiao-sense
+orientation: default
 ```
-* `xiao-sense`: Standard Seeed Studio XIAO nRF52840 Sense (6-DoF LSM6DS3TR IMU onboard).
-* `xiao-sense-plus`: Seeed Studio XIAO nRF52840 Sense Plus (required for autonomous GPS navigation due to secondary UART breakout).
 
-### Receiver Protocol
+| Parameter | Options | Description |
+| :--- | :--- | :--- |
+| `board` | `xiao-sense`, `xiao-sense-plus` | Standard XIAO Sense (onboard 6-DoF IMU) or Sense Plus (required for GPS & Servos 5..8). |
+| `orientation` | `default`, `cw90`, `cw180`, `cw270`, `flip`, `flip_cw90`, `flip_cw180`, `flip_cw270` | 8-way orthogonal IMU transform matrix, mapping sensor axes to airframe frame without trigonometric runtime cost. |
+
+---
+
+### Airframe Mixer Topologies
+```yaml
+airframe: elevon
+```
+
+The flight controller supports 6 primary airframe topologies, automatically assigning pitch, roll, and yaw stabilization across output servos and motors:
+
+| Airframe Topology Key | Vehicle Description | Primary Servos (`PWM1`) | Motors (`PWM0`) |
+| :--- | :--- | :--- | :--- |
+| `elevon` | Flying wing / delta wing | **S1:** Left Elevon<br>**S2:** Right Elevon<br>**S3:** Rudder / Aux<br>**S4:** Aux | **M1:** Main Throttle<br>**M2:** Passthrough |
+| `elevon_diff_thrust` | Flying wing with twin motors | **S1:** Left Elevon<br>**S2:** Right Elevon<br>**S3:** Rudder / Aux<br>**S4:** Aux | **M1:** Left Motor (Yaw -)<br>**M2:** Right Motor (Yaw +) |
+| `single_aileron_t_tail` | Conventional airplane (Single Aileron) | **S1:** Ailerons (Y-cable)<br>**S2:** Elevator<br>**S3:** Rudder<br>**S4:** Aux | **M1:** Main Throttle<br>**M2:** Passthrough |
+| `dual_aileron_t_tail` | Conventional airplane (Dual Ailerons) | **S1:** Left Aileron<br>**S2:** Elevator<br>**S3:** Rudder<br>**S4:** Right Aileron (-roll) | **M1:** Main Throttle<br>**M2:** Passthrough |
+| `single_aileron_v_tail` | V-tail airplane (Single Aileron) | **S1:** Ailerons (Y-cable)<br>**S2:** Right V-Tail<br>**S3:** Left V-Tail<br>**S4:** Aux | **M1:** Main Throttle<br>**M2:** Passthrough |
+| `dual_aileron_v_tail` | Dual aileron V-tail airplane | **S1:** Left Aileron<br>**S2:** Right V-Tail<br>**S3:** Left V-Tail<br>**S4:** Right Aileron (-roll) | **M1:** Main Throttle<br>**M2:** Passthrough |
+
+> For pinout numbers and hardware PWM routing, see the [Pin Configuration Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/PINOUT.md).
+
+---
+
+### Receiver Protocol & Channel Mapping
 ```yaml
 receiver:
   protocol: crsf
   failsafe_timeout_ms: 500
+  channels:
+    roll: 1      # Roll / Aileron stick (CH1)
+    pitch: 2     # Pitch / Elevator stick (CH2)
+    throttle: 3  # Throttle stick (CH3)
+    yaw: 4       # Yaw / Rudder stick (CH4)
+    arm: 5       # Arm switch (CH5 / AUX1)
+    mode: 6      # Flight mode switch (CH6 / AUX2: Acro vs Angle)
 ```
-* `protocol`:
-  * `crsf`: TBS Crossfire or ExpressLRS (CRSF @ 420,000 baud over DMA UART). **Recommended.**
-  * `ibus`: FlySky iBus protocol (115,200 baud).
-* `failsafe_timeout_ms`: Maximum allowed duration without valid RC packets before failsafe engages (50 to 5000 ms). When triggered, motor throttle is cut to 0 and elevons neutralize to level flight.
 
-> For wiring diagrams, full telemetry frame structures, and EdgeTX handset configuration, see the [Receiver & Telemetry Specification](RECEIVERS.md).
+| Parameter | Type / Range | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `protocol` | `crsf`, `ibus` | `crsf` | Serial receiver protocol: CRSF/ELRS @ 420 kBaud or FlySky iBus @ 115.2 kBaud. |
+| `failsafe_timeout_ms` | `50` .. `5000` ms | `500` ms | Maximum packet dropout duration before engaging failsafe (cuts motors, neutralizes glide). |
+| `channels.roll` | `1` .. `16` | `1` | RC channel index mapped to Roll / Aileron command. |
+| `channels.pitch` | `1` .. `16` | `2` | RC channel index mapped to Pitch / Elevator command. |
+| `channels.throttle` | `1` .. `16` | `3` | RC channel index mapped to Throttle command. |
+| `channels.yaw` | `1` .. `16` | `4` | RC channel index mapped to Yaw / Rudder command. |
+| `channels.arm` | `1` .. `16` | `5` | RC channel index mapped to Arm Switch. |
+| `channels.mode` | `1` .. `16` | `6` | RC channel index mapped to Flight Mode Switch (Acro vs Angle). |
+
+> For receiver wiring diagrams and EdgeTX telemetry setup, see the [Receiver & Telemetry Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/RECEIVERS.md).
+
+---
 
 ### Safety Interlocks & Arming Thresholds
 ```yaml
@@ -84,148 +103,69 @@ safety:
   arm_switch_threshold_us: 1800
   throttle_zero_threshold_us: 1050
 ```
-* `arm_switch_threshold_us`: Microsecond pulse width threshold for the Arm Channel (CH5 / AUX1). Channel values strictly above this threshold command the aircraft to arm. Supported range: 1200 us to 1900 us (Default: 1800 us).
-* `throttle_zero_threshold_us`: Maximum allowable throttle stick pulse width (microseconds) to permit transitioning from Disarmed to Armed. Throttle stick must be strictly at or below this value to arm. Supported range: 1000 us to 1200 us (Default: 1050 us).
+
+| Parameter | Type / Range | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `arm_switch_threshold_us` | `1200` .. `1900` &mu;s | `1800` &mu;s | Microsecond pulse width above which the aircraft arms. |
+| `throttle_zero_threshold_us` | `1000` .. `1200` &mu;s | `1050` &mu;s | Maximum allowable throttle stick pulse permitted to arm. |
 
 > [!CAUTION]
 > ### ⚠️ Critical Safety Warning: Motor Spin-Up Hazard & Personal Injury
 > - **Accidental Arming Hazard (`arm_switch_threshold_us`):** Setting this threshold too low (&lt;1400 &mu;s) introduces extreme risk of unintended arming on 2-position or 3-position toggle switches. Ensure this matches your transmitter's calibrated channel pulse (typically &approx;1000 &mu;s disarmed, &approx;2000 &mu;s armed).
 > - **Violent Propeller Spin-Up Hazard (`throttle_zero_threshold_us`):** NEVER set this threshold higher than your transmitter's zero-throttle stick position. Setting `throttle_zero_threshold_us` above 1080 &mu;s may allow the flight controller to arm with the throttle raised or motor already spooling up! High-throttle arming causes immediate, violent propeller spin-up, resulting in severe lacerations or runaway aircraft. Keep this setting strictly at 1050 &mu;s unless transmitter trim calibration dictates minor adjustments.
 
-### Servo Actuator Output Configuration
+---
+
+### Servo Actuator Output & Calibration
 ```yaml
 servos:
   pwm_frequency_hz: 50
+  servo1:
+    min_us: 1000
+    max_us: 2000
+    subtrim_us: 0
+    reversed: false
+  # ... servo2 through servo8
 ```
-* `pwm_frequency_hz`: PWM frame refresh frequency (Hz) for servo channels (`D0`, `D1`, `D2`). Supported range: 50 Hz to 400 Hz.
 
-> [!CAUTION]
-> ### ⚠️ Hardware Warning: Analog Servo Burnout vs Digital Servos
-> - **Standard Analog Servos (e.g. SG90, MG90S, TowerPro, plastic 9g servos):** **MUST be set to 50 Hz (maximum 60 Hz).** Supplying high-frequency PWM (>60 Hz) to an analog servo will cause violent internal feedback chattering, extreme motor heating, and **permanent burnout within minutes or seconds**.
-> - **Digital Servos (e.g. KST, MKS, Savox, Blue Bird digital servos):** High-end digital servos natively support refresh rates of 200 Hz, 250 Hz, 333 Hz, or up to 400 Hz. Running digital servos at 250–400 Hz dramatically reduces control surface lag and improves gust rejection.
-> - **Hardware Frequency Limit:** 400 Hz is the hard physical maximum for standard 1000..2000 &mu;s pulse widths. At 400 Hz, the total frame period is 2500 &mu;s, leaving a 500 &mu;s low gap after a 2000 &mu;s pulse. Frequencies above 400 Hz do not allow sufficient low-time for servos to detect individual pulse edges.
-
-### Motor ESC Protocol & PWM Frequency
-```yaml
-motor:
-  protocol: pwm
-  pwm_frequency_hz: 400
-  min_throttle_us: 1000
-  max_throttle_us: 2000
-```
-* `protocol`:
-  * `pwm`: Analog PWM output with configurable frame frequency. Includes automatic throttle calibration pass-through detection at boot.
-  * `dshot`: Digital DShot protocol with CRC error checking. Eliminates analog calibration requirements.
-* `pwm_frequency_hz`: Frame frequency for analog ESC output (50 Hz to 400 Hz).
-* `min_throttle_us` / `max_throttle_us`: Physical pulse widths in microseconds for analog PWM.
-
-> [!WARNING]
-> ### ⚠️ Hardware Warning: Fixed-Wing ESC Compatibility
-> - **Multirotor ESCs (BLHeli_S, BLHeli_32, AM32):** Natively support 400 Hz high-speed PWM input (or DShot).
-> - **Airplane & Fixed-Wing ESCs:** Many traditional airplane ESCs (especially yellow-wrap budget ESCs or linear BEC airplane ESCs) **only support 50 Hz or 60 Hz**. If an airplane ESC is driven with 400 Hz, it will often refuse to arm, beep error codes continuously, or jitter erratically. If you experience arming issues with an analog ESC, reduce `motor.pwm_frequency_hz` to `50` or `100`.
-
-### Autonomous Navigation Suite & Altitude Boundaries
-```yaml
-navigation:
-  enabled: false
-  barometer: false
-  compass: false
-  gps: false
-  rth:
-    min_satellites: 6
-    max_hdop: 2.5
-    safe_altitude_agl_m: 30.0
-  hard_deck_agl_m: 15.0
-  max_ceiling_agl_m: 120.0
-```
-* `enabled`: Master switch for the autonomous navigation suite (enables barometer, compass, and GPS).
-* `barometer`: Enables the 500Hz Vertical Kalman Filter fusing vertical accelerometer data with barometric altitude.
-* `compass`: Enables 9-DoF Madgwick AHRS attitude fusion for drift-free magnetic heading lock.
-* `gps`: Enables NMEA GPS parsing and autonomous Return-to-Home guidance. **Requires `board: xiao-sense-plus`** to access `UARTE1` serial pins (`D9`/`D10`).
-* `rth`:
-  * `min_satellites`: Minimum satellites tracked before the flight controller latches the home waypoint (default 6).
-  * `max_hdop`: Maximum horizontal dilution of precision required to validate home latching (default 2.5).
-  * `safe_altitude_agl_m`: Safe climb altitude Above Ground Level during autonomous return (default 30.0 m).
-* `hard_deck_agl_m`: Emergency altitude floor (meters Above Ground Level). If breached with a negative sink rate, the flight controller overrides pilot pitch and applies climb throttle.
-* `max_ceiling_agl_m`: Statutory regulatory ceiling limiter (meters Above Ground Level).
-
-> [!WARNING]
-> ### ⚠️ Civil Aviation Airspace Legality & Regulatory Altitude Ceiling Warning
-> Under national civil aviation regulations worldwide:
-> - **United States (FAA):** Under 14 CFR &sect; 107.51(b) (commercial operations) and 49 U.S.C. &sect; 44809 (recreational flyers), small unmanned aircraft systems (sUAS) may **not** operate higher than **400 feet (121.9 meters) Above Ground Level (AGL)** without an active airspace authorization or approved Part 107.200 waiver.
-> - **European Union (EASA):** Under Commission Implementing Regulation (EU) 2019/947 UAS.OPEN.010, the maximum flight height in the Open category is strictly **120.0 meters (400 feet) AGL**.
-> - **United Kingdom (CAA):** Under CAP 722 and the Air Navigation Order, flight height is strictly capped at **120 meters (400 feet) AGL**.
-> - **Australia (CASA) & Canada (Transport Canada):** Maximum permissible ceiling without waiver is **400 feet (120 meters) AGL**.
->
-> Setting `max_ceiling_agl_m` above 120.0 meters (or attempting to fly above 120m AGL without prior civil aviation authority waiver/clearance) is **ILLEGAL**, poses severe mid-air collision hazards with manned aircraft, and exposes the remote pilot to civil fines and criminal prosecution. The build tool (`./scripts/build.sh`) will flag any configuration exceeding 120.0m with an alert banner.
-
-### Flight Dynamics & Rates Tuning
-```yaml
-tuning:
-  acro_rates:
-    roll_dps: 600.0
-    pitch_dps: 200.0
-    yaw_dps: 100.0
-  angle_limits:
-    max_roll_deg: 60.0
-    max_pitch_deg: 45.0
-  filters:
-    gyro_lpf_hz: 90.0
-    dterm_lpf_hz: 40.0
-    feedforward_lpf_hz: 45.0
-  rate_pid:
-    kp: 0.15
-    ki: 0.05
-    kd: 0.008
-    kff: 0.04
-    max_integral: 0.40
-  ahrs_beta: 0.04
-```
-* `acro_rates`: Maximum angular rates commanded at full stick deflection in Acro / Rates mode (&deg;/s).
-* `angle_limits`: Maximum bank and pitch angles commanded in Angle / Self-Leveling mode (&deg;).
-* `filters`:
-  * `gyro_lpf_hz`: PT1 low-pass filter cutoff frequency (Hz) for eliminating motor and propeller harmonic vibration before attitude estimation and PID loops.
-  * `dterm_lpf_hz`: Cutoff frequency for PID derivative filter.
-  * `feedforward_lpf_hz`: Cutoff frequency for FeedForward stick derivative filter.
-* `rate_pid`:
-  * `kp`: Proportional gain.
-  * `ki`: Integral gain.
-  * `kd`: Derivative gain.
-  * `kff`: FeedForward gain (injects stick derivative directly into actuator mixer to eliminate stick lag).
-  * `max_integral`: Anti-windup clamping threshold.
-* `ahrs_beta`: Convergence gain for the Madgwick attitude estimation filter.
-
-### Safety & Launch Interlocks
-```yaml
-safety:
-  max_arm_throttle_us: 1050
-  finger_delay_ms: 200
-  throttle_ramp_ms: 400
-```
-* `max_arm_throttle_us`: Interlock threshold. Arming is refused if throttle is above this value when flipping the arm switch.
-* `finger_delay_ms`: Autolaunch finger safety delay before motor starts spinning after throw detection.
-* `throttle_ramp_ms`: Soft-start throttle acceleration duration during autolaunch to prevent aerodynamic torque roll.
-
-### Flashing Configuration
-```yaml
-flashing:
-  method: auto          # options: auto, uf2, nrfjprog, dfu, probe-rs-hex, probe-rs-run
-  port: auto            # optional serial port for DFU (e.g. /dev/ttyACM0)
-  mount: auto           # optional mount path for UF2 drive (e.g. /run/media/$USER/XIAO-SENSE)
-```
-* `method`: Flashing tool invoked by `./scripts/build.sh flash`.
-* `port`: Serial port for serial DFU mode. Auto-detected if omitted.
-* `mount`: Destination mount path for UF2 bootloader drive. Auto-detected if omitted.
+| Parameter | Type / Range | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `pwm_frequency_hz` | `50` .. `400` Hz | `50` Hz | Servo PWM frame rate. **Standard analog servos MUST use 50 Hz** (max 60 Hz). Digital servos can accept 200..400 Hz. |
+| `min_us` | `750` .. `1500` &mu;s | `1000` &mu;s | Minimum travel endpoint pulse width. |
+| `max_us` | `1500` .. `2250` &mu;s | `2000` &mu;s | Maximum travel endpoint pulse width. |
+| `subtrim_us` | `-500` .. `500` &mu;s | `0` &mu;s | Mechanical sub-trim offset added to calibrated center (1500 &mu;s). |
+| `reversed` | `true`, `false` | `false` | Inverts servo deflection relative to flight loop demands. |
 
 ---
 
-## 3. Multiple Model Profiles
-
-You can store distinct configuration files for different flying wings or gliders and pass them to the build script using `--config`:
-```bash
-# Build for a 600mm speed wing with 333Hz digital servos and DShot
-./scripts/build.sh --config configs/speed_wing.yaml
-
-# Build for a budget trainer with 50Hz analog servos and 50Hz ESC
-./scripts/build.sh --config configs/budget_trainer.yaml
+### In-Flight Dynamic PID Tuning
+```yaml
+in_flight_tuning:
+  enabled: false
+  slot_a:
+    parameter: none     # Options: pitch_kp, roll_kp, pitch_ki, roll_ki, pitch_kd, roll_kd, pitch_kff, roll_kff
+    channel: 7          # RC Channel number (1-16)
+    min_val: 0.05
+    max_val: 0.50
+  slot_b:
+    parameter: none
+    channel: 8
+    min_val: 0.005
+    max_val: 0.050
 ```
+
+| Parameter | Options / Range | Description |
+| :--- | :--- | :--- |
+| `enabled` | `true`, `false` | Enables live gain updates from transmitter potentiometers/sliders. |
+| `slot_a.parameter`<br>`slot_b.parameter` | `none`, `pitch_kp`, `roll_kp`, `pitch_ki`, `roll_ki`, `pitch_kd`, `roll_kd`, `pitch_kff`, `roll_kff` | Specific PID/FeedForward gain modified by the corresponding channel. |
+| `slot_a.channel`<br>`slot_b.channel` | `1` .. `16` | RC Channel number allocated to the adjustment pot. |
+| `min_val` .. `max_val` | Floating point values | Gain range mapped linearly across the 1000..2000 &mu;s stick/pot sweep. |
+
+---
+
+### Motor Protocol & Navigation Suite
+
+| Subsystem | Configuration | Reference Specification |
+| :--- | :--- | :--- |
+| **Motor Output** | `pwm` (50..400 Hz) or `dshot` (DShot300/600) | [System Architecture Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/ARCHITECTURE.md) |
+| **Autonomous GPS** | NMEA parser, RTH guidance, 120m statutory ceiling | [GPS Navigation Specification](file:///home/bryansouza/Repos/wingfc-rs/docs/GPS_NAVIGATION.md) |
