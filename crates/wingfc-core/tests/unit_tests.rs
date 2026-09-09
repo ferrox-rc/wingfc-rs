@@ -129,8 +129,8 @@ fn test_crsf_protocol_parsing() {
     packet[1] = 24;
     packet[2] = CRSF_FRAMETYPE_RC_CHANNELS;
 
-    for i in 3..25 {
-        packet[i] = 0b11100000;
+    for byte in packet[3..25].iter_mut() {
+        *byte = 0b11100000;
     }
     let crc = calculate_crc8_dvb_s2(&packet[2..25]);
     packet[25] = crc;
@@ -249,11 +249,7 @@ fn test_arming_safety_logic() {
 
 #[test]
 fn test_feedforward_response() {
-    let mut cfg = PidConfig::default();
-    cfg.kff = 0.10;
-    cfg.kp = 0.0;
-    cfg.ki = 0.0;
-    cfg.kd = 0.0;
+    let cfg = PidConfig { kff: 0.10, kp: 0.0, ki: 0.0, kd: 0.0, ..Default::default() };
     let mut pid = PidController::new(cfg, 0.002);
 
     // Rapid stick movement: setpoint steps from 0.0 to 10.0
@@ -510,7 +506,7 @@ fn test_gps_navigation_home_latching_and_rth() {
     // 3. Aircraft flies North-East (e.g. +1.0km North, +1.0km East)
     let current_pos = GpsData {
         latitude_deg: 37.7839,
-        longitude_deg: -122.4080,
+        longitude_deg: -122.408,
         altitude_msl_m: 50.0,
         ground_speed_m_s: 15.0,
         course_deg: 45.0,

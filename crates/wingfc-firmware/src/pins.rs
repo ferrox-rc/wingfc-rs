@@ -3,6 +3,27 @@
 //! This module centralizes physical SoC pin and peripheral assignments, isolating
 //! board-specific hardware layouts (such as Seeed Studio XIAO nRF52840 Sense and the
 //! XIAO Sense Plus expansion variant) from application runtime logic.
+//!
+//! ### Physical Castellated Pad Layout
+//!
+//! Only physical castellated edge pads are used to ensure direct surface-mount
+//! compatibility with carrier PCBs. Underside test pads are strictly avoided.
+//!
+//! #### Standard XIAO Sense (14 Castellated Pads: D0..D10, 5V, GND, 3V3):
+//! - **D0..D2 (`P0.02`, `P0.03`, `P0.28`)**: Servos 1, 2, 3 (`PWM1` Ch 0..2)
+//! - **D3 (`P0.29`)**: Motor 1 ESC (`PWM0` Ch 0)
+//! - **D4, D5 (`P0.04`, `P0.05`)**: External I2C Bus (`TWISPI1` SDA/SCL for Compass & Barometer)
+//! - **D6, D7 (`P1.11`, `P1.12`)**: RC Radio Link (`UARTE0` TX/RX for CRSF / iBUS)
+//! - **D8 (`P1.13`)**: Motor 2 ESC (`PWM0` Ch 1, Twin Motor / Differential Thrust)
+//! - **D9 (`P1.14`)**: Servo 4 (`PWM1` Ch 3, Secondary Aileron / Flap / Aux)
+//! - **D10 (`P1.15`)**: Servo 5 (`PWM2` Ch 0, Aux / Pan / Gear)
+//!
+//! #### XIAO Sense Plus (23 Castellated Pads: D0..D19, 5V, GND, 3V3):
+//! - **D0..D10**: Shared identical pinout with Standard Sense
+//! - **D11..D13 (`P0.15`, `P0.19`, `P1.01`)**: Servos 6, 7, 8 (`PWM2` Ch 1..3)
+//! - **D14, D15 (`P0.09`, `P0.10`)**: GPS Serial Link (`UARTE1` RX/TX)
+//! - **D16 (`P0.31`)**: Battery Voltage ADC (`SAADC` AIN7)
+//! - **D17..D19 (`P1.03`, `P1.05`, `P1.07`)**: Expansion SPI / Spare GPIOs
 
 use embassy_nrf::peripherals;
 use embassy_nrf::Peri;
@@ -22,11 +43,11 @@ pub struct BoardPins {
     pub pwm_esc: Peri<'static, peripherals::PWM0>,
     /// Physical Pin: P0.29 (Silkscreen: D3) - Motor 1 ESC signal
     pub pin_motor1: Peri<'static, peripherals::P0_29>,
-    /// Physical Pin: P0.04 (Silkscreen: D4) - Motor 2 ESC signal
-    pub pin_motor2: Peri<'static, peripherals::P0_04>,
+    /// Physical Pin: P1.13 (Silkscreen: D8) - Motor 2 ESC signal (Twin Motor / Diff Thrust)
+    pub pin_motor2: Peri<'static, peripherals::P1_13>,
 
     // ==========================================
-    // Actuators (PWM1: Primary Servos 1, 2, 4, 5)
+    // Actuators (PWM1: Primary Servos 1..4)
     // ==========================================
     /// PWM1 peripheral dedicated to primary 4 servo outputs (50Hz..400Hz)
     pub pwm1_servos: Peri<'static, peripherals::PWM1>,
@@ -36,27 +57,37 @@ pub struct BoardPins {
     pub pin_servo2: Peri<'static, peripherals::P0_03>,
     /// Physical Pin: P0.28 (Silkscreen: D2) - Servo 3 (Rudder / Left V-Tail / Aux)
     pub pin_servo3: Peri<'static, peripherals::P0_28>,
-    /// Physical Pin: P0.05 (Silkscreen: D5) - Servo 4 (Secondary Aileron / Flap / Aux)
-    pub pin_servo4: Peri<'static, peripherals::P0_05>,
+    /// Physical Pin: P1.14 (Silkscreen: D9) - Servo 4 (Secondary Aileron / Flap / Aux)
+    pub pin_servo4: Peri<'static, peripherals::P1_14>,
 
     // ==========================================
-    // Actuators (PWM2: Secondary Servos 5..8 - Sense Plus Only)
+    // Actuators (PWM2: Secondary Servos 5..8)
     // ==========================================
     #[cfg(feature = "gps")]
-    /// PWM2 peripheral dedicated to secondary 4 servo outputs (Sense Plus variant only)
+    /// PWM2 peripheral dedicated to secondary servo outputs (Sense Plus variant)
     pub pwm2_servos: Peri<'static, peripherals::PWM2>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P1.13 (Silkscreen: D8) - Servo 5 (Aux / Flap / Gear)
-    pub pin_servo5: Peri<'static, peripherals::P1_13>,
+    /// Physical Pin: P1.15 (Silkscreen: D10) - Servo 5 (Aux / Flap / Gear)
+    pub pin_servo5: Peri<'static, peripherals::P1_15>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P1.14 (Silkscreen: D9) - Servo 6 (Aux / Pan)
-    pub pin_servo6: Peri<'static, peripherals::P1_14>,
+    /// Physical Pin: P0.15 (Silkscreen: D11) - Servo 6 (Aux / Pan)
+    pub pin_servo6: Peri<'static, peripherals::P0_15>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P1.15 (Silkscreen: D10) - Servo 7 (Aux / Tilt)
-    pub pin_servo7: Peri<'static, peripherals::P1_15>,
+    /// Physical Pin: P0.19 (Silkscreen: D12) - Servo 7 (Aux / Tilt)
+    pub pin_servo7: Peri<'static, peripherals::P0_19>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P0.15 (Silkscreen: D11) - Servo 8 (Aux / Drop)
-    pub pin_servo8: Peri<'static, peripherals::P0_15>,
+    /// Physical Pin: P1.01 (Silkscreen: D13) - Servo 8 (Aux / Drop)
+    pub pin_servo8: Peri<'static, peripherals::P1_01>,
+
+    // ==========================================
+    // External Sensor Bus (TWISPI1: Compass & Barometer)
+    // ==========================================
+    /// TWISPI1 hardware peripheral for external I2C bus (Compass / Barometer)
+    pub twispi_ext: Peri<'static, peripherals::TWISPI1>,
+    /// Physical Pin: P0.04 (Silkscreen: D4) - External I2C SDA
+    pub pin_ext_sda: Peri<'static, peripherals::P0_04>,
+    /// Physical Pin: P0.05 (Silkscreen: D5) - External I2C SCL
+    pub pin_ext_scl: Peri<'static, peripherals::P0_05>,
 
     // ==========================================
     // Visual Telemetry (RGB LED)
@@ -109,10 +140,10 @@ pub struct BoardPins {
     /// UARTE1 hardware peripheral for GPS communication (Sense Plus variant)
     pub uarte_gps: Peri<'static, peripherals::UARTE1>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P0.09 (Silkscreen: D14 / NFC1) - GPS UART RX
+    /// Physical Pin: P0.09 (Silkscreen: D14 / RX1) - GPS UART RX
     pub pin_gps_rx: Peri<'static, peripherals::P0_09>,
     #[cfg(feature = "gps")]
-    /// Physical Pin: P0.10 (Silkscreen: D15 / NFC2) - GPS UART TX
+    /// Physical Pin: P0.10 (Silkscreen: D15 / TX1) - GPS UART TX
     pub pin_gps_tx: Peri<'static, peripherals::P0_10>,
 }
 
@@ -123,22 +154,25 @@ impl BoardPins {
             wdt: p.WDT,
             pwm_esc: p.PWM0,
             pin_motor1: p.P0_29,
-            pin_motor2: p.P0_04,
+            pin_motor2: p.P1_13,
             pwm1_servos: p.PWM1,
             pin_servo1: p.P0_02,
             pin_servo2: p.P0_03,
             pin_servo3: p.P0_28,
-            pin_servo4: p.P0_05,
+            pin_servo4: p.P1_14,
             #[cfg(feature = "gps")]
             pwm2_servos: p.PWM2,
             #[cfg(feature = "gps")]
-            pin_servo5: p.P1_13,
+            pin_servo5: p.P1_15,
             #[cfg(feature = "gps")]
-            pin_servo6: p.P1_14,
+            pin_servo6: p.P0_15,
             #[cfg(feature = "gps")]
-            pin_servo7: p.P1_15,
+            pin_servo7: p.P0_19,
             #[cfg(feature = "gps")]
-            pin_servo8: p.P0_15,
+            pin_servo8: p.P1_01,
+            twispi_ext: p.TWISPI1,
+            pin_ext_sda: p.P0_04,
+            pin_ext_scl: p.P0_05,
             pin_led_red: p.P0_26,
             pin_led_green: p.P0_30,
             pin_led_blue: p.P0_06,
