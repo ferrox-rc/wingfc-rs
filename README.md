@@ -24,6 +24,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - 📡 [Receiver & Telemetry Specification (CRSF/ELRS & iBus)](docs/RECEIVERS.md)
 - 🚀 [Production Release Matrix & Sizing](docs/RELEASE_MATRIX.md)
 - ⚡ [Firmware Deployment & Flashing Guide](docs/FLASHING.md)
+- 🤝 [Contributing Guidelines & Architecture Standards](CONTRIBUTING.md)
 - 📝 [Changelog & Version History](CHANGELOG.md)
 
 ## User Quick Start (Zero Rust Knowledge Required)
