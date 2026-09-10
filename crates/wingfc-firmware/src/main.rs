@@ -26,8 +26,12 @@ mod drivers;
 pub mod pins;
 mod tasks;
 
-use config::{DT, ESC_PWM_HZ, SERVO_PWM_HZ};
-use drivers::{EscPwmDriver, Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
+#[cfg(not(feature = "dshot"))]
+use config::ESC_PWM_HZ;
+use config::{DT, SERVO_PWM_HZ};
+#[cfg(not(feature = "dshot"))]
+use drivers::EscPwmDriver;
+use drivers::{Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
 use pins::BoardPins;
 #[cfg(feature = "crsf")]
 use tasks::{crsf_telemetry_task, FlightTelemetrySnapshot};
@@ -57,17 +61,6 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let pins = BoardPins::from_peripherals(p);
 
-    // Initialize 1000ms Hardware Watchdog Timer
-    let mut wdt_config = wdt::Config::default();
-    wdt_config.timeout_ticks = 32768; // 1000ms (32768 Hz LFCLK)
-    wdt_config.action_during_debug_halt = wdt::HaltConfig::Pause;
-    let (_wdt, [mut wdt_handle]) = match Watchdog::try_new(pins.wdt, wdt_config) {
-        Ok(res) => res,
-        Err(_) => {
-            defmt::panic!("Failed to initialize Hardware Watchdog!");
-        }
-    };
-
     info!("Initializing WingFC-rs bare-metal flight controller...");
 
     // 1. Initialize Visual Telemetry (RGB LED)
@@ -89,7 +82,7 @@ async fn main(spawner: Spawner) {
     #[cfg(not(feature = "dshot"))]
     let mut esc_pwm = EscPwmDriver::new(pwm_esc_dev);
 
-    // Primary Servos (1, 2, 4, 5) on PWM1 (50Hz..400Hz)
+    // Primary Servos (1..4) on PWM1 (50Hz..400Hz)
     let servo_config = ServoPwmDriver::config(SERVO_PWM_HZ);
     let pwm1_servos_dev = SimplePwm::new_4ch(
         pins.pwm1_servos,
@@ -114,7 +107,7 @@ async fn main(spawner: Spawner) {
     let mut servo_pwm_ext = ServoPwmDriver::new(pwm2_servos_dev);
 
     // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
-    let _imu_pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::Standard);
+    let _imu_pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::HighDrive);
 
     let mut twim_config = twim::Config::default();
     twim_config.frequency = twim::Frequency::K400;
@@ -187,6 +180,17 @@ async fn main(spawner: Spawner) {
 
     #[cfg(feature = "crsf")]
     let telemetry_sender = TELEMETRY_WATCH.sender();
+
+    // 6. Initialize 2000ms Hardware Watchdog Timer to guard 500Hz loop
+    let mut wdt_config = wdt::Config::default();
+    wdt_config.timeout_ticks = 2 * 32768; // 2000ms (32768 Hz LFCLK)
+    wdt_config.action_during_debug_halt = wdt::HaltConfig::Pause;
+    let (_wdt, [mut wdt_handle]) = match Watchdog::try_new(pins.wdt, wdt_config) {
+        Ok(res) => res,
+        Err(_) => {
+            defmt::panic!("Failed to initialize Hardware Watchdog!");
+        }
+    };
 
     let loop_hz = (1.0 / DT) as u64;
     let mut ticker = Ticker::every(Duration::from_hz(loop_hz)); // 500 Hz hard real-time loop (2ms)

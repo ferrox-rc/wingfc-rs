@@ -944,3 +944,77 @@ fn test_cascaded_alt_hold() {
     let (pitch_cmd3, _) = controller.update(55.0, 0.0, 0.0, 1500);
     assert!(pitch_cmd3 < 0.0);
 }
+
+#[test]
+fn test_angle_mode_tilt_response() {
+    use wingfc_core::ahrs::MadgwickAHRS;
+    use wingfc_core::pid::{PidConfig, PidController};
+    use wingfc_core::mixer::{AirframeMixer, AirframeType};
+    use libm::{sinf, cosf};
+
+    let dt = 0.002; // 500 Hz
+    let ahrs_beta = 0.5;
+    let angle_p_gain = 10.0;
+    let max_roll_angle = 60.0 * core::f32::consts::PI / 180.0;
+    let max_pitch_angle = 45.0 * core::f32::consts::PI / 180.0;
+
+    let pid_cfg = PidConfig {
+        kp: 1.0,
+        ki: 0.5,
+        kd: 0.08,
+        kff: 0.04,
+        max_integral: 0.4,
+        dterm_lpf_hz: 40.0,
+        ff_lpf_hz: 45.0,
+    };
+
+    let mut ahrs = MadgwickAHRS::new(ahrs_beta);
+    let mut roll_pid = PidController::new(pid_cfg, dt);
+    let mut pitch_pid = PidController::new(pid_cfg, dt);
+    let mixer = AirframeMixer::new(AirframeType::Elevon);
+
+    // Initial level state
+    for _ in 0..500 {
+        ahrs.update_6dof(Vector3::ZERO, Vector3::new(0.0, 0.0, 9.80665), dt);
+    }
+    let (p0, r0, _) = ahrs.get_euler_angles();
+    println!("Level: pitch={}, roll={}", p0, r0);
+
+    // Now aircraft is tilted right by 30 degrees (roll = +30 deg = +0.5236 rad)
+    // In aircraft frame: gravity vector tilts to the left (-Y)
+    let roll_angle = 30.0 * core::f32::consts::PI / 180.0;
+    let accel_tilted = Vector3::new(0.0, -9.80665 * sinf(roll_angle), 9.80665 * cosf(roll_angle));
+
+    // Simulate holding it tilted for 1 second (500 steps)
+    let mut last_s1 = 1500;
+    let mut last_s2 = 1500;
+    for _ in 0..500 {
+        ahrs.update_6dof(Vector3::ZERO, accel_tilted, dt);
+        let (est_pitch, est_roll, _) = ahrs.get_euler_angles();
+
+        // Sticks centered (0.0)
+        let pitch_stick = 0.0;
+        let roll_stick = 0.0;
+
+        let target_pitch = pitch_stick * max_pitch_angle;
+        let target_roll = roll_stick * max_roll_angle;
+
+        let target_pitch_rate = (target_pitch - est_pitch) * angle_p_gain;
+        let target_roll_rate = (target_roll - est_roll) * angle_p_gain;
+
+        let roll_mix = roll_pid.update(target_roll_rate, 0.0, dt);
+        let pitch_mix = pitch_pid.update(target_pitch_rate, 0.0, dt);
+
+        let out = mixer.mix(pitch_mix, roll_mix, 0.0, 1000);
+        last_s1 = out.servo1_us;
+        last_s2 = out.servo2_us;
+    }
+
+    let (final_pitch, final_roll, _) = ahrs.get_euler_angles();
+    println!("Tilted: est_pitch={}, est_roll={}", final_pitch, final_roll);
+    println!("Servos: s1={}, s2={}", last_s1, last_s2);
+
+    assert!(final_roll.abs() > 0.4, "Roll estimate should reflect 30 deg (~0.52 rad), got {}", final_roll);
+    assert!(last_s1 != 1500, "Servo 1 should deflect to counter tilt, got {}", last_s1);
+    assert!(last_s2 != 1500, "Servo 2 should deflect to counter tilt, got {}", last_s2);
+}

@@ -8,4 +8,6 @@ pub mod pwm;
 pub use compass::{CompassError, CompassModel, Hmc5883lDriver, Qmc5883lDriver};
 pub use imu::Lsm6ds3Driver;
 pub use led::{LedColor, RgbLedDriver};
-pub use pwm::{EscPwmDriver, ServoPwmDriver};
+#[cfg(not(feature = "dshot"))]
+pub use pwm::EscPwmDriver;
+pub use pwm::ServoPwmDriver;

@@ -31,13 +31,7 @@ pub const RC_CH_ARM: usize = 4;
 pub const RC_CH_MODE: usize = 5;
 
 /// INAV-style multi-switch Flight Mode Activation Matrix
-#[cfg(all(feature = "compass", feature = "baro", feature = "gps"))]
-pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([ModeRange::new(FlightMode::Angle, 5, 1000, 1500), ModeRange::new(FlightMode::Acro, 5, 1501, 2000)]);
-#[cfg(not(all(feature = "compass", feature = "baro", feature = "gps")))]
-pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([
-    ModeRange::new(FlightMode::Angle, 5, 1000, 1500),
-    ModeRange::new(FlightMode::Acro, 5, 1501, 2000),
-]);
+pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([ModeRange::new(FlightMode::Angle, 5, 1300, 2100), ModeRange::new(FlightMode::Acro, 5, 900, 1300)]);
 
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = 1800;
@@ -84,7 +78,7 @@ pub const MAX_ROLL_ANGLE: f32 = 60.0 * DEG_TO_RAD;
 pub const MAX_PITCH_ANGLE: f32 = 45.0 * DEG_TO_RAD;
 
 /// Outer proportional gain converting attitude angle error to target rate in Angle mode (s^-1)
-pub const ANGLE_P_GAIN: f32 = 4.00;
+pub const ANGLE_P_GAIN: f32 = 10.00;
 
 /// In-flight real-time PID potentiometer tuning configuration
 pub const IN_FLIGHT_TUNING_ENABLED: bool = false;
@@ -119,13 +113,13 @@ pub const MAX_CEILING_AGL_M: f32 = 120.0;
 pub const GYRO_LPF_CUTOFF_HZ: f32 = 90.0;
 
 /// Madgwick AHRS filter convergence gain beta
-pub const AHRS_BETA: f32 = 0.0400;
+pub const AHRS_BETA: f32 = 0.5000;
 
 /// Inner rate loop PID + FeedForward configuration
 pub const RATE_PID_CONFIG: PidConfig = PidConfig {
-    kp: 0.1500,
-    ki: 0.0500,
-    kd: 0.0080,
+    kp: 1.0000,
+    ki: 0.5000,
+    kd: 0.0800,
     kff: 0.0400,
     max_integral: 0.4000,
     dterm_lpf_hz: 40.0,

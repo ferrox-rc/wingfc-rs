@@ -17,6 +17,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 ## Documentation
 - ⚙️ [Aircraft Configuration Guide (`wingfc.yaml`)](docs/CONFIG.md)
 - 📖 [System Architecture & Control Loop Specification](docs/ARCHITECTURE.md)
+- 📊 [System Architecture & Control Flowcharts](docs/FLOWCHARTS.md)
 - 🔌 [Pin Configuration & Hardware Allocation Specification](docs/PINOUT.md)
 - 🛰️ [GPS Navigation & Return-to-Home Specification](docs/GPS_NAVIGATION.md)
 - 📊 [SEGGER RTT & Blackbox Logging Architecture](docs/RTT_BLACKBOX_LOGGING.md)

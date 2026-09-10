@@ -5,16 +5,28 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-09-09
+## [0.3.0] - 2026-09-10
 
 ### 🚀 Features
 
-- Feat(compass): Add selectable external QMC5883L and HMC5883L I2C drivers on TWISPI1
-- Feat(flight-modes): Add INAV-style mode matrix, cascaded Heading Hold, and Altitude Hold controllers
+- **Active Self-Leveling Stabilization:** Validated cascaded attitude P and angular rate PID dual-loop controller in `ArmedAngle` mode.
+- **Flight Mode Activation Matrix:** INAV-style multi-switch range matrix configured via `wingfc.yaml` supporting seamless Acro, Angle, Heading Hold, Alt Hold, and RTH switching.
+- **Cascaded Navigation Controllers:** Heading Hold (compass-assisted banking) and Altitude Hold (barometric vertical velocity control) controllers.
+- **External Compass Drivers:** Selectable QMC5883L and HMC5883L I2C drivers operating on dedicated `TWISPI1` (`D4`/`D5`).
+- **System Architecture Flowcharts:** Comprehensive Mermaid.js flowcharts documenting boot sequence, 500 Hz control loop, cascaded PID dataflow, and safety state machines in [`docs/FLOWCHARTS.md`](docs/FLOWCHARTS.md).
+
+### 🐛 Bug Fixes & Stability
+
+- **Non-Blocking IMU EasyDMA:** Eliminated blocking `int1.wait_for_high()` timeout, enabling continuous 1.66 kHz ODR burst reads in ~300&mu;s without dropping 500 Hz control loop frames.
+- **Sensor Rail HighDrive Power:** Configured `P1.08` with `OutputDrive::HighDrive` to eliminate sensor rail brownouts under active I2C/IMU load.
+- **Ground Pre-Flight Stick Passthrough:** Preserved 100% mechanical servo deflection on ground when disarmed while holding motors safe.
+- **UF2 Flasher Resiliency:** Handled immediate MCU reboot gracefully during virtual USB filesystem write operations.
+- **Hardware Watchdog Timeout:** Increased watchdog supervision window to 2000ms to accommodate initial sensor bus stabilization.
 
 ### 🚜 Refactor
 
-- Refactor(firmware): Restrict board pin mappings strictly to physical castellated edge pads and allocate TWISPI1 for external I2C
+- **Castellated Pinout Allocation:** Restricted all physical signals strictly to edge castellated pads, avoiding underside test pads.
+- **Embassy PWM Optimization:** Cleaned `SimplePwm` duty cycle mapping and polarity inversion across all 8 airframe servo/ESC channels.
 ## [0.2.0] - 2026-09-09
 
 ### ⚙️ Miscellaneous Tasks

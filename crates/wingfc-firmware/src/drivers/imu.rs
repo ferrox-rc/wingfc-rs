@@ -113,12 +113,8 @@ impl<'d> Lsm6ds3Driver<'d> {
         Ok(())
     }
 
-    /// Synchronously waits for hardware Data-Ready interrupt on INT1 (P0.11)
-    /// before triggering an EasyDMA burst read over I2C.
+    /// Burst-reads 12 bytes of Gyro and Accel data over 400kHz Fast-Mode EasyDMA I2C.
     pub async fn read(&mut self) -> Result<(Vector3, Vector3), ImuError> {
-        // Wait for DRDY high interrupt from LSM6DS3 on P0.11 (fallback to 4ms timeout if bus disconnects)
-        let _ = with_timeout(Duration::from_millis(4), self.int1.wait_for_high()).await;
-
         let (raw_gyro, accel) = self.read_raw_scaled().await?;
         let gyro = raw_gyro - self.gyro_bias;
         // Transform sensor axes to aircraft body frame based on board orientation
@@ -129,12 +125,13 @@ impl<'d> Lsm6ds3Driver<'d> {
 
     async fn read_raw_scaled(&mut self) -> Result<(Vector3, Vector3), ImuError> {
         // Read 12 contiguous bytes: Gyro X, Y, Z (6 bytes) followed by Accel X, Y, Z (6 bytes)
-        // using non-blocking hardware EasyDMA
+        // using non-blocking hardware EasyDMA.
+        // Use stack-allocated buffer for TX to ensure RAM address for EasyDMA.
         let mut buf = [0u8; 12];
+        let reg = [OUTX_L_G_REG];
         with_timeout(
             Duration::from_millis(5),
-            self.twim
-                .write_read(LSM6DS3_ADDR, &[OUTX_L_G_REG], &mut buf),
+            self.twim.write_read(LSM6DS3_ADDR, &reg, &mut buf),
         )
         .await
         .map_err(|_| ImuError::I2cError)?

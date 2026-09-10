@@ -419,9 +419,7 @@ def validate_config(cfg):
             features.append("gps")
 
     variant_name = f"{proto}-{motor_proto}"
-    if nav_enabled:
-        variant_name += "-nav"
-    elif baro_enabled and compass_enabled:
+    if nav_enabled or baro_enabled or compass_enabled:
         variant_name += "-nav"
     elif baro_enabled:
         variant_name += "-baro"
@@ -430,7 +428,6 @@ def validate_config(cfg):
 
     return {
         "board": board,
-        "orientation_rust": orientation_rust,
         "orientation_rust": orientation_rust,
         "airframe_rust": airframe_rust,
         "protocol": proto,
@@ -530,13 +527,7 @@ pub const RC_CH_ARM: usize = {cfg_vals['ch_arm_idx']};
 pub const RC_CH_MODE: usize = {cfg_vals['ch_mode_idx']};
 
 /// INAV-style multi-switch Flight Mode Activation Matrix
-#[cfg(all(feature = "compass", feature = "baro", feature = "gps"))]
 pub const MODE_MATRIX: ModeMatrix<{cfg_vals['mode_count']}> = {cfg_vals['mode_matrix_rust']};
-#[cfg(not(all(feature = "compass", feature = "baro", feature = "gps")))]
-pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([
-    ModeRange::new(FlightMode::Angle, {cfg_vals['ch_mode_idx']}, 1000, 1500),
-    ModeRange::new(FlightMode::Acro, {cfg_vals['ch_mode_idx']}, 1501, 2000),
-]);
 
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = {cfg_vals['arm_switch_threshold_us']};
@@ -808,8 +799,8 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
 
     sums_file = out_dir / "SHA256SUMS"
     with open(sums_file, "a") as f:
-        for fname in sorted(hashes.keys()):
-            f.write(f"{hashes[fname]}  {fname}\n")
+        for fname, h in sorted(hashes.items()):
+            f.writelines(f"{h}  {fname}\n")
 
     print("\n" + "=" * 70)
     print("BUILD SUMMARY & RESOURCE CONSUMPTION")
@@ -983,7 +974,7 @@ def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DI
             print(f"     nrfjprog --program {hex_path} --sectorerase --reset")
             print("  3. Serial DFU (adafruit-nrfutil):")
             print(f"     adafruit-nrfutil dfu genpkg --dev-type 0x0052 --application {hex_path} dfu.zip")
-            print(f"     adafruit-nrfutil dfu serial --package dfu.zip -p /dev/ttyACM0 -b 115200")
+            print("     adafruit-nrfutil dfu serial --package dfu.zip -p /dev/ttyACM0 -b 115200")
             print("  4. probe-rs (SWD):")
             print(f"     probe-rs download --chip nRF52840_xxAA --format hex {hex_path}")
             print(f"     probe-rs run --chip nRF52840_xxAA {elf_path}")
@@ -1018,10 +1009,19 @@ def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DI
         target_file = dest_mount / uf2_path.name
         print(f"Copying '{uf2_path.name}' -> '{target_file}'...")
         try:
-            shutil.copy2(uf2_path, target_file)
+            with open(uf2_path, "rb") as fsrc:
+                with open(target_file, "wb") as fdst:
+                    shutil.copyfileobj(fsrc, fdst, 64 * 1024)
             print("Flashing successful! XIAO bootloader will automatically reboot and start WingFC.")
             return True
-        except Exception as e:
+        except (OSError, IOError) as e:
+            # When the last block of the UF2 payload is written, the UF2 bootloader
+            # immediately resets the MCU. This causes the virtual FAT USB drive to
+            # disconnect before the OS completes file close/stat operations.
+            time.sleep(0.5)
+            if not dest_mount.exists():
+                print("Flashing successful! XIAO bootloader received firmware and rebooted.")
+                return True
             print(f"ERROR copying UF2 file: {e}")
             return False
 

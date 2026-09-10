@@ -305,7 +305,10 @@ impl AltHoldController {
         if pilot_pitch_stick.abs() > 0.05 || !self.is_latched {
             self.target_altitude_m = current_altitude_m;
             self.is_latched = true;
-            return (pilot_pitch_stick * self.config.max_pitch_rad, pilot_throttle_us);
+            return (
+                pilot_pitch_stick * self.config.max_pitch_rad,
+                pilot_throttle_us,
+            );
         }
 
         // Target climb rate proportional to altitude error
@@ -317,10 +320,8 @@ impl AltHoldController {
 
         // Commanded pitch angle proportional to climb rate error
         let climb_error = target_climb_rate - current_climb_rate_ms;
-        let pitch_command = (self.config.kp_climb * climb_error).clamp(
-            -self.config.max_pitch_rad,
-            self.config.max_pitch_rad,
-        );
+        let pitch_command = (self.config.kp_climb * climb_error)
+            .clamp(-self.config.max_pitch_rad, self.config.max_pitch_rad);
 
         // Throttle management: default to configured cruise throttle
         let target_throttle = self.config.cruise_throttle_us;

@@ -1,13 +1,13 @@
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Receiver;
 use embassy_sync::watch::Sender;
+use embassy_time::Instant;
 #[cfg(not(feature = "dshot"))]
-use embassy_time::Timer;
-use embassy_time::{Duration, Instant};
+use embassy_time::{Duration, Timer};
 use wingfc_core::ahrs::MadgwickAHRS;
 use wingfc_core::filter::Pt1Filter;
 use wingfc_core::math::{map_range, Vector3};
-use wingfc_core::mixer::{AirframeMixer, AirframeOutputs};
+use wingfc_core::mixer::{AirframeMixer, AirframeOutputs, AirframeType};
 use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
@@ -67,9 +67,15 @@ impl<'d> FlightLoopState<'d> {
             roll_pid: PidController::new(RATE_PID_CONFIG, DT),
             yaw_pid: PidController::new(RATE_PID_CONFIG, DT),
             mixer: {
-                let mut m = AirframeMixer::with_diff_thrust(AIRFRAME_TYPE, DIFFERENTIAL_THRUST);
-                m.servos = SERVO_CONFIGS;
-                m
+                if AIRFRAME_TYPE == AirframeType::ElevonWithDiffThrust {
+                    let mut m = AirframeMixer::with_diff_thrust(AIRFRAME_TYPE, DIFFERENTIAL_THRUST);
+                    m.servos = SERVO_CONFIGS;
+                    m
+                } else {
+                    let mut m = AirframeMixer::new(AIRFRAME_TYPE);
+                    m.servos = SERVO_CONFIGS;
+                    m
+                }
             },
             safety: ArmingSafety::with_thresholds(ARM_SWITCH_THRESHOLD, THROTTLE_ZERO_THRESHOLD),
             #[cfg(feature = "compass")]
@@ -189,7 +195,8 @@ impl<'d> FlightLoopState<'d> {
         }
 
         // 2. Failsafe timeout check
-        let signal_lost = Instant::now().duration_since(self.last_packet_time) > FAILSAFE_TIMEOUT;
+        let signal_lost = Instant::now().duration_since(self.last_packet_time) > FAILSAFE_TIMEOUT
+            || self.latest_rc.failsafe;
 
         // 3. Configurable Channel Mapping
         let roll_stick = map_range(
@@ -244,10 +251,42 @@ impl<'d> FlightLoopState<'d> {
         }
 
         // 5. Read IMU
-        let (raw_gyro, accel) = match self.imu.read().await {
+        let imu_data = self.imu.read().await;
+
+        match self.status {
+            ArmingStatus::Disarmed
+            | ArmingStatus::RefusedThrottleRaised
+            | ArmingStatus::RefusedSwitchArmedAtBoot => {
+                // Ground pre-flight check: Servos follow stick inputs directly!
+                self.pitch_pid.reset();
+                self.roll_pid.reset();
+                self.yaw_pid.reset();
+
+                // If IMU read succeeded, update AHRS so attitude is initialized before takeoff
+                if let Ok((raw_gyro, accel)) = imu_data {
+                    let gyro = Vector3::new(
+                        self.gyro_lpf_x.update(raw_gyro.x),
+                        self.gyro_lpf_y.update(raw_gyro.y),
+                        self.gyro_lpf_z.update(raw_gyro.z),
+                    );
+                    self.ahrs.update_6dof(gyro, accel, DT);
+                }
+
+                return self.mixer.mix(pitch_stick, roll_stick, yaw_stick, 1000);
+            }
+            ArmingStatus::Failsafe => {
+                // Motor cut + level flight surfaces neutralized
+                return self.mixer.mix(0.0, 0.0, 0.0, 1000);
+            }
+            _ => {}
+        }
+
+        // Armed flight modes: IMU is required for rate/angle stabilization
+        let (raw_gyro, accel) = match imu_data {
             Ok(data) => data,
             Err(_) => {
-                return self.mixer.mix(0.0, 0.0, 0.0, 1000);
+                // Failsafe fallback: retain manual stick authority so pilot does not lose aircraft control
+                return self.mixer.mix(pitch_stick, roll_stick, yaw_stick, throttle_raw);
             }
         };
 
@@ -268,19 +307,6 @@ impl<'d> FlightLoopState<'d> {
         let throttle_out;
 
         match self.status {
-            ArmingStatus::Disarmed
-            | ArmingStatus::RefusedThrottleRaised
-            | ArmingStatus::RefusedSwitchArmedAtBoot => {
-                // Servos follow stick inputs directly for ground pre-flight check
-                pitch_mix = pitch_stick;
-                roll_mix = roll_stick;
-                yaw_mix = yaw_stick;
-                throttle_out = 1000; // Locked zero throttle
-
-                self.pitch_pid.reset();
-                self.roll_pid.reset();
-                self.yaw_pid.reset();
-            }
             ArmingStatus::ArmedAcro => {
                 // ACRO / RATES MODE: Stick commands desired angular rate directly
                 let target_roll_rate = roll_stick * MAX_ROLL_RATE;
@@ -353,8 +379,7 @@ impl<'d> FlightLoopState<'d> {
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
                 throttle_out = 1500; // Safe cruise throttle
             }
-            ArmingStatus::Failsafe => {
-                // Motor cut + level flight surfaces neutralized
+            _ => {
                 pitch_mix = 0.0;
                 roll_mix = 0.0;
                 yaw_mix = 0.0;

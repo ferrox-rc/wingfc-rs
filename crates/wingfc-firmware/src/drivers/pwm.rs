@@ -52,11 +52,13 @@ impl<'d> ServoPwmDriver<'d> {
 /// Configurable ESC PWM Driver (50Hz - 400Hz) with 1us resolution for up to 2 motors.
 ///
 /// Converts commanded throttle (1000..2000 us) into active-HIGH PWM pulses.
+#[cfg_attr(feature = "dshot", allow(dead_code))]
 pub struct EscPwmDriver<'d> {
     pwm: SimplePwm<'d>,
     current_throttle: [u16; 2],
 }
 
+#[cfg_attr(feature = "dshot", allow(dead_code))]
 impl<'d> EscPwmDriver<'d> {
     /// Creates the `SimpleConfig` required to instantiate `SimplePwm::new_2ch`.
     pub fn config(frequency_hz: u32) -> SimpleConfig {
