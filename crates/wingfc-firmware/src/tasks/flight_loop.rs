@@ -12,22 +12,21 @@ use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
-use crate::config::DIFFERENTIAL_THRUST;
 use crate::config::{
-    AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DT, FAILSAFE_TIMEOUT,
-    GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED, MAX_PITCH_ANGLE,
-    MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, RATE_PID_CONFIG, RC_CH_ARM,
-    MODE_MATRIX, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
+    AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DIFFERENTIAL_THRUST, DT,
+    FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED,
+    MAX_PITCH_ANGLE, MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, MODE_MATRIX,
+    RATE_PID_CONFIG, RC_CH_ARM, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
     THROTTLE_ZERO_THRESHOLD,
 };
-#[cfg(feature = "compass")]
-use wingfc_core::mode::HeadingHoldController;
-#[cfg(feature = "baro")]
-use wingfc_core::mode::AltHoldController;
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
 use crate::drivers::Lsm6ds3Driver;
 use crate::tasks::telemetry::VisualStatus;
+#[cfg(feature = "baro")]
+use wingfc_core::mode::AltHoldController;
+#[cfg(feature = "compass")]
+use wingfc_core::mode::HeadingHoldController;
 
 pub struct FlightLoopState<'d> {
     pub imu: Lsm6ds3Driver<'d>,
@@ -326,7 +325,8 @@ impl<'d> FlightLoopState<'d> {
             ArmingStatus::ArmedAltHold => {
                 // ALTITUDE HOLD MODE: Cascaded baro/KF altitude controller onto Angle pitch
                 // (Fallback to current est_pitch if baro/KF not yet integrated into loop state)
-                let (target_pitch, alt_thr) = self.alt_hold.update(0.0, 0.0, pitch_stick, throttle_raw);
+                let (target_pitch, alt_thr) =
+                    self.alt_hold.update(0.0, 0.0, pitch_stick, throttle_raw);
                 let target_roll = roll_stick * MAX_ROLL_ANGLE;
 
                 let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
@@ -342,7 +342,7 @@ impl<'d> FlightLoopState<'d> {
             ArmingStatus::ArmedRth => {
                 // RTH MODE: Autonomous navigation hold (Angle mode level flight fallback)
                 let target_pitch = 0.05; // Slight gentle climb
-                let target_roll = 0.0;  // Level wings
+                let target_roll = 0.0; // Level wings
 
                 let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
