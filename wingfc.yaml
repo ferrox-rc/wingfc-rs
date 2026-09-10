@@ -278,7 +278,7 @@ tuning:
   angle_limits:
     max_roll_deg: 60.0         # Maximum bank angle
     max_pitch_deg: 45.0        # Maximum pitch climb/dive angle
-    angle_p_gain: 10.0          # Outer P-loop gain (s^-1) converting angle error to target rate
+    angle_p_gain: 4.0          # Outer P-loop gain (s^-1) converting angle error to target rate
 
   # Low-Pass Filter Cutoffs (Hertz)
   filters:
