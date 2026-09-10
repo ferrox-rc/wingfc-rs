@@ -286,7 +286,9 @@ impl<'d> FlightLoopState<'d> {
             Ok(data) => data,
             Err(_) => {
                 // Failsafe fallback: retain manual stick authority so pilot does not lose aircraft control
-                return self.mixer.mix(pitch_stick, roll_stick, yaw_stick, throttle_raw);
+                return self
+                    .mixer
+                    .mix(pitch_stick, roll_stick, yaw_stick, throttle_raw);
             }
         };
 

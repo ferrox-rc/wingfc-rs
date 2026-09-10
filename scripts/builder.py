@@ -626,6 +626,11 @@ pub const RATE_PID_CONFIG: PidConfig = PidConfig {{
     with open(GENERATED_CONFIG_PATH, "w") as f:
         f.write(code)
 
+    try:
+        subprocess.run(["rustfmt", str(GENERATED_CONFIG_PATH)], capture_output=True, check=False)
+    except Exception:
+        pass
+
 
 def print_advisories(advisories):
     """Prints highlighted warnings/notices if triggered."""

@@ -249,7 +249,13 @@ fn test_arming_safety_logic() {
 
 #[test]
 fn test_feedforward_response() {
-    let cfg = PidConfig { kff: 0.10, kp: 0.0, ki: 0.0, kd: 0.0, ..Default::default() };
+    let cfg = PidConfig {
+        kff: 0.10,
+        kp: 0.0,
+        ki: 0.0,
+        kd: 0.0,
+        ..Default::default()
+    };
     let mut pid = PidController::new(cfg, 0.002);
 
     // Rapid stick movement: setpoint steps from 0.0 to 10.0
@@ -890,7 +896,7 @@ fn test_mode_matrix_full_nav_priority() {
         ModeRange::new(FlightMode::Angle, 5, 1300, 1700), // CH6: 1300..1700 = Angle
         ModeRange::new(FlightMode::HeadingHold, 5, 1701, 2100), // CH6: >1700 = HeadingHold
         ModeRange::new(FlightMode::AltHold, 6, 1700, 2100), // CH7: >1700 = AltHold
-        ModeRange::new(FlightMode::Rth, 7, 1800, 2100), // CH8: >1800 = Emergency RTH
+        ModeRange::new(FlightMode::Rth, 7, 1800, 2100),   // CH8: >1800 = Emergency RTH
     ]);
 
     let mut ch = [1500u16; 16];
@@ -947,10 +953,10 @@ fn test_cascaded_alt_hold() {
 
 #[test]
 fn test_angle_mode_tilt_response() {
+    use libm::{cosf, sinf};
     use wingfc_core::ahrs::MadgwickAHRS;
-    use wingfc_core::pid::{PidConfig, PidController};
     use wingfc_core::mixer::{AirframeMixer, AirframeType};
-    use libm::{sinf, cosf};
+    use wingfc_core::pid::{PidConfig, PidController};
 
     let dt = 0.002; // 500 Hz
     let ahrs_beta = 0.5;
@@ -1014,7 +1020,19 @@ fn test_angle_mode_tilt_response() {
     println!("Tilted: est_pitch={}, est_roll={}", final_pitch, final_roll);
     println!("Servos: s1={}, s2={}", last_s1, last_s2);
 
-    assert!(final_roll.abs() > 0.4, "Roll estimate should reflect 30 deg (~0.52 rad), got {}", final_roll);
-    assert!(last_s1 != 1500, "Servo 1 should deflect to counter tilt, got {}", last_s1);
-    assert!(last_s2 != 1500, "Servo 2 should deflect to counter tilt, got {}", last_s2);
+    assert!(
+        final_roll.abs() > 0.4,
+        "Roll estimate should reflect 30 deg (~0.52 rad), got {}",
+        final_roll
+    );
+    assert!(
+        last_s1 != 1500,
+        "Servo 1 should deflect to counter tilt, got {}",
+        last_s1
+    );
+    assert!(
+        last_s2 != 1500,
+        "Servo 2 should deflect to counter tilt, got {}",
+        last_s2
+    );
 }

@@ -6,9 +6,9 @@
 use embassy_time::Duration;
 use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
 use wingfc_core::mixer::{AirframeType, ServoConfig};
-use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
-use wingfc_core::pid::PidConfig;
 use wingfc_core::mode::{FlightMode, ModeMatrix, ModeRange};
+use wingfc_core::pid::PidConfig;
+use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = BoardOrientation::Default;
@@ -31,7 +31,10 @@ pub const RC_CH_ARM: usize = 4;
 pub const RC_CH_MODE: usize = 5;
 
 /// INAV-style multi-switch Flight Mode Activation Matrix
-pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([ModeRange::new(FlightMode::Angle, 5, 1300, 2100), ModeRange::new(FlightMode::Acro, 5, 900, 1300)]);
+pub const MODE_MATRIX: ModeMatrix<2> = ModeMatrix::new([
+    ModeRange::new(FlightMode::Angle, 5, 1300, 2100),
+    ModeRange::new(FlightMode::Acro, 5, 900, 1300),
+]);
 
 /// Microsecond threshold for Arm Switch (CH5 / AUX1) above which aircraft arms
 pub const ARM_SWITCH_THRESHOLD: u16 = 1800;
@@ -45,14 +48,54 @@ pub const SERVO_PWM_HZ: u32 = 50;
 
 /// Per-servo output endpoint, subtrim, and inversion calibration profiles
 pub const SERVO_CONFIGS: [ServoConfig; 8] = [
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
-    ServoConfig { min_us: 1000, max_us: 2000, subtrim_us: 0, reversed: false },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
+    ServoConfig {
+        min_us: 1000,
+        max_us: 2000,
+        subtrim_us: 0,
+        reversed: false,
+    },
 ];
 
 /// Configured PWM frame frequency for analog ESC output in Hz (50Hz - 400Hz).
@@ -83,8 +126,18 @@ pub const ANGLE_P_GAIN: f32 = 10.00;
 /// In-flight real-time PID potentiometer tuning configuration
 pub const IN_FLIGHT_TUNING_ENABLED: bool = false;
 pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {
-    slot_a: TuneSlot { parameter: TuneParameter::None, channel_idx: 5, min_val: 0.0500, max_val: 0.5000 },
-    slot_b: TuneSlot { parameter: TuneParameter::None, channel_idx: 6, min_val: 0.0050, max_val: 0.0500 },
+    slot_a: TuneSlot {
+        parameter: TuneParameter::None,
+        channel_idx: 5,
+        min_val: 0.0500,
+        max_val: 0.5000,
+    },
+    slot_b: TuneSlot {
+        parameter: TuneParameter::None,
+        channel_idx: 6,
+        min_val: 0.0050,
+        max_val: 0.0500,
+    },
 };
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
