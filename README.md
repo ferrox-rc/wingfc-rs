@@ -3,7 +3,7 @@
 High-performance, zero-latency, bare-metal Rust flight controller firmware for sub-250g FPV flying wings, acrobatic wings, and autonomous UAVs.
 
 ## Key Features
-- **YAML Aircraft Configuration:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml) without touching build files or Rust code.
+- **YAML Aircraft Configuration:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](wingfc.yaml) without touching build files or Rust code.
 - **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and 500 Hz control loop (2000 &mu;s loop time).
 - **Acrobatic & Rates Mode:** Direct angular velocity tracking with PT1 vibration filtering and FeedForward.
 - **Madgwick Quaternion AHRS:** 6-DoF and 9-DoF attitude estimation without gimbal lock and with dynamic G-rejection.
@@ -29,7 +29,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 
 ## User Quick Start (Zero Rust Knowledge Required)
 
-Just like Betaflight, INAV, or EdgeTX, all aircraft settings are controlled via a single human-readable configuration file: [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml).
+Just like Betaflight, INAV, or EdgeTX, all aircraft settings are controlled via a single human-readable configuration file: [`wingfc.yaml`](wingfc.yaml).
 
 ```bash
 # 1. Edit your aircraft settings in wingfc.yaml (board, receiver, motor, safety, rates, PIDs)

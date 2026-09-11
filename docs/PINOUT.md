@@ -8,7 +8,7 @@ Only **physical castellated edge pads** are used across both supported form fact
 
 ## 1. High-Level Hardware Architecture
 
-The firmware decouples physical pins from algorithm drivers via the [`BoardPins`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/src/pins.rs) container. All peripheral mappings conform to hardware-level DMA constraints (EasyDMA) on the nRF52840 SoC.
+The firmware decouples physical pins from algorithm drivers via the [`BoardPins`](../crates/wingfc-firmware/src/pins.rs) container. All peripheral mappings conform to hardware-level DMA constraints (EasyDMA) on the nRF52840 SoC.
 
 ```mermaid
 graph TD

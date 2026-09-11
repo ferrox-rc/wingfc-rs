@@ -102,7 +102,7 @@ The CRSF protocol operates at 420,000 baud with low latency, 16-channel resoluti
 
 ### 3.2 Downlink: Bidirectional Telemetry Architecture
 
-The telemetry engine in [`crates/wingfc-firmware/src/tasks/telemetry.rs`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/src/tasks/telemetry.rs) operates on a 50 Hz round-robin slot scheduler. It streams real-time aircraft data back to the handset via `UARTE0_TX` (`D6` / `P1.11`):
+The telemetry engine in [`crates/wingfc-firmware/src/tasks/telemetry.rs`](../crates/wingfc-firmware/src/tasks/telemetry.rs) operates on a 50 Hz round-robin slot scheduler. It streams real-time aircraft data back to the handset via `UARTE0_TX` (`D6` / `P1.11`):
 
 ```
 +-----------------------------------------------------------------------------------+

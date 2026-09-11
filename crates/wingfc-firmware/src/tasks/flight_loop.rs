@@ -183,11 +183,12 @@ impl<'d> FlightLoopState<'d> {
         defmt::info!("Flight controller initialized and ready!");
     }
 
-    /// Execute one 500Hz flight cycle
+    /// Execute one flight control cycle with dynamically measured delta time (dt)
     pub async fn step(
         &mut self,
         rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
         status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
+        dt: f32,
     ) -> AirframeOutputs {
         // 1. Drain latest RC packet
         let mut rc_packet_received = false;
@@ -261,7 +262,7 @@ impl<'d> FlightLoopState<'d> {
                         self.gyro_lpf_y.update(raw_gyro.y),
                         self.gyro_lpf_z.update(raw_gyro.z),
                     );
-                    self.ahrs.update_6dof(gyro, accel, DT);
+                    self.ahrs.update_6dof(gyro, accel, dt);
                 }
 
                 return self.mixer.mix(pitch_stick, roll_stick, yaw_stick, 1000);
@@ -292,7 +293,7 @@ impl<'d> FlightLoopState<'d> {
         );
 
         // 6. Update Attitude Estimation (Madgwick AHRS)
-        self.ahrs.update_6dof(gyro, accel, DT);
+        self.ahrs.update_6dof(gyro, accel, dt);
         if self.status.requires_attitude() {
             self.cached_euler = self.ahrs.get_euler_angles();
         }
@@ -310,9 +311,9 @@ impl<'d> FlightLoopState<'d> {
                 let target_pitch_rate = pitch_stick * MAX_PITCH_RATE;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
-                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = throttle_raw;
             }
             ArmingStatus::ArmedAngle => {
@@ -324,9 +325,9 @@ impl<'d> FlightLoopState<'d> {
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
-                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = throttle_raw;
             }
             #[cfg(feature = "compass")]
@@ -339,9 +340,9 @@ impl<'d> FlightLoopState<'d> {
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = 0.0; // Heading hold locks yaw via roll banking
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
-                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = throttle_raw;
             }
             #[cfg(feature = "baro")]
@@ -356,9 +357,9 @@ impl<'d> FlightLoopState<'d> {
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
-                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = alt_thr;
             }
             #[cfg(feature = "gps")]
@@ -371,11 +372,12 @@ impl<'d> FlightLoopState<'d> {
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = 0.0;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, DT);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, DT);
-                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, DT);
+                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
+                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = 1500; // Safe cruise throttle
             }
+
             _ => {
                 pitch_mix = 0.0;
                 roll_mix = 0.0;

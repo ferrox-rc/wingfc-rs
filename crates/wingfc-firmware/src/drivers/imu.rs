@@ -1,4 +1,4 @@
-use crate::config::BOARD_ORIENTATION;
+use crate::config::{BOARD_ORIENTATION, IMU_ODR_G_REG_VAL, IMU_ODR_XL_REG_VAL, NOMINAL_LOOP_HZ};
 use embassy_nrf::gpio::Input;
 use embassy_nrf::twim::Twim;
 use embassy_time::{with_timeout, Duration, Timer};
@@ -28,8 +28,6 @@ pub enum ImuError {
 
 pub struct Lsm6ds3Driver<'d> {
     twim: Twim<'d>,
-    #[allow(dead_code)]
-    // INT1 hardware pin routed; scheduled for v0.4.0 GPIOTE event-driven flight loop
     int1: Input<'d>,
     gyro_bias: Vector3,
 }
@@ -68,15 +66,15 @@ impl<'d> Lsm6ds3Driver<'d> {
             .await
             .map_err(|_| ImuError::I2cError)?;
 
-        // CTRL1_XL: Accel ODR = 1.66 kHz, Full-Scale = +/- 16g (0x80 | 0x04 = 0x84)
+        // CTRL1_XL: Accel ODR = configured ODR, Full-Scale = +/- 16g
         self.twim
-            .write(LSM6DS3_ADDR, &[CTRL1_XL_REG, 0x84])
+            .write(LSM6DS3_ADDR, &[CTRL1_XL_REG, IMU_ODR_XL_REG_VAL])
             .await
             .map_err(|_| ImuError::I2cError)?;
 
-        // CTRL2_G: Gyro ODR = 1.66 kHz, Full-Scale = +/- 2000 dps (0x80 | 0x0C = 0x8C)
+        // CTRL2_G: Gyro ODR = configured ODR, Full-Scale = +/- 2000 dps
         self.twim
-            .write(LSM6DS3_ADDR, &[CTRL2_G_REG, 0x8C])
+            .write(LSM6DS3_ADDR, &[CTRL2_G_REG, IMU_ODR_G_REG_VAL])
             .await
             .map_err(|_| ImuError::I2cError)?;
 
@@ -86,8 +84,20 @@ impl<'d> Lsm6ds3Driver<'d> {
             .await
             .map_err(|_| ImuError::I2cError)?;
 
-        defmt::info!("LSM6DS3TR IMU initialized @ 1.66kHz ODR (DRDY on INT1, +/-2000 dps, +/-16g)");
+        defmt::info!(
+            "LSM6DS3TR IMU initialized @ {}Hz ODR (DRDY on INT1, +/-2000 dps, +/-16g)",
+            NOMINAL_LOOP_HZ
+        );
         Ok(())
+    }
+
+    /// Asynchronously awaits the LSM6DS3 hardware data-ready signal on INT1 (P0.11) via GPIOTE.
+    ///
+    /// Suspends the CPU in low-power WFE sleep until the INT1 pin asserts HIGH, indicating
+    /// new Gyro and Accel sample data is latched in hardware registers.
+    #[inline(always)]
+    pub async fn wait_data_ready(&mut self) {
+        self.int1.wait_for_high().await;
     }
 
     /// Calibrates gyroscope offsets by averaging stationary samples

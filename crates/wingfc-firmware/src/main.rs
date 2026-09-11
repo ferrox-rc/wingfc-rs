@@ -16,7 +16,7 @@ use embassy_nrf::wdt::{self, Watchdog};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, Ticker};
+use embassy_time::{with_timeout, Duration, Instant};
 use static_cell::ConstStaticCell;
 
 use wingfc_core::protocol::RcChannels;
@@ -28,7 +28,8 @@ mod tasks;
 
 #[cfg(not(feature = "dshot"))]
 use config::ESC_PWM_HZ;
-use config::{DT, SERVO_PWM_HZ};
+use config::{NOMINAL_DT, NOMINAL_LOOP_HZ, SERVO_PWM_HZ};
+
 #[cfg(not(feature = "dshot"))]
 use drivers::EscPwmDriver;
 use drivers::{Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
@@ -192,21 +193,35 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let loop_hz = (1.0 / DT) as u64;
-    let mut ticker = Ticker::every(Duration::from_hz(loop_hz)); // 500 Hz hard real-time loop (2ms)
+    let max_wait = Duration::from_micros((NOMINAL_DT * 3.0 * 1e6) as u64);
+    let mut last_sample_time = Instant::now();
     let mut loop_counter: u32 = 0;
-    info!("Starting 500Hz Real-Time Flight Loop...");
+    info!(
+        "Starting Hardware DRDY Event-Paced Flight Loop (nominal: {}Hz)...",
+        NOMINAL_LOOP_HZ
+    );
 
     loop {
-        ticker.next().await;
+        // 1. Await LSM6DS3 hardware data-ready signal on INT1 (P0.11) via GPIOTE.
+        // If the sensor stalls or communication is lost, timeout ensures watchdog and failsafe continue.
+        let _ = with_timeout(max_wait, flight_loop.imu.wait_data_ready()).await;
         wdt_handle.pet();
         loop_counter = loop_counter.wrapping_add(1);
 
-        let outputs = flight_loop.step(&rc_receiver, &status_sender).await;
+        // 2. Measure actual elapsed delta time between samples
+        let now = Instant::now();
+        let measured_dt = (now - last_sample_time).as_micros() as f32 * 1e-6;
+        last_sample_time = now;
+        // Bound dt within [0.5 * NOMINAL_DT, 2.0 * NOMINAL_DT] for numerical safety
+        let dt = measured_dt.clamp(NOMINAL_DT * 0.5, NOMINAL_DT * 2.0);
+
+        let outputs = flight_loop.step(&rc_receiver, &status_sender, dt).await;
 
         #[cfg(feature = "crsf")]
         {
-            if loop_counter.is_multiple_of(10) {
+            // Transmit telemetry at ~50 Hz (every 8th loop @ 416Hz, every 16th loop @ 833Hz)
+            const TELEMETRY_DIVIDER: u32 = if NOMINAL_LOOP_HZ >= 800 { 16 } else { 8 };
+            if loop_counter.is_multiple_of(TELEMETRY_DIVIDER) {
                 telemetry_sender.send(flight_loop.telemetry_snapshot());
             }
         }
