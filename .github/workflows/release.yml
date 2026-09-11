@@ -47,6 +47,14 @@ jobs:
         run: |
           cargo release "${{ github.event.inputs.level }}" --execute --no-confirm
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
       - name: Build firmware matrix for new release
         run: |
           ./scripts/build.sh matrix build
@@ -68,5 +76,6 @@ jobs:
           files: |
             dist/*.bin
             dist/*.hex
+            dist/*.uf2
             dist/*.elf
             dist/SHA256SUMS

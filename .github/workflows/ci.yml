@@ -2,10 +2,10 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
     tags: [ "v*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
   workflow_dispatch:
 
 permissions:
@@ -18,6 +18,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@master
@@ -37,20 +45,21 @@ jobs:
       - name: Run host unit tests across feature matrix
         run: ./scripts/build.sh test
 
-  firmware-build:
-    name: Firmware Matrix & Release Build
+  firmware-matrix-check:
+    name: Firmware Target Matrix Check
     runs-on: ubuntu-latest
     needs: test-and-lint
-    # Only run the heavy ARM matrix compilation and packaging on version release tags or manual trigger
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install ARM toolchain & objcopy utilities
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y binutils-arm-none-eabi
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
 
       - name: Set up Rust toolchain for Cortex-M4F
         uses: dtolnay/rust-toolchain@master
@@ -67,7 +76,39 @@ jobs:
       - name: Check all 8 firmware matrix permutations
         run: ./scripts/build.sh matrix check
 
-      - name: Build and package all 8 production binaries
+  firmware-build:
+    name: Firmware Matrix & Release Build
+    runs-on: ubuntu-latest
+    needs: firmware-matrix-check
+    # Run binary compilation and packaging on version release tags, pushes to main, or manual trigger
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
+      - name: Install ARM toolchain & objcopy utilities
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-arm-none-eabi
+
+      - name: Set up Rust toolchain for Cortex-M4F
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.0
+          targets: thumbv7em-none-eabihf
+
+      - name: Rust dependency cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build and package all 8 production binaries (including .uf2, .hex, .bin, .elf)
         run: ./scripts/build.sh matrix build
 
       - name: Upload release build artifacts
@@ -111,5 +152,6 @@ jobs:
           files: |
             dist/*.bin
             dist/*.hex
+            dist/*.uf2
             dist/*.elf
             dist/SHA256SUMS
