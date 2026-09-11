@@ -5,22 +5,70 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2026-09-08
+## [0.3.1] - 2026-09-11
+
+### ⚡ Performance
+
+- Perf(optimization): Eliminate divisions, cache Euler angles, and optimize mixer
+
+### 💼 Other Changes
+
+- Tune(rates): Restore standard angle_p_gain to 4.0 in wingfc.yaml
+## [0.3.0] - 2026-09-10
+
+### ⚙️ Miscellaneous Tasks
+
+- Chore(release): Release v0.3.0
+
+### 🎨 Styling
+
+- Style: Apply rustfmt formatting and add auto-rustfmt to builder.py
+
+### 🐛 Bug Fixes
+
+- Fix(stabilization): Restore active attitude stabilization, non-blocking IMU reads, and complete system flowcharts
+
+### 💼 Other Changes
+
+- Clean up imports and formatting in flight loop task
 
 ### 🚀 Features
-- Add dual-LED visual telemetry with discrete User LED (`P0.17`)
-- Allocate dedicated `PWM0` (ESCs 1&2), `PWM1` (Servos 1..4), and `PWM2` (Servos 5..8)
-- Standardize all PWM output drive strengths to `OutputDrive::Standard`
-- Add 1000ms hardware watchdog timer (`WDT`) supervision
-- Upgrade UART receiver to double-buffered EasyDMA driver with `ThreadModeRawMutex`
-- Enforce strict UART RX/TX crossover rules and pin mapping consistency
 
-## [0.1.2] - 2026-09-06
+- Feat(compass): Add selectable external QMC5883L and HMC5883L I2C drivers on TWISPI1
+- Feat(flight-modes): Add INAV-style mode matrix, cascaded Heading Hold, and Altitude Hold controllers
+
+### 🚜 Refactor
+
+- Refactor(firmware): Restrict board pin mappings strictly to physical castellated edge pads and allocate TWISPI1 for external I2C
+## [0.2.0] - 2026-09-09
+
+### ⚙️ Miscellaneous Tasks
+
+- Chore(release): Release v0.2.0
+
+### 💼 Other Changes
+
+- Update pin mappings and upgrade UART receiver to buffered driver
+- Update dependencies and embassy-nrf drivers; Improved `wingfc-firmware`
+- Expand PWM driver support for multi-motor and multi-servo setups
+
+### 📚 Documentation
+
+- Docs(changelog): Update crate-level changelogs for v0.1.2
+- Docs: Correct UART RX/TX crossover definitions and pin mapping representations
 
 ### 🚀 Features
 
 - Feat: Add multi-method flash engine with interactive UF2 deployment, update pinouts and memory layout, and add deployment guide
-
+- Add configurable angle P gain for flight loop
+- Feat: Add 8-way board mounting orientation transform
+- Feat: Add T-tail and V-tail airframe mixing profiles
+- Feat: Add per-servo endpoints, sub-trim, and reversal support
+- Feat: Add hardware watchdog timer supervision
+- Feat: Add in-flight PID tuning via RC channels
+- Feat: Add dual-LED visual telemetry with discrete User LED
+- Feat: Add unified 8-servo sequential mapping, configurable RC channels, and updated documentation
+- Feat: Make differential thrust authority configurable in wingfc.yaml and mixer
 ## [0.1.1] - 2026-09-05
 
 ### ⚙️ Miscellaneous Tasks
@@ -33,7 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add configurable arming and throttle safety thresholds, update documentation and release matrix
 - Implement bidirectional CRSF telemetry protocol and asynchronous DMA broadcast task
 - Feat: Integrate cargo-workspace inheritance, cargo-release automation, and git-cliff changelog
-
 ## [0.1.0] - 2026-09-04
 
 ### 💼 Other Changes
