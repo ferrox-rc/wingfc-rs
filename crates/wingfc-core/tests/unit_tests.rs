@@ -1036,3 +1036,76 @@ fn test_angle_mode_tilt_response() {
         last_s2
     );
 }
+
+#[test]
+fn test_map_range_precomputed_and_servo_optimizations() {
+    use wingfc_core::math::{map_range, map_range_precomputed};
+    use wingfc_core::mixer::ServoConfig;
+
+    // 1. Verify map_range_precomputed exactly matches map_range
+    let in_min = 988.0;
+    let in_max = 2012.0;
+    let inv_range = 1.0 / (in_max - in_min);
+    let out_min = -1.0;
+    let out_range = 2.0;
+
+    for raw in [988.0, 1000.0, 1500.0, 1800.0, 2012.0] {
+        let standard = map_range(raw, in_min, in_max, out_min, out_min + out_range);
+        let precomputed = map_range_precomputed(raw, in_min, inv_range, out_min, out_range);
+        assert!(
+            (standard - precomputed).abs() < 1e-5,
+            "Mismatch at raw={}: standard={}, precomputed={}",
+            raw,
+            standard,
+            precomputed
+        );
+    }
+
+    // 2. Verify ServoConfig::apply across normal, reversed, subtrimmed and clamped configurations
+    let configs = [
+        ServoConfig {
+            min_us: 1000,
+            max_us: 2000,
+            subtrim_us: 0,
+            reversed: false,
+        },
+        ServoConfig {
+            min_us: 1000,
+            max_us: 2000,
+            subtrim_us: 50,
+            reversed: true,
+        },
+        ServoConfig {
+            min_us: 900,
+            max_us: 2100,
+            subtrim_us: -25,
+            reversed: false,
+        },
+        ServoConfig {
+            min_us: 1100,
+            max_us: 1900,
+            subtrim_us: -40,
+            reversed: true,
+        },
+    ];
+
+    for cfg in &configs {
+        for norm in [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5] {
+            // Compute expected via legacy map_range formula
+            let mut expected = map_range(norm, -1.0, 1.0, cfg.min_us as f32, cfg.max_us as f32);
+            if cfg.reversed {
+                expected = (cfg.min_us + cfg.max_us) as f32 - expected;
+            }
+            expected += cfg.subtrim_us as f32;
+            let expected_us =
+                wingfc_core::math::clamp(expected, cfg.min_us as f32, cfg.max_us as f32) as u16;
+
+            let actual_us = cfg.apply(norm);
+            assert_eq!(
+                actual_us, expected_us,
+                "Mismatch for config {:?} at norm {}: actual={}, expected={}",
+                cfg, norm, actual_us, expected_us
+            );
+        }
+    }
+}

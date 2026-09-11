@@ -1,4 +1,4 @@
-use crate::math::{clamp, map_range};
+use crate::math::clamp;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AirframeType {
@@ -31,21 +31,27 @@ impl Default for ServoConfig {
 }
 
 impl ServoConfig {
+    /// Evaluates the servo output pulse in microseconds for a normalized input command in `[-1.0, 1.0]`.
+    ///
+    /// Computes output via single-cycle multiply-add arithmetic (`VFMA` on Cortex-M4F),
+    /// avoiding runtime division and branches.
     #[inline(always)]
     pub fn apply(&self, normalized: f32) -> u16 {
-        // map [-1.0, 1.0] to [min_us, max_us]
-        let mut pulse = map_range(
-            normalized,
-            -1.0,
-            1.0,
-            self.min_us as f32,
-            self.max_us as f32,
-        );
-        if self.reversed {
-            pulse = (self.min_us + self.max_us) as f32 - pulse;
-        }
-        pulse += self.subtrim_us as f32;
+        let center = (self.min_us as f32 + self.max_us as f32) * 0.5;
+        let half_span = (self.max_us as f32 - self.min_us as f32) * 0.5;
+        let dir = if self.reversed {
+            -normalized
+        } else {
+            normalized
+        };
+        let pulse = center + dir * half_span + self.subtrim_us as f32;
         clamp(pulse, self.min_us as f32, self.max_us as f32) as u16
+    }
+
+    /// Evaluates the neutral servo pulse width (normalized command = 0.0).
+    #[inline(always)]
+    pub fn neutral(&self) -> u16 {
+        self.apply(0.0)
     }
 }
 
@@ -86,17 +92,14 @@ impl AirframeMixer {
         }
     }
 
-    /// Mixes normalized pitch, roll, yaw commands in [-1.0, 1.0] and throttle in [1000, 2000]
+    /// Mixes normalized pitch, roll, yaw commands in [-1.0, 1.0] and throttle in [1000, 2000].
+    /// Only evaluates neutral pulses for channels unused by the active airframe type.
     pub fn mix(&self, pitch: f32, roll: f32, yaw: f32, throttle_us: u16) -> AirframeOutputs {
         let mut outputs = AirframeOutputs {
-            servo1_us: self.servos[0].apply(0.0),
-            servo2_us: self.servos[1].apply(0.0),
-            servo3_us: self.servos[2].apply(0.0),
-            servo4_us: self.servos[3].apply(0.0),
-            servo5_us: self.servos[4].apply(0.0),
-            servo6_us: self.servos[5].apply(0.0),
-            servo7_us: self.servos[6].apply(0.0),
-            servo8_us: self.servos[7].apply(0.0),
+            servo5_us: self.servos[4].neutral(),
+            servo6_us: self.servos[5].neutral(),
+            servo7_us: self.servos[6].neutral(),
+            servo8_us: self.servos[7].neutral(),
             ..AirframeOutputs::default()
         };
 
@@ -112,6 +115,7 @@ impl AirframeMixer {
                 outputs.servo1_us = self.servos[0].apply(s1_norm);
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
                 outputs.servo3_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
+                outputs.servo4_us = self.servos[3].neutral();
 
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
@@ -122,6 +126,8 @@ impl AirframeMixer {
 
                 outputs.servo1_us = self.servos[0].apply(s1_norm);
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
+                outputs.servo3_us = self.servos[2].neutral();
+                outputs.servo4_us = self.servos[3].neutral();
 
                 let diff = (yaw * self.diff_thrust_weight * 1000.0) as i16;
                 outputs.motor1_throttle =
@@ -134,6 +140,7 @@ impl AirframeMixer {
                 outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
                 outputs.servo2_us = self.servos[1].apply(clamp(pitch, -1.0, 1.0));
                 outputs.servo3_us = self.servos[2].apply(clamp(yaw, -1.0, 1.0));
+                outputs.servo4_us = self.servos[3].neutral();
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
             }
@@ -155,6 +162,7 @@ impl AirframeMixer {
                 outputs.servo1_us = self.servos[0].apply(clamp(roll, -1.0, 1.0));
                 outputs.servo2_us = self.servos[1].apply(s2_norm);
                 outputs.servo3_us = self.servos[2].apply(s3_norm);
+                outputs.servo4_us = self.servos[3].neutral();
                 outputs.motor1_throttle = throttle_us;
                 outputs.motor2_throttle = throttle_us;
             }

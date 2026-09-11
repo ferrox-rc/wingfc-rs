@@ -44,7 +44,7 @@ pub const THROTTLE_ZERO_THRESHOLD: u16 = 1050;
 
 /// Configured PWM frame frequency for servo outputs in Hz (50Hz - 400Hz).
 /// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
-pub const SERVO_PWM_HZ: u32 = 50;
+pub const SERVO_PWM_HZ: u32 = 60;
 
 /// Per-servo output endpoint, subtrim, and inversion calibration profiles
 pub const SERVO_CONFIGS: [ServoConfig; 8] = [
@@ -128,13 +128,13 @@ pub const IN_FLIGHT_TUNING_ENABLED: bool = false;
 pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {
     slot_a: TuneSlot {
         parameter: TuneParameter::None,
-        channel_idx: 5,
+        channel_idx: 8,
         min_val: 0.0500,
         max_val: 0.5000,
     },
     slot_b: TuneSlot {
         parameter: TuneParameter::None,
-        channel_idx: 6,
+        channel_idx: 9,
         min_val: 0.0050,
         max_val: 0.0500,
     },
@@ -171,8 +171,8 @@ pub const AHRS_BETA: f32 = 0.5000;
 /// Inner rate loop PID + FeedForward configuration
 pub const RATE_PID_CONFIG: PidConfig = PidConfig {
     kp: 1.0000,
-    ki: 0.5000,
-    kd: 0.0800,
+    ki: 0.1000,
+    kd: 0.0100,
     kff: 0.0400,
     max_integral: 0.4000,
     dterm_lpf_hz: 40.0,

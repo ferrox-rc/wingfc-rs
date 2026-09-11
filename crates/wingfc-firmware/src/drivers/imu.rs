@@ -28,6 +28,8 @@ pub enum ImuError {
 
 pub struct Lsm6ds3Driver<'d> {
     twim: Twim<'d>,
+    #[allow(dead_code)]
+    // INT1 hardware pin routed; scheduled for v0.4.0 GPIOTE event-driven flight loop
     int1: Input<'d>,
     gyro_bias: Vector3,
 }
@@ -116,6 +118,9 @@ impl<'d> Lsm6ds3Driver<'d> {
     /// Burst-reads 12 bytes of Gyro and Accel data over 400kHz Fast-Mode EasyDMA I2C.
     pub async fn read(&mut self) -> Result<(Vector3, Vector3), ImuError> {
         let (raw_gyro, accel) = self.read_raw_scaled().await?;
+        // Gyro calibration offsets are captured directly from sensor registers in the physical sensor frame.
+        // Therefore, bias MUST be subtracted in the raw sensor frame BEFORE applying BOARD_ORIENTATION
+        // body-frame coordinate transformations.
         let gyro = raw_gyro - self.gyro_bias;
         // Transform sensor axes to aircraft body frame based on board orientation
         let gyro = BOARD_ORIENTATION.transform(gyro);

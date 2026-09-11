@@ -6,7 +6,8 @@ use embassy_time::Instant;
 use embassy_time::{Duration, Timer};
 use wingfc_core::ahrs::MadgwickAHRS;
 use wingfc_core::filter::Pt1Filter;
-use wingfc_core::math::{map_range, Vector3};
+use wingfc_core::math::Vector3;
+
 use wingfc_core::mixer::{AirframeMixer, AirframeOutputs, AirframeType};
 use wingfc_core::pid::PidController;
 use wingfc_core::protocol::RcChannels;
@@ -46,6 +47,7 @@ pub struct FlightLoopState<'d> {
     pub last_packet_time: Instant,
     pub latest_rc: RcChannels,
     pub status: ArmingStatus,
+    pub cached_euler: (f32, f32, f32),
 }
 
 impl<'d> FlightLoopState<'d> {
@@ -85,6 +87,7 @@ impl<'d> FlightLoopState<'d> {
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
             status: ArmingStatus::Disarmed,
+            cached_euler: (0.0, 0.0, 0.0),
         }
     }
 
@@ -199,28 +202,17 @@ impl<'d> FlightLoopState<'d> {
             || self.latest_rc.failsafe;
 
         // 3. Configurable Channel Mapping
-        let roll_stick = map_range(
-            self.latest_rc.channels[RC_CH_ROLL] as f32,
-            988.0,
-            2012.0,
-            -1.0,
-            1.0,
-        );
-        let pitch_stick = map_range(
-            self.latest_rc.channels[RC_CH_PITCH] as f32,
-            988.0,
-            2012.0,
-            -1.0,
-            1.0,
-        );
+        // Map RC pulses in [988.0, 2012.0] us to [-1.0, 1.0] using hoisted constant scale:
+        // (ch - 988.0) * (2.0 / 1024.0) - 1.0 = (ch - 988.0) * (1.0 / 512.0) - 1.0
+        const RC_MIN: f32 = 988.0;
+        const RC_INV_HALF_RANGE: f32 = 1.0 / 512.0;
+        let roll_stick =
+            (self.latest_rc.channels[RC_CH_ROLL] as f32 - RC_MIN) * RC_INV_HALF_RANGE - 1.0;
+        let pitch_stick =
+            (self.latest_rc.channels[RC_CH_PITCH] as f32 - RC_MIN) * RC_INV_HALF_RANGE - 1.0;
         let throttle_raw = self.latest_rc.channels[RC_CH_THROTTLE].clamp(1000, 2000);
-        let yaw_stick = map_range(
-            self.latest_rc.channels[RC_CH_YAW] as f32,
-            988.0,
-            2012.0,
-            -1.0,
-            1.0,
-        );
+        let yaw_stick =
+            (self.latest_rc.channels[RC_CH_YAW] as f32 - RC_MIN) * RC_INV_HALF_RANGE - 1.0;
 
         // Optional in-flight potentiometer PID tuning
         if IN_FLIGHT_TUNING_ENABLED {
@@ -301,7 +293,10 @@ impl<'d> FlightLoopState<'d> {
 
         // 6. Update Attitude Estimation (Madgwick AHRS)
         self.ahrs.update_6dof(gyro, accel, DT);
-        let (est_pitch, est_roll, _est_yaw) = self.ahrs.get_euler_angles();
+        if self.status.requires_attitude() {
+            self.cached_euler = self.ahrs.get_euler_angles();
+        }
+        let (est_pitch, est_roll, _est_yaw) = self.cached_euler;
 
         let pitch_mix;
         let roll_mix;
@@ -394,31 +389,35 @@ impl<'d> FlightLoopState<'d> {
 
     /// Returns the latest vehicle state snapshot for telemetry broadcasting
     #[cfg(feature = "crsf")]
-    pub fn telemetry_snapshot(&self) -> crate::tasks::FlightTelemetrySnapshot {
-        let (pitch, roll, yaw) = self.ahrs.get_euler_angles();
+    pub fn telemetry_snapshot(&mut self) -> crate::tasks::FlightTelemetrySnapshot {
+        // If the active mode did not require attitude estimation, compute angles now for telemetry
+        if !self.status.requires_attitude() {
+            self.cached_euler = self.ahrs.get_euler_angles();
+        }
+        let (pitch, roll, yaw) = self.cached_euler;
         crate::tasks::FlightTelemetrySnapshot {
             roll_rad: roll,
             pitch_rad: pitch,
             yaw_rad: yaw,
             status: self.status,
             #[cfg(feature = "gps")]
-            gps_lat: 0.0,
+            gps_lat: 0.0, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "gps")]
-            gps_lon: 0.0,
+            gps_lon: 0.0, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "gps")]
-            gps_speed_mps: 0.0,
+            gps_speed_mps: 0.0, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "gps")]
-            gps_heading_deg: 0.0,
+            gps_heading_deg: 0.0, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "gps")]
-            gps_alt_m: 0.0,
+            gps_alt_m: 0.0, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "gps")]
-            gps_sats: 0,
+            gps_sats: 0, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "gps")]
-            gps_has_fix: false,
+            gps_has_fix: false, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "baro")]
-            baro_alt_m: 0.0,
+            baro_alt_m: 0.0, // TODO: Connect to Baro driver state once Baro task is merged
             #[cfg(feature = "baro")]
-            vario_cms: 0,
+            vario_cms: 0, // TODO: Connect to Baro/KF vario state once Baro task is merged
         }
     }
 }

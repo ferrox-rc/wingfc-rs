@@ -219,6 +219,20 @@ pub fn map_range(val: f32, in_min: f32, in_max: f32, out_min: f32, out_max: f32)
     (val - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 }
 
+/// Precomputed linear range mapping: avoids runtime division when input and output scale factors are known.
+///
+/// `inv_in_range` is `1.0 / (in_max - in_min)` and `out_range` is `(out_max - out_min)`.
+#[inline(always)]
+pub fn map_range_precomputed(
+    val: f32,
+    in_min: f32,
+    inv_in_range: f32,
+    out_min: f32,
+    out_range: f32,
+) -> f32 {
+    (val - in_min) * inv_in_range * out_range + out_min
+}
+
 /// Board mounting orientation transformations.
 /// Maps sensor axes (X=forward, Y=right, Z=down or sensor frame) to standard aircraft body frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

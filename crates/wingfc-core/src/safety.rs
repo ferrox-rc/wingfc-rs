@@ -26,6 +26,24 @@ pub enum ArmingStatus {
     Failsafe,
 }
 
+impl ArmingStatus {
+    /// Indicates whether the active flight mode relies on estimated Euler angles (pitch/roll/yaw)
+    /// for closed-loop attitude stabilization.
+    #[inline(always)]
+    pub const fn requires_attitude(&self) -> bool {
+        match self {
+            ArmingStatus::ArmedAngle => true,
+            #[cfg(feature = "compass")]
+            ArmingStatus::ArmedHeadingHold => true,
+            #[cfg(feature = "baro")]
+            ArmingStatus::ArmedAltHold => true,
+            #[cfg(feature = "gps")]
+            ArmingStatus::ArmedRth => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ArmingSafety {
     is_armed: bool,
