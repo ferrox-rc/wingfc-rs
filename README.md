@@ -22,13 +22,13 @@
 
 `wingfc-rs` brings hard real-time, deterministic `#![no_std]` Rust directly into autonomous airborne avionics. Specifically tailored for micro fixed-wing platforms, sub-250g FPV wings, and agile autonomous UAVs.
 
-Powered by the **Seeed Studio XIAO nRF52840** (ARM Cortex-M4F @ 64 MHz with single-cycle hardware FPU) and the non-blocking **Embassy** cooperative async runtime, `wingfc-rs` replaces bloated monolithic flight stacks with deterministic lockstep execution.
+Powered by the **Seeed Studio XIAO nRF52840** (ARM Cortex-M4F @ 64 MHz with single-cycle hardware FPU) and the non-blocking **Embassy** cooperative async runtime, `wingfc-rs` replaces bloated monolithic flight stacks with deterministic, hardware interrupt-synchronized execution.
 
 ### Key Architecture Highlights
 
-- **500 Hz Lockstep Control Loop**: Paced by hardware timer interrupts and IMU DRDY signals for jitter-free rate and attitude control.
-- **Hardware FPU Madgwick AHRS**: Sub-millisecond single-cycle floating-point quaternion estimation fusing accelerometer and gyroscope measurements.
-- **Bi-Directional Telemetry Downlink**: Continuous i-BUS & CRSF downlink telemetry streaming battery voltage, RSSI, and attitude angles straight to your [`flysky-i6x-rs`](https://github.com/ferrox-rc/flysky-i6x-rs) ground station.
+- **Selectable 416 Hz / 833 Hz Control Loop**: Hardware DRDY event-driven pacing via LSM6DS3 INT1 interrupt (`P0.11`) with dynamic `dt` measurement, eliminating phase jitter and clock aliasing. Configurable for 416 Hz (Standard) or 833 Hz (High-Speed Profile).
+- **Hardware FPU Madgwick AHRS**: Sub-millisecond single-cycle floating-point quaternion estimation fusing accelerometer and gyroscope measurements with dynamic G-rejection.
+- **Bi-Directional Telemetry Downlink**: Continuous i-BUS & CRSF / ELRS downlink telemetry streaming battery voltage, flight mode, and attitude angles straight to your [`flysky-i6x-rs`](https://github.com/ferrox-rc/flysky-i6x-rs) or EdgeTX ground station.
 - **Integer-Paced Elevon Mixing**: High-resolution Catmull-Rom throttle curves and differential elevon actuation designed specifically for delta-wing aerodynamics.
 - **Fail-Safe & Return-To-Level**: Autonomous wing leveling and hardware-level throttle cutoff on loss of RF sync.
 
@@ -48,7 +48,7 @@ Powered by the **Seeed Studio XIAO nRF52840** (ARM Cortex-M4F @ 64 MHz with sing
                                                                       ┌────────────────────────────────┐
                                                                       │           wingfc-rs            │
                                                                       │   Seeed XIAO nRF52840 (64MHz)  │
-                                                                      │   • 500 Hz Embassy Loop        │
+                                                                      │   • 416 Hz / 833 Hz DRDY Loop  │
                                                                       │   • Hardware FPU Madgwick      │
                                                                       │   • Twin Elevon Servo PWM      │
                                                                       └────────────────────────────────┘
@@ -58,10 +58,10 @@ Powered by the **Seeed Studio XIAO nRF52840** (ARM Cortex-M4F @ 64 MHz with sing
 
 ## 📅 Release Roadmap & Status
 
-`wingfc-rs` is currently undergoing active bench, hardware-in-the-loop (HIL), and oscilloscope validation on physical silicon. The full repository source code and pre-built UF2 drag-and-drop binaries will be published here upon completion of hardware flight tests.
+`wingfc-rs` is currently undergoing active bench and hardware-in-the-loop (HIL) validation on physical silicon. The full repository source code and pre-built UF2 drag-and-drop binaries will be published here upon completion of hardware flight tests.
 
 - [x] Cooperative Embassy async runtime & sensor HAL
-- [x] 6-DOF IMU acquisition & hardware interrupt DRDY pacing
+- [x] 6-DOF IMU acquisition & hardware interrupt DRDY pacing (416 Hz / 833 Hz)
 - [x] Hardware FPU Madgwick quaternion filter & attitude estimator
 - [x] Dual elevon differential mixer & integer curve math
 - [ ] Hardware-in-the-loop (HIL) aerodynamic bench runs
