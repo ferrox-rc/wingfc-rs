@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <defs>
+    <!-- Background Radial Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E05A47" stop-opacity="0.15" />
+      <stop offset="60%" stop-color="#00E5FF" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#080C14" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Ferric Rust Linear Gradient -->
+    <linearGradient id="rustGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF7B66" />
+      <stop offset="50%" stop-color="#E05A47" />
+      <stop offset="100%" stop-color="#B83A28" />
+    </linearGradient>
+
+    <!-- Electric Cyan Gradient -->
+    <linearGradient id="cyanGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00B4D8" />
+      <stop offset="100%" stop-color="#00E5FF" />
+    </linearGradient>
+
+    <!-- Carbon Dark Wing Gradient -->
+    <linearGradient id="carbonGradient" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="cyanGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Ambient Glow -->
+  <circle cx="250" cy="250" r="230" fill="url(#bgGlow)" />
+
+  <!-- Outer HUD Calibration Ring (Avionics Reticle) -->
+  <circle cx="250" cy="250" r="220" fill="none" stroke="#223249" stroke-width="1.5" stroke-dasharray="4 8" opacity="0.7" />
+  <circle cx="250" cy="250" r="190" fill="none" stroke="#00E5FF" stroke-width="1" stroke-dasharray="2 12" opacity="0.4" />
+
+  <!-- Compass / Reticle Tick Marks -->
+  <line x1="250" y1="20" x2="250" y2="35" stroke="#00E5FF" stroke-width="2.5" opacity="0.8" />
+  <line x1="250" y1="465" x2="250" y2="480" stroke="#00E5FF" stroke-width="2" opacity="0.5" />
+  <line x1="20" y1="250" x2="35" y2="250" stroke="#00E5FF" stroke-width="2" opacity="0.5" />
+  <line x1="465" y1="250" x2="480" y2="250" stroke="#00E5FF" stroke-width="2" opacity="0.5" />
+
+  <!-- RF Concentric Telemetry Wavefronts (Ground-to-Air Emission) -->
+  <path d="M 170 120 A 100 100 0 0 1 330 120" fill="none" stroke="#00E5FF" stroke-width="2" opacity="0.4" filter="url(#cyanGlow)" />
+  <path d="M 195 145 A 65 65 0 0 1 305 145" fill="none" stroke="#00E5FF" stroke-width="2.5" opacity="0.7" filter="url(#cyanGlow)" />
+  <path d="M 220 170 A 35 35 0 0 1 280 170" fill="none" stroke="#00E5FF" stroke-width="3" opacity="0.9" />
+
+  <!-- Left Main Wing Airframe -->
+  <polygon points="250,75 250,375 75,410 170,270" fill="url(#carbonGradient)" stroke="#223249" stroke-width="2" />
+
+  <!-- Right Main Wing Airframe -->
+  <polygon points="250,75 250,375 425,410 330,270" fill="url(#carbonGradient)" stroke="#223249" stroke-width="2" />
+
+  <!-- Wing Bevel Shadows & Leading Edge Facets -->
+  <polygon points="250,75 250,375 170,270" fill="#0B111E" opacity="0.6" />
+  <polygon points="250,75 250,375 330,270" fill="#162032" opacity="0.7" />
+
+  <!-- Outer Wing Trailing Elevons (Ailerons) with Ferric Rust Accent -->
+  <polygon points="75,410 135,395 160,335 110,355" fill="url(#rustGradient)" opacity="0.85" />
+  <polygon points="425,410 365,395 340,335 390,355" fill="url(#rustGradient)" opacity="0.85" />
+
+  <!-- Supersonic Leading Edge Kinetic Spars -->
+  <line x1="250" y1="75" x2="75" y2="410" stroke="#00E5FF" stroke-width="3.5" stroke-linecap="round" filter="url(#cyanGlow)" />
+  <line x1="250" y1="75" x2="425" y2="410" stroke="url(#rustGradient)" stroke-width="3.5" stroke-linecap="round" filter="url(#glow)" />
+
+  <!-- Central Rust Ferrite Hexagonal Crystal Core -->
+  <polygon points="250,205 285,225 285,265 250,285 215,265 215,225" fill="#090E17" stroke="url(#rustGradient)" stroke-width="3.5" />
+
+  <!-- Rust Gear Tooth Accents on Central Core (Paying Homage to the Rust Logo) -->
+  <!-- Gear Teeth -->
+  <rect x="246" y="196" width="8" height="12" rx="2" fill="#E05A47" />
+  <rect x="246" y="282" width="8" height="12" rx="2" fill="#E05A47" />
+  <rect x="281" y="217" width="12" height="8" rx="2" fill="#E05A47" transform="rotate(30 287 221)" />
+  <rect x="207" y="265" width="12" height="8" rx="2" fill="#E05A47" transform="rotate(30 213 269)" />
+  <rect x="281" y="265" width="12" height="8" rx="2" fill="#E05A47" transform="rotate(-30 287 269)" />
+  <rect x="207" y="217" width="12" height="8" rx="2" fill="#E05A47" transform="rotate(-30 213 221)" />
+
+  <!-- Inner Concentric Core Ring -->
+  <circle cx="250" cy="245" r="22" fill="none" stroke="#00E5FF" stroke-width="2" stroke-dasharray="6 4" />
+  <circle cx="250" cy="245" r="10" fill="url(#rustGradient)" filter="url(#glow)" />
+
+  <!-- Cockpit Nose Reticle Dot -->
+  <circle cx="250" cy="75" r="4" fill="#00E5FF" filter="url(#cyanGlow)" />
+
+  <!-- Aft Exhaust Vector Thrusters -->
+  <polygon points="238,375 262,375 250,420" fill="url(#cyanGradient)" opacity="0.9" filter="url(#cyanGlow)" />
+</svg>
