@@ -4,7 +4,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 
 ## Key Features
 - **YAML Aircraft Configuration:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](wingfc.yaml) without touching build files or Rust code.
-- **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and 500 Hz control loop (2000 &mu;s loop time).
+- **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and hardware DRDY interrupt-paced control loop with selectable rates (416 Hz standard / 833 Hz high-speed).
 - **Acrobatic & Rates Mode:** Direct angular velocity tracking with PT1 vibration filtering and FeedForward.
 - **Madgwick Quaternion AHRS:** 6-DoF and 9-DoF attitude estimation without gimbal lock and with dynamic G-rejection.
 - **Autonomous Navigation Suite:** Barometric Vertical Kalman Filter (altitude hold, stall prevention, hard-deck floor, statutory 120m ceiling limiter), tilt-compensated magnetic compass, and GPS Return-to-Home (RTH).
@@ -12,7 +12,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - **DMA-Driven Hardware I/O:** Embassy-based async UART (CRSF / ELRS @ 420 kBaud, iBus @ 115.2 kBaud, GPS @ 115.2 kBaud), SPI (DShot), and multi-frequency PWM (50 Hz &ndash; 400 Hz).
 - **Bidirectional CRSF / ELRS Telemetry:** Broadcasts 3D vehicle attitude, active flight mode, battery status, and GPS coordinates to EdgeTX / OpenTX transmitters via EasyDMA UARTE0 TX (`D6` / `P1.11`).
 - **Configurable Arming Interlocks:** Pilot-configurable arm switch and throttle-zero thresholds with active motor spin-up warning systems.
-- **Next-Gen Telemetry & Bench Debugging:** Sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and 500 Hz binary blackbox structures.
+- **Next-Gen Telemetry & Bench Debugging:** Sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and real-time binary blackbox structures.
 
 ## Documentation
 - ⚙️ [Aircraft Configuration Guide (`wingfc.yaml`)](docs/CONFIG.md)
