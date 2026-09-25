@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1] - 2026-09-11
 
+### ⚙️ Miscellaneous Tasks
+
+- Chore(release): Release v0.3.1
+
 ### ⚡ Performance
 
 - Perf(optimization): Eliminate divisions, cache Euler angles, and optimize mixer
