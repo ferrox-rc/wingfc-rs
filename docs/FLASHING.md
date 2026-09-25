@@ -25,7 +25,7 @@ The Seeed Studio XIAO nRF52840 Sense features an ARM Cortex-M4F MCU with 1,024 K
 ```
 
 ### The `memory.x` Linker Specification
-To coexist with the factory SoftDevice without overwriting it, [`crates/wingfc-firmware/memory.x`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/memory.x) configures the application origin:
+To coexist with the factory SoftDevice without overwriting it, [`crates/wingfc-firmware/memory.x`](../crates/wingfc-firmware/memory.x) configures the application origin:
 
 ```ld
 MEMORY
@@ -79,7 +79,7 @@ UF2 (USB Flashing Format) breaks firmware into 512-byte blocks. Each block inclu
 
 ## 3. Automated Flashing with `scripts/build.sh`
 
-The WingFC builder supports choosing your flashing method via the `--method` (`-m`) argument, or setting a default method in [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml).
+The WingFC builder supports choosing your flashing method via the `--method` (`-m`) argument, or setting a default method in [`wingfc.yaml`](../wingfc.yaml).
 
 ### Command Syntax
 ```bash

@@ -6,7 +6,7 @@ This document provides technical documentation for the GPS navigation subsystem,
 
 ## 1. Overview & Architectural Role
 
-The GPS navigation engine resides in the `#![no_std]` core crate ([`crates/wingfc-core/src/gps.rs`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-core/src/gps.rs)). It enables autonomous position awareness, course and speed tracking, home point acquisition, and Return-to-Home navigation vectors.
+The GPS navigation engine resides in the `#![no_std]` core crate ([`crates/wingfc-core/src/gps.rs`](../crates/wingfc-core/src/gps.rs)). It enables autonomous position awareness, course and speed tracking, home point acquisition, and Return-to-Home navigation vectors.
 
 ```
                            GPS Subsystem Dataflow
@@ -141,7 +141,7 @@ When RTH is engaged (either via RC switch or failsafe link loss), `GpsNavigation
 
 ## 5. Aircraft Configuration (`wingfc.yaml`)
 
-GPS navigation parameters are configured in [`wingfc.yaml`](file:///home/bryansouza/Repos/wingfc-rs/wingfc.yaml):
+GPS navigation parameters are configured in [`wingfc.yaml`](../wingfc.yaml):
 
 ```yaml
 # Set target board to the expanded variant
@@ -166,4 +166,4 @@ navigation:
 ### Build System Validation Rules
 When running `./scripts/build.sh` or `./scripts/build.sh check`:
 * If `navigation.gps: true` (or `navigation.enabled: true`) is specified while `board: xiao-sense` is selected, the build script halts with an explicit error explaining that the standard XIAO board lacks the necessary secondary UART breakout pins.
-* If `board: xiao-sense-plus` is selected, the script builds with the `gps` feature enabled, generating appropriate constants in [`crates/wingfc-firmware/src/config.rs`](file:///home/bryansouza/Repos/wingfc-rs/crates/wingfc-firmware/src/config.rs).
+* If `board: xiao-sense-plus` is selected, the script builds with the `gps` feature enabled, generating appropriate constants in [`crates/wingfc-firmware/src/config.rs`](../crates/wingfc-firmware/src/config.rs).

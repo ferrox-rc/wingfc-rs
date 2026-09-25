@@ -4,11 +4,17 @@
 # Edit your aircraft configuration below without touching any Rust source code
 # or Cargo build files.
 #
-# Build command:
-#   ./scripts/build.sh
-#
 # Check syntax & build readiness:
 #   ./scripts/build.sh check
+#
+# Build based on the YAML config:
+#   ./scripts/build.sh build --config <path_to_config>
+#
+# Flash the built firmware:
+#   ./scripts/build.sh flash
+#
+# Build output:
+#   dist/
 # ==============================================================================
 
 # Target Board Hardware
@@ -29,7 +35,13 @@ orientation: default
 #   - dual_aileron_v_tail      : Dual aileron V-tail (S1: Left Ail, S2: Right V-Tail, S4: Left V-Tail, S5: Right Ail)
 airframe: elevon
 
+# Hardware Loop Timing & IMU Data-Ready Synchronization:
+#   - standard : 416 Hz (Default, recommended for general flight, GPS waypoint navigation, and standard servos)
+#   - high     : 833 Hz (Recommended for high-speed combat wings, DShot, and 333-400Hz digital servos)
+loop_rate: high
+
 # Receiver Serial Protocol & Failsafe
+
 receiver:
   # Options:
   #   - 'crsf' : TBS Crossfire / ExpressLRS (CRSF @ 420,000 baud) [Recommended]
@@ -120,7 +132,7 @@ servos:
   #   frame period (<2.5ms) does not provide adequate low-level off-time for
   #   standard 1000..2000 us pulses.
   # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  pwm_frequency_hz: 60
+  pwm_frequency_hz: 400
 
   # Per-Servo Limits, Sub-trim, and Reversals (servo1 .. servo8):
   # Primary Servos (PWM1: D0, D1, D2, D5)

@@ -108,7 +108,32 @@ def validate_config(cfg):
         errors.append(f"Invalid airframe '{raw_airframe}'. Supported: {list(valid_airframes.keys())}")
     airframe_rust = valid_airframes.get(raw_airframe, "AirframeType::Elevon")
 
+    # Loop Rate & IMU ODR Profile
+    valid_loop_rates = {
+        "standard": {
+            "profile": "LoopRateProfile::Standard416Hz",
+            "hz": 416,
+            "nominal_dt": 1.0 / 416.0,
+            "xl_reg": 0x64,  # 416 Hz ODR, +/-16g (0x60 | 0x04)
+            "g_reg": 0x6C,   # 416 Hz ODR, +/-2000 dps (0x60 | 0x0C)
+            "name": "Standard (416 Hz)",
+        },
+        "high": {
+            "profile": "LoopRateProfile::High833Hz",
+            "hz": 833,
+            "nominal_dt": 1.0 / 833.0,
+            "xl_reg": 0x74,  # 833 Hz ODR, +/-16g (0x70 | 0x04)
+            "g_reg": 0x7C,   # 833 Hz ODR, +/-2000 dps (0x70 | 0x0C)
+            "name": "High-Speed (833 Hz)",
+        },
+    }
+    raw_loop_rate = str(cfg.get("loop_rate", "standard")).strip().lower()
+    if raw_loop_rate not in valid_loop_rates:
+        errors.append(f"Invalid loop_rate '{raw_loop_rate}'. Supported: {list(valid_loop_rates.keys())}")
+    loop_rate_info = valid_loop_rates.get(raw_loop_rate, valid_loop_rates["standard"])
+
     # 2. Receiver Protocol
+
     rc_cfg = cfg.get("receiver", {})
     proto = str(rc_cfg.get("protocol", "crsf")).strip().lower()
     if proto not in ["crsf", "ibus"]:
@@ -426,11 +451,24 @@ def validate_config(cfg):
     elif compass_enabled:
         variant_name += "-compass"
 
+    if raw_loop_rate == "high":
+        if nav_enabled or gps_enabled:
+            advisories.append("HIGH-SPEED LOOP (833 Hz) WITH NAVIGATION: Autonomous waypoint math and Kalman filters will share a tighter 1.2ms cycle. Ensure CPU load remains within bounds.")
+        if servo_pwm_hz <= 60:
+            advisories.append("HIGH-SPEED LOOP (833 Hz) WITH STANDARD SERVOS (50-60 Hz): Actuator update latency is limited by physical servo PWM frequency. Consider digital servos (200-400 Hz) or DShot ESCs to fully leverage 833 Hz gyro feedback.")
+
     return {
         "board": board,
         "orientation_rust": orientation_rust,
         "airframe_rust": airframe_rust,
+        "loop_rate_name": loop_rate_info["name"],
+        "loop_rate_profile": loop_rate_info["profile"],
+        "nominal_loop_hz": loop_rate_info["hz"],
+        "nominal_dt": loop_rate_info["nominal_dt"],
+        "imu_xl_reg": loop_rate_info["xl_reg"],
+        "imu_g_reg": loop_rate_info["g_reg"],
         "protocol": proto,
+
         "failsafe_ms": int(failsafe_ms),
         "ch_roll_idx": ch_roll_idx,
         "ch_pitch_idx": ch_pitch_idx,
@@ -512,11 +550,34 @@ pub const BOARD_ORIENTATION: BoardOrientation = {cfg_vals['orientation_rust']};
 /// Configured airframe mixer topology
 pub const AIRFRAME_TYPE: AirframeType = {cfg_vals['airframe_rust']};
 
-/// Hard real-time control loop time-step (500 Hz = 0.002s)
-pub const DT: f32 = 0.002;
+/// Selectable flight loop timing profiles
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopRateProfile {{
+    Standard416Hz,
+    High833Hz,
+}}
+
+/// Configured flight loop rate profile
+pub const LOOP_RATE_PROFILE: LoopRateProfile = {cfg_vals['loop_rate_profile']};
+
+/// Nominal flight loop frequency in Hz
+pub const NOMINAL_LOOP_HZ: u32 = {cfg_vals['nominal_loop_hz']};
+
+/// Nominal flight loop time-step in seconds
+pub const NOMINAL_DT: f32 = {cfg_vals['nominal_dt']:.6f};
+
+/// Retained alias for nominal DT (used for initial static filter cutoffs)
+pub const DT: f32 = NOMINAL_DT;
+
+/// LSM6DS3 register value for Accel (CTRL1_XL): configured ODR + +/-16g range
+pub const IMU_ODR_XL_REG_VAL: u8 = {hex(cfg_vals['imu_xl_reg'])};
+
+/// LSM6DS3 register value for Gyro (CTRL2_G): configured ODR + +/-2000 dps range
+pub const IMU_ODR_G_REG_VAL: u8 = {hex(cfg_vals['imu_g_reg'])};
 
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis({cfg_vals['failsafe_ms']});
+
 
 /// Configured RC channel indexes (0-indexed)
 pub const RC_CH_ROLL: usize = {cfg_vals['ch_roll_idx']};
@@ -684,7 +745,9 @@ def cmd_check(cfg_vals):
     print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
     print(f"Arm Thresholds   : Arm Switch > {cfg_vals['arm_switch_threshold_us']} μs, Throttle <= {cfg_vals['throttle_zero_threshold_us']} μs")
     print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
+    print(f"Loop Timing      : {cfg_vals['nominal_loop_hz']} Hz ({cfg_vals['loop_rate_name']}) - Hardware DRDY Event Paced")
     if cfg_vals["motor_proto"] == "dshot":
+
         print(f"Motor Protocol   : DSHOT (Digital)")
     else:
         print(f"Motor Protocol   : PWM ({cfg_vals['motor_pwm_hz']} Hz)")
