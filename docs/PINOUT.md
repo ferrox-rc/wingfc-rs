@@ -4,6 +4,10 @@ This document provides the hardware architecture, physical pin mapping, electric
 
 Only **physical castellated edge pads** are used across both supported form factors (Standard XIAO Sense and XIAO Sense Plus) to ensure direct surface-mount compatibility with carrier PCBs. Underside test pads and solder balls are strictly avoided.
 
+> [!TIP]
+> Complete KiCad 4-layer PCB design files, schematics, and mechanical 3D models for the official carrier board are maintained in the dedicated hardware repository:
+> 👉 [**ferrox-rc/wingfc-hardware**](https://github.com/ferrox-rc/wingfc-hardware)
+
 ---
 
 ## 1. High-Level Hardware Architecture
