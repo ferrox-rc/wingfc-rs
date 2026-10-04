@@ -829,29 +829,117 @@ fn test_board_orientation_transforms() {
 fn test_in_flight_tuning_pots() {
     use wingfc_core::pid::{PidConfig, PidController};
     use wingfc_core::protocol::RcChannels;
-    use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
+    use wingfc_core::tuning::{InFlightTuning, TuneBank, TuneParameter, TuneSlot, MAX_TUNE_BANKS};
 
     let mut pitch_pid = PidController::new(PidConfig::default(), 0.002);
     let mut roll_pid = PidController::new(PidConfig::default(), 0.002);
+    let mut yaw_pid = PidController::new(PidConfig::default(), 0.002);
 
     let mut rc = RcChannels::default();
     rc.channels[5] = 1000; // Slot A low
     rc.channels[6] = 2000; // Slot B high
 
-    let tuning = InFlightTuning::new(
+    let mut banks = [TuneBank::default(); MAX_TUNE_BANKS];
+    banks[0] = TuneBank::new(
+        800,
+        2200,
         TuneSlot::new(TuneParameter::PitchKp, 5, 0.1, 0.5),
         TuneSlot::new(TuneParameter::RollKd, 6, 0.01, 0.05),
     );
 
-    tuning.update(&rc, &mut pitch_pid, &mut roll_pid);
+    let tuning = InFlightTuning::new(0xFF, 1, banks);
+
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
 
     assert!((pitch_pid.config.kp - 0.1).abs() < 1e-4);
     assert!((roll_pid.config.kd - 0.05).abs() < 1e-4);
 
     // Now test mid-stick (1500 us)
     rc.channels[5] = 1500;
-    tuning.update(&rc, &mut pitch_pid, &mut roll_pid);
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
     assert!((pitch_pid.config.kp - 0.3).abs() < 1e-4);
+}
+
+#[test]
+fn test_in_flight_tuning_banks_and_persistence() {
+    use wingfc_core::pid::{PidConfig, PidController};
+    use wingfc_core::protocol::RcChannels;
+    use wingfc_core::tuning::{InFlightTuning, TuneBank, TuneParameter, TuneSlot, MAX_TUNE_BANKS};
+
+    let mut pitch_pid = PidController::new(PidConfig::default(), 0.002);
+    let mut roll_pid = PidController::new(PidConfig::default(), 0.002);
+    let mut yaw_pid = PidController::new(PidConfig::default(), 0.002);
+
+    let mut banks = [TuneBank::default(); MAX_TUNE_BANKS];
+    // Bank 1 (LOW 900..1300): Tune Kp
+    banks[0] = TuneBank::new(
+        900,
+        1300,
+        TuneSlot::new(TuneParameter::PitchKp, 5, 0.1, 0.5),
+        TuneSlot::new(TuneParameter::RollKp, 6, 0.1, 0.5),
+    );
+    // Bank 2 (MID 1301..1699): Lock / Bypass
+    banks[1] = TuneBank::new(
+        1301,
+        1699,
+        TuneSlot::new(TuneParameter::None, 0, 0.0, 0.0),
+        TuneSlot::new(TuneParameter::None, 0, 0.0, 0.0),
+    );
+    // Bank 3 (HIGH 1700..2100): Tune Kd & Yaw Kp
+    banks[2] = TuneBank::new(
+        1700,
+        2100,
+        TuneSlot::new(TuneParameter::PitchKd, 5, 0.01, 0.05),
+        TuneSlot::new(TuneParameter::YawKp, 6, 0.2, 0.8),
+    );
+
+    // Selector channel on CH5 (idx 4)
+    let tuning = InFlightTuning::new(4, 3, banks);
+
+    let mut rc = RcChannels::default();
+
+    // 1. Selector in Bank 1 (LOW): CH5 = 1000 us
+    rc.channels[4] = 1000;
+    rc.channels[5] = 2000; // CH6 max -> PitchKp = 0.5
+    rc.channels[6] = 1000; // CH7 min -> RollKp = 0.1
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+
+    // 2. Switch to Bank 2 (MID / Lock): CH5 = 1500 us
+    // Pots move (e.g. pilot knocks pot A to 1000 us)
+    rc.channels[4] = 1500;
+    rc.channels[5] = 1000;
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    // PitchKp and RollKp MUST remain locked at 0.5 and 0.1
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+
+    // 3. Switch to Bank 3 (HIGH): CH5 = 1900 us
+    rc.channels[4] = 1900;
+    rc.channels[5] = 2000; // CH6 max -> PitchKd = 0.05
+    rc.channels[6] = 1500; // CH7 mid -> YawKp = 0.5
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    assert!((pitch_pid.config.kd - 0.05).abs() < 1e-4);
+    assert!((yaw_pid.config.kp - 0.5).abs() < 1e-4);
+    // Crucial: PitchKp and RollKp must still persist untouched from Bank 1!
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+
+    // 4. Return to Bank 2 (MID / Lock): CH5 = 1500 us
+    rc.channels[4] = 1500;
+    rc.channels[5] = 1200; // Wiggle pots
+    rc.channels[6] = 1800;
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    // All dialed gains stay locked
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+    assert!((pitch_pid.config.kd - 0.05).abs() < 1e-4);
+    assert!((yaw_pid.config.kp - 0.5).abs() < 1e-4);
 }
 
 #[test]

@@ -12,6 +12,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - **DMA-Driven Hardware I/O:** Embassy-based async UART (CRSF / ELRS @ 420 kBaud, iBus @ 115.2 kBaud, GPS @ 115.2 kBaud), SPI (DShot), and multi-frequency PWM (50 Hz &ndash; 400 Hz).
 - **Bidirectional CRSF / ELRS Telemetry:** Broadcasts 3D vehicle attitude, active flight mode, battery status, and GPS coordinates to EdgeTX / OpenTX transmitters via EasyDMA UARTE0 TX (`D6` / `P1.11`).
 - **Configurable Arming Interlocks:** Pilot-configurable arm switch and throttle-zero thresholds with active motor spin-up warning systems.
+- **Multi-Bank In-Flight PID Tuning:** Real-time gain adjustment across up to 6 selectable banks via auxiliary switch, supporting parameter persistence and safe lockouts.
 - **Next-Gen Telemetry & Bench Debugging:** Sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and real-time binary blackbox structures.
 
 ## Documentation
@@ -100,8 +101,8 @@ cargo test -p wingfc-core --all-features
 cargo llvm-cov -p wingfc-core --all-features
 ```
 
-#### Core Algorithm Test Coverage (88.4% Line, 89.6% Region, 87.8% Function)
-The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 27 host unit tests covering safety, kinematics, protocol decoders, and navigation:
+#### Core Algorithm Test Coverage
+The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 31 host unit tests covering safety, kinematics, protocol decoders, and navigation:
 
 | Subsystem / Module | Source File | Line Coverage | Function Coverage | Region Coverage | Key Verification Scenarios |
 | :--- | :--- | :---: | :---: | :---: | :--- |
@@ -116,12 +117,12 @@ The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 27 host 
 | **Arming Safety Interlocks** | [`safety.rs`](crates/wingfc-core/src/safety.rs) | **86.5%** | **77.8%** | **84.1%** | Configurable thresholds, high-throttle lockout, zero-surge |
 | **Rate PID & FeedForward** | [`pid.rs`](crates/wingfc-core/src/pid.rs) | **84.5%** | **80.0%** | **82.8%** | Anti-windup clamping, dynamic FeedForward transient & decay |
 | **Mode Matrix & Cascaded** | [`mode.rs`](crates/wingfc-core/src/mode.rs) | **82.9%** | **68.4%** | **81.8%** | Multi-switch mode ranges, Heading Hold & Alt Hold cascades |
-| **In-Flight Pot Tuning** | [`tuning.rs`](crates/wingfc-core/src/tuning.rs) | **82.0%** | **100.0%** | **80.9%** | Potentiometer channel deadbands, real-time PID scaling |
+| **In-Flight Pot & Bank Tuning** | [`tuning.rs`](crates/wingfc-core/src/tuning.rs) | **85.0%** | **100.0%** | **84.0%** | Potentiometer channel deadbands, bank switching, gain persistence |
 | **FlySky iBus Protocol** | [`protocol/ibus.rs`](crates/wingfc-core/src/protocol/ibus.rs) | **82.3%** | **71.4%** | **85.7%** | 16-bit inverse checksum, 14-channel unpacking, failsafe bits |
 | **GPS & NMEA Navigation** | [`gps.rs`](crates/wingfc-core/src/gps.rs) | **79.6%** | **85.7%** | **84.8%** | NMEA GGA/RMC parsing, home latching, RTH bearing & error |
 | **Madgwick 9-DoF AHRS** | [`ahrs.rs`](crates/wingfc-core/src/ahrs.rs) | **79.5%** | **100.0%** | **84.3%** | 6-DoF gravity alignment, 9-DoF mag fusion, zero-mag fallback |
 | **DShot Motor Protocol** | [`dshot.rs`](crates/wingfc-core/src/dshot.rs) | **76.9%** | **66.7%** | **82.9%** | 16-bit packet encoding, nibble checksum, SPI MOSI bitstream |
-| **Total `wingfc-core`** | **All Modules** | **88.4%** | **87.8%** | **89.6%** | **28 unit tests, 100% passing** |
+| **Total `wingfc-core`** | **All Modules** | **88.6%** | **88.2%** | **89.9%** | **31 unit tests, 100% passing** |
 
 ### Production Release Matrix (All 8 Release Permutations):
 ```bash

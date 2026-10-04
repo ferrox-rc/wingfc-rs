@@ -185,22 +185,51 @@ servos:
     subtrim_us: 0
     reversed: false
 
-# In-Flight Dynamic PID Tuning (via transmitter potentiometer / slider channels)
+# In-Flight Dynamic PID Tuning (via transmitter potentiometer / slider channels & bank selector)
 in_flight_tuning:
   enabled: false
-  # Slot A: Tune a PID term using RC Channel (1-16)
-  slot_a:
-    parameter: none     # Options: none, pitch_kp, roll_kp, pitch_ki, roll_ki, pitch_kd, roll_kd, pitch_kff, roll_kff
-    channel: 9          # RC Channel number (1-16, e.g., 6 = CH6 / AUX2)
-    min_val: 0.05
-    max_val: 0.50
 
-  # Slot B: Tune a second PID term
-  slot_b:
-    parameter: none
-    channel: 10          # RC Channel number (1-16, e.g., 7 = CH7 / AUX3)
-    min_val: 0.005
-    max_val: 0.050
+  # Optional RC auxiliary channel (1-16) to select the active tuning bank (e.g. 3-POS switch or 6POS button).
+  # If omitted or not configured, Bank 1 is permanently active.
+  selector_channel: 5
+
+  # Selectable Tuning Banks (up to 6 banks supported):
+  # Tuned gains persist across bank switches. Selecting a bank with parameter: 'none' locks/freezes gains.
+  # Available parameters: none, pitch_kp, roll_kp, pitch_ki, roll_ki, pitch_kd, roll_kd, pitch_kff, roll_kff,
+  #                       yaw_kp, yaw_ki, yaw_kd, yaw_kff
+  banks:
+    # Bank 1: Switch LOW (900-1300 us) -> Tune Rate Proportional (Kp) Gains
+    - switch_range: [900, 1300]
+      slot_a:
+        parameter: pitch_kp
+        channel: 9          # RC Channel number (1-16, e.g. 9 = CH9 / Slider 1)
+        min_val: 0.05
+        max_val: 0.50
+      slot_b:
+        parameter: roll_kp
+        channel: 10         # RC Channel number (1-16, e.g. 10 = CH10 / Slider 2)
+        min_val: 0.05
+        max_val: 0.50
+
+    # Bank 2: Switch MID (1301-1699 us) -> Safe Lock / Bypass (freeze current gains)
+    - switch_range: [1301, 1699]
+      slot_a:
+        parameter: none
+      slot_b:
+        parameter: none
+
+    # Bank 3: Switch HIGH (1700-2100 us) -> Tune Rate Derivative (Kd) Gains
+    - switch_range: [1700, 2100]
+      slot_a:
+        parameter: pitch_kd
+        channel: 9
+        min_val: 0.005
+        max_val: 0.050
+      slot_b:
+        parameter: roll_kd
+        channel: 10
+        min_val: 0.005
+        max_val: 0.050
 
 # Motor ESC Output Protocol & Configuration
 motor:

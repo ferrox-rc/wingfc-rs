@@ -225,7 +225,7 @@ def validate_config(cfg):
     servo7_rust = parse_servo("servo7")
     servo8_rust = parse_servo("servo8")
 
-    # In-Flight Dynamic PID Tuning (Slots A & B)
+    # In-Flight Dynamic PID Tuning (Banks & Slots)
     param_map = {
         "none": "TuneParameter::None",
         "pitch_kp": "TuneParameter::PitchKp",
@@ -236,26 +236,73 @@ def validate_config(cfg):
         "roll_kd": "TuneParameter::RollKd",
         "pitch_kff": "TuneParameter::PitchKff",
         "roll_kff": "TuneParameter::RollKff",
+        "yaw_kp": "TuneParameter::YawKp",
+        "yaw_ki": "TuneParameter::YawKi",
+        "yaw_kd": "TuneParameter::YawKd",
+        "yaw_kff": "TuneParameter::YawKff",
     }
     ift_cfg = cfg.get("in_flight_tuning", {})
     ift_enabled = bool(ift_cfg.get("enabled", False))
 
-    def parse_slot(slot_name, def_ch):
-        sc = ift_cfg.get(slot_name, {})
+    def parse_slot_dict(sc, prefix, def_ch=6):
         param = str(sc.get("parameter", "none")).strip().lower()
         if param not in param_map:
-            errors.append(f"in_flight_tuning.{slot_name}.parameter '{param}' invalid. Valid: {list(param_map.keys())}")
+            errors.append(f"{prefix}.parameter '{param}' invalid. Valid: {list(param_map.keys())}")
         param_rust = param_map.get(param, "TuneParameter::None")
         ch = int(sc.get("channel", def_ch))
         if ch < 1 or ch > 16:
-            errors.append(f"in_flight_tuning.{slot_name}.channel ({ch}) out of bounds [1, 16]")
+            errors.append(f"{prefix}.channel ({ch}) out of bounds [1, 16]")
         min_v = float(sc.get("min_val", 0.0))
         max_v = float(sc.get("max_val", 1.0))
         ch_idx = max(0, ch - 1)
         return f"TuneSlot {{ parameter: {param_rust}, channel_idx: {ch_idx}, min_val: {min_v:.4f}, max_val: {max_v:.4f} }}"
 
-    slot_a_rust = parse_slot("slot_a", 6)
-    slot_b_rust = parse_slot("slot_b", 7)
+    raw_banks = ift_cfg.get("banks", [])
+    selector_ch = ift_cfg.get("selector_channel", None)
+    if selector_ch is not None:
+        try:
+            sel_ch_int = int(selector_ch)
+            if sel_ch_int < 1 or sel_ch_int > 16:
+                errors.append(f"in_flight_tuning.selector_channel ({sel_ch_int}) out of bounds [1, 16]")
+                selector_ch_idx = 0xFF
+            else:
+                selector_ch_idx = sel_ch_int - 1
+        except (ValueError, TypeError):
+            errors.append(f"in_flight_tuning.selector_channel '{selector_ch}' must be an integer between 1 and 16")
+            selector_ch_idx = 0xFF
+    else:
+        selector_ch_idx = 0xFF
+
+    parsed_banks = []
+    if raw_banks:
+        if len(raw_banks) > 6:
+            errors.append(f"in_flight_tuning: maximum 6 banks supported, found {len(raw_banks)}")
+        for idx, b in enumerate(raw_banks[:6]):
+            prefix = f"in_flight_tuning.banks[{idx}]"
+            sw_range = b.get("switch_range", [800, 2200])
+            if not isinstance(sw_range, (list, tuple)) or len(sw_range) != 2:
+                errors.append(f"{prefix}.switch_range must be a [min_us, max_us] pair, got {sw_range}")
+                r_min, r_max = 800, 2200
+            else:
+                r_min = int(sw_range[0])
+                r_max = int(sw_range[1])
+                if r_min < 800 or r_max > 2200 or r_min > r_max:
+                    errors.append(f"{prefix}.switch_range [{r_min}, {r_max}] invalid. Must satisfy 800 <= min <= max <= 2200.")
+            slot_a_rust = parse_slot_dict(b.get("slot_a", {}), f"{prefix}.slot_a", def_ch=6)
+            slot_b_rust = parse_slot_dict(b.get("slot_b", {}), f"{prefix}.slot_b", def_ch=7)
+            parsed_banks.append(f"TuneBank {{\n            range_min_us: {r_min},\n            range_max_us: {r_max},\n            slot_a: {slot_a_rust},\n            slot_b: {slot_b_rust},\n        }}")
+    else:
+        # Legacy fallback: single bank from top-level slot_a and slot_b
+        slot_a_rust = parse_slot_dict(ift_cfg.get("slot_a", {}), "in_flight_tuning.slot_a", def_ch=6)
+        slot_b_rust = parse_slot_dict(ift_cfg.get("slot_b", {}), "in_flight_tuning.slot_b", def_ch=7)
+        parsed_banks.append(f"TuneBank {{\n            range_min_us: 800,\n            range_max_us: 2200,\n            slot_a: {slot_a_rust},\n            slot_b: {slot_b_rust},\n        }}")
+
+    num_banks = len(parsed_banks)
+    # Pad out to MAX_TUNE_BANKS (6) with const DEFAULT
+    while len(parsed_banks) < 6:
+        parsed_banks.append("TuneBank::DEFAULT")
+
+    banks_rust = "[\n        " + ",\n        ".join(parsed_banks) + ",\n    ]"
     # 4. Motor ESC Protocol & PWM Frequency
     motor_cfg = cfg.get("motor", {})
     motor_proto = str(motor_cfg.get("protocol", "pwm")).strip().lower()
@@ -490,6 +537,9 @@ def validate_config(cfg):
         "servo7_rust": servo7_rust,
         "servo8_rust": servo8_rust,
         "ift_enabled": "true" if ift_enabled else "false",
+        "ift_selector_idx": f"0x{selector_ch_idx:02X}" if selector_ch_idx == 0xFF else str(selector_ch_idx),
+        "ift_num_banks": str(num_banks),
+        "ift_banks_rust": banks_rust,
         "slot_a_rust": slot_a_rust,
         "slot_b_rust": slot_b_rust,
         "motor_proto": motor_proto,
@@ -540,7 +590,7 @@ def generate_rust_config(cfg_vals):
 use embassy_time::Duration;
 use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
 use wingfc_core::mixer::{{AirframeType, ServoConfig}};
-use wingfc_core::tuning::{{InFlightTuning, TuneParameter, TuneSlot}};
+use wingfc_core::tuning::{{InFlightTuning, TuneBank, TuneParameter, TuneSlot}};
 use wingfc_core::pid::PidConfig;
 use wingfc_core::mode::{{FlightMode, ModeMatrix, ModeRange}};
 
@@ -640,8 +690,9 @@ pub const ANGLE_P_GAIN: f32 = {cfg_vals['angle_p_gain']:.2f};
 /// In-flight real-time PID potentiometer tuning configuration
 pub const IN_FLIGHT_TUNING_ENABLED: bool = {cfg_vals['ift_enabled']};
 pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {{
-    slot_a: {cfg_vals['slot_a_rust']},
-    slot_b: {cfg_vals['slot_b_rust']},
+    selector_channel_idx: {cfg_vals['ift_selector_idx']},
+    num_banks: {cfg_vals['ift_num_banks']},
+    banks: {cfg_vals['ift_banks_rust']},
 }};
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)

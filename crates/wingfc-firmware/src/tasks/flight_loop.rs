@@ -217,7 +217,12 @@ impl<'d> FlightLoopState<'d> {
 
         // Optional in-flight potentiometer PID tuning
         if IN_FLIGHT_TUNING_ENABLED {
-            IN_FLIGHT_TUNING.update(&self.latest_rc, &mut self.pitch_pid, &mut self.roll_pid);
+            IN_FLIGHT_TUNING.update(
+                &self.latest_rc,
+                &mut self.pitch_pid,
+                &mut self.roll_pid,
+                &mut self.yaw_pid,
+            );
         }
 
         // 4. Update Arming Safety State Machine with INAV-style Mode Matrix
