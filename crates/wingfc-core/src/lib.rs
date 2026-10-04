@@ -1,6 +1,7 @@
 #![no_std]
 
 pub mod ahrs;
+pub mod downsample;
 #[cfg(feature = "baro")]
 pub mod altitude_safety;
 pub mod autolaunch;
