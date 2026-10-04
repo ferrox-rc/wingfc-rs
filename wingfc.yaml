@@ -38,7 +38,7 @@ airframe: elevon
 # Hardware Loop Timing & IMU Data-Ready Synchronization:
 #   - standard : 416 Hz (Default, recommended for general flight, GPS waypoint navigation, and standard servos)
 #   - high     : 833 Hz (Recommended for high-speed combat wings, DShot, and 333-400Hz digital servos)
-loop_rate: high
+loop_rate: multirate
 
 # Receiver Serial Protocol & Failsafe
 

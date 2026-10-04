@@ -117,6 +117,7 @@ def validate_config(cfg):
             "xl_reg": 0x64,  # 416 Hz ODR, +/-16g (0x60 | 0x04)
             "g_reg": 0x6C,   # 416 Hz ODR, +/-2000 dps (0x60 | 0x0C)
             "name": "Standard (416 Hz)",
+            "decimation": 1,
         },
         "high": {
             "profile": "LoopRateProfile::High833Hz",
@@ -125,6 +126,16 @@ def validate_config(cfg):
             "xl_reg": 0x74,  # 833 Hz ODR, +/-16g (0x70 | 0x04)
             "g_reg": 0x7C,   # 833 Hz ODR, +/-2000 dps (0x70 | 0x0C)
             "name": "High-Speed (833 Hz)",
+            "decimation": 1,
+        },
+        "multirate": {
+            "profile": "LoopRateProfile::MultiRate208Hz",
+            "hz": 208,
+            "nominal_dt": 0.0048,  # 8 samples @ 1666 Hz
+            "xl_reg": 0x84,  # 1.66 kHz ODR, +/-16g (0x80 | 0x04)
+            "g_reg": 0x8C,   # 1.66 kHz ODR, +/-2000 dps (0x80 | 0x0C)
+            "name": "Multi-Rate (1666 Hz -> 208.33 Hz, 8:1 boxcar)",
+            "decimation": 8,
         },
     }
     raw_loop_rate = str(cfg.get("loop_rate", "standard")).strip().lower()
@@ -526,6 +537,7 @@ def validate_config(cfg):
         "nominal_dt": loop_rate_info["nominal_dt"],
         "imu_xl_reg": loop_rate_info["xl_reg"],
         "imu_g_reg": loop_rate_info["g_reg"],
+        "imu_decimation": loop_rate_info["decimation"],
         "protocol": proto,
 
         "failsafe_ms": int(failsafe_ms),
@@ -621,6 +633,7 @@ pub const AIRFRAME_TYPE: AirframeType = {cfg_vals['airframe_rust']};
 pub enum LoopRateProfile {{
     Standard416Hz,
     High833Hz,
+    MultiRate208Hz,
 }}
 
 /// Configured flight loop rate profile
@@ -640,6 +653,9 @@ pub const IMU_ODR_XL_REG_VAL: u8 = {hex(cfg_vals['imu_xl_reg'])};
 
 /// LSM6DS3 register value for Gyro (CTRL2_G): configured ODR + +/-2000 dps range
 pub const IMU_ODR_G_REG_VAL: u8 = {hex(cfg_vals['imu_g_reg'])};
+
+/// Number of raw IMU samples boxcar-averaged per flight loop iteration (1 = no decimation)
+pub const IMU_DECIMATION: u8 = {cfg_vals['imu_decimation']};
 
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis({cfg_vals['failsafe_ms']});

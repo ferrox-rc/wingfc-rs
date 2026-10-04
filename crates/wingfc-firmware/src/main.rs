@@ -257,8 +257,8 @@ async fn main(spawner: Spawner) {
 
         #[cfg(feature = "crsf")]
         {
-            // Transmit telemetry at ~50 Hz (every 8th loop @ 416Hz, every 16th loop @ 833Hz)
-            const TELEMETRY_DIVIDER: u32 = if NOMINAL_LOOP_HZ >= 800 { 16 } else { 8 };
+            // Transmit telemetry at ~50 Hz regardless of loop rate
+            const TELEMETRY_DIVIDER: u32 = if NOMINAL_LOOP_HZ >= 100 { NOMINAL_LOOP_HZ / 50 } else { 1 };
             if loop_counter.is_multiple_of(TELEMETRY_DIVIDER) {
                 telemetry_sender.send(flight_loop.telemetry_snapshot());
             }

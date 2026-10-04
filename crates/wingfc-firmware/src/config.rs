@@ -21,25 +21,29 @@ pub const AIRFRAME_TYPE: AirframeType = AirframeType::Elevon;
 pub enum LoopRateProfile {
     Standard416Hz,
     High833Hz,
+    MultiRate208Hz,
 }
 
 /// Configured flight loop rate profile
-pub const LOOP_RATE_PROFILE: LoopRateProfile = LoopRateProfile::High833Hz;
+pub const LOOP_RATE_PROFILE: LoopRateProfile = LoopRateProfile::MultiRate208Hz;
 
 /// Nominal flight loop frequency in Hz
-pub const NOMINAL_LOOP_HZ: u32 = 833;
+pub const NOMINAL_LOOP_HZ: u32 = 208;
 
 /// Nominal flight loop time-step in seconds
-pub const NOMINAL_DT: f32 = 0.001200;
+pub const NOMINAL_DT: f32 = 0.004800;
 
 /// Retained alias for nominal DT (used for initial static filter cutoffs)
 pub const DT: f32 = NOMINAL_DT;
 
 /// LSM6DS3 register value for Accel (CTRL1_XL): configured ODR + +/-16g range
-pub const IMU_ODR_XL_REG_VAL: u8 = 0x74;
+pub const IMU_ODR_XL_REG_VAL: u8 = 0x84;
 
 /// LSM6DS3 register value for Gyro (CTRL2_G): configured ODR + +/-2000 dps range
-pub const IMU_ODR_G_REG_VAL: u8 = 0x7c;
+pub const IMU_ODR_G_REG_VAL: u8 = 0x8c;
+
+/// Number of raw IMU samples boxcar-averaged per flight loop iteration (1 = no decimation)
+pub const IMU_DECIMATION: u8 = 8;
 
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis(500);
