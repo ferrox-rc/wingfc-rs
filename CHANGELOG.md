@@ -5,6 +5,22 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🚀 Features
+
+- **Multi-Rate Loop Profile (`loop_rate: multirate`):** LSM6DS3TR-C sampled at 1.66 kHz and boxcar-averaged 8:1 into a fixed 208.33 Hz (`dt` = 4.8 ms) flight loop.
+- **8:1 Boxcar Downsampler:** Host-tested `wingfc_core::downsample::BoxcarAccumulator8`.
+- **Tilt-Compensated Compass:** `wingfc_core::compass` with hard-iron/soft-iron calibration (`MagCalibration`, `MagCalibrator`) and tilt-compensated heading.
+- **Inter-Task Mailboxes:** `IMU_WATCH` and lock-free `ACTUATOR_LATCH` scaffolding in the firmware `bus` module.
+- **External Sensors:** DPS310/BMP280 barometer drivers and a `TWISPI1` external-sensor task feeding the Vertical Kalman Filter.
+- **In-Flight PID Tuning Banks:** Multi-bank, switch-selected potentiometer tuning.
+
+### 🔧 Changes
+
+- External sensor task now polls at 20 Hz (previously 50 Hz) on the navigation bus.
+- CRSF telemetry divider now scales to ~50 Hz for any loop rate.
+
 ## [0.3.0] - 2026-09-10
 
 ### 🚀 Features

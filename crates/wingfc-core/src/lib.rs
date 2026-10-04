@@ -5,6 +5,7 @@ pub mod downsample;
 #[cfg(feature = "baro")]
 pub mod altitude_safety;
 pub mod autolaunch;
+pub mod compass;
 pub mod dshot;
 pub mod filter;
 #[cfg(feature = "gps")]

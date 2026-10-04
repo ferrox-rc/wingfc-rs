@@ -20,6 +20,9 @@ use crate::config::{COMPASS_ENABLED, COMPASS_MODEL};
 #[cfg(feature = "compass")]
 use crate::drivers::compass::{CompassModel, Hmc5883lDriver, Qmc5883lDriver};
 
+/// External (slow) sensor poll period: 20 Hz navigation tier.
+const EXT_SENSOR_PERIOD_MS: u64 = 50;
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ExternalSensorSnapshot {
     pub baro_alt_m: f32,
@@ -35,7 +38,7 @@ pub async fn external_sensors_task(
     mut twim: Twim<'static>,
     sender: Sender<'static, ThreadModeRawMutex, ExternalSensorSnapshot, 2>,
 ) {
-    defmt::info!("Starting External I2C Sensors Task on TWISPI1 (50 Hz)...");
+    defmt::info!("Starting External I2C Sensors Task on TWISPI1 (20 Hz)...");
 
     // 1. Initialize Barometer if enabled
     #[cfg(feature = "baro")]
@@ -120,7 +123,7 @@ pub async fn external_sensors_task(
     let mut snapshot = ExternalSensorSnapshot::default();
 
     loop {
-        Timer::after(Duration::from_millis(20)).await; // 50 Hz loop
+        Timer::after(Duration::from_millis(EXT_SENSOR_PERIOD_MS)).await; // 20 Hz loop
 
         snapshot.baro_updated = false;
         snapshot.mag_updated = false;

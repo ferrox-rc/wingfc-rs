@@ -20,9 +20,10 @@ airframe: elevon          # Options: elevon, elevon_diff_thrust, single_aileron_
                           #          dual_aileron_t_tail, single_aileron_v_tail, dual_aileron_v_tail
 
 # Hardware Loop Timing & IMU Data-Ready Synchronization:
-#   standard: 416 Hz (Default, recommended for general flight, GPS waypoint navigation, and standard servos)
-#   high:     833 Hz (Recommended for high-speed combat wings, DShot, and 333-400Hz digital servos)
-loop_rate: standard       # Options: standard, high
+#   standard:  416 Hz (Default, recommended for general flight, GPS waypoint navigation, and standard servos)
+#   high:      833 Hz (Recommended for high-speed combat wings, DShot, and 333-400Hz digital servos)
+#   multirate: IMU sampled at 1.66 kHz and boxcar-averaged 8:1 to a fixed 208.33 Hz (dt = 4.8 ms) flight loop
+loop_rate: standard       # Options: standard, high, multirate
 ```
 
 | Parameter | Options / Range | Default | Description |
@@ -30,7 +31,7 @@ loop_rate: standard       # Options: standard, high
 | `board` | `xiao-sense`, `xiao-sense-plus` | `xiao-sense` | Selects target board layout. Standard Sense provides 14 castellated pads; Sense Plus adds expansion pads for GPS UART (`UARTE1`) and 4 extra PWM servos (`PWM2`). |
 | `orientation` | `default`, `cw90`, `cw180`, `cw270`, `flip`, `flip_cw90`, `flip_cw180`, `flip_cw270` | `default` | 3D coordinate transformation mapping sensor axes to standard aircraft body frame (X=forward, Y=right, Z=down). |
 | `airframe` | `elevon`, `elevon_diff_thrust`, `single_aileron_t_tail`, `dual_aileron_t_tail`, `single_aileron_v_tail`, `dual_aileron_v_tail` | `elevon` | Pre-configured aerodynamic control surface mixer topology. |
-| `loop_rate` | `standard` (416 Hz), `high` (833 Hz) | `standard` | Configures the LSM6DS3 hardware ODR and GPIOTE interrupt pacing. `standard` provides optimal CPU headroom for GPS navigation and standard servos; `high` provides minimum latency for aerobatic speedwings. |
+| `loop_rate` | `standard` (416 Hz), `high` (833 Hz), `multirate` (1666 Hz → 208.33 Hz) | `standard` | Configures the LSM6DS3 hardware ODR and GPIOTE interrupt pacing. `standard` provides optimal CPU headroom for GPS navigation and standard servos; `high` provides minimum latency for aerobatic speedwings; `multirate` averages 8 consecutive 1.66 kHz samples (sinc/boxcar low-pass that suppresses motor/prop harmonics) into one jitter-free 4.8 ms control step, ideal for fixed-wing airframes with 10–25 Hz control bandwidth. |
 
 ---
 
