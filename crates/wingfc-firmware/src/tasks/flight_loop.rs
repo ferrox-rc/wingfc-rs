@@ -1,6 +1,8 @@
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Receiver;
 use embassy_sync::watch::Sender;
+#[cfg(any(feature = "baro", feature = "compass"))]
+use embassy_sync::watch::Receiver as WatchReceiver;
 use embassy_time::Instant;
 #[cfg(not(feature = "dshot"))]
 use embassy_time::{Duration, Timer};
@@ -23,9 +25,13 @@ use crate::config::{
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
 use crate::drivers::Lsm6ds3Driver;
+#[cfg(any(feature = "baro", feature = "compass"))]
+use crate::tasks::ExternalSensorSnapshot;
 use crate::tasks::telemetry::VisualStatus;
 #[cfg(feature = "baro")]
 use wingfc_core::mode::AltHoldController;
+#[cfg(feature = "baro")]
+use wingfc_core::vertical_kf::VerticalKalmanFilter;
 #[cfg(feature = "compass")]
 use wingfc_core::mode::HeadingHoldController;
 
@@ -42,8 +48,12 @@ pub struct FlightLoopState<'d> {
     pub safety: ArmingSafety,
     #[cfg(feature = "compass")]
     pub heading_hold: HeadingHoldController,
+    #[cfg(feature = "compass")]
+    pub latest_mag: Vector3,
     #[cfg(feature = "baro")]
     pub alt_hold: AltHoldController,
+    #[cfg(feature = "baro")]
+    pub vkf: VerticalKalmanFilter,
     pub last_packet_time: Instant,
     pub latest_rc: RcChannels,
     pub status: ArmingStatus,
@@ -82,8 +92,12 @@ impl<'d> FlightLoopState<'d> {
             safety: ArmingSafety::with_thresholds(ARM_SWITCH_THRESHOLD, THROTTLE_ZERO_THRESHOLD),
             #[cfg(feature = "compass")]
             heading_hold: HeadingHoldController::default(),
+            #[cfg(feature = "compass")]
+            latest_mag: Vector3::ZERO,
             #[cfg(feature = "baro")]
             alt_hold: AltHoldController::default(),
+            #[cfg(feature = "baro")]
+            vkf: VerticalKalmanFilter::default(),
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
             status: ArmingStatus::Disarmed,
@@ -140,30 +154,22 @@ impl<'d> FlightLoopState<'d> {
             }
         }
 
-        // Step 2: Gyro Stationary Calibration
-        status_tx.send(VisualStatus::calibrating());
-
-        if let Err(e) = self.imu.init().await {
-            defmt::error!("IMU init failed: {:?}", e);
-            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
-            return;
-        }
-
-        if let Err(e) = self.imu.calibrate_gyro(250).await {
-            defmt::error!("Gyro calib failed: {:?}", e);
-            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
-            return;
-        }
-
-        self.status = ArmingStatus::Disarmed;
-        status_tx.send(VisualStatus::status(ArmingStatus::Disarmed));
-        defmt::info!("Flight controller initialized and ready!");
+        self.init_common(status_tx).await;
     }
 
-    /// Initializes hardware and runs Gyro Calibration (Digital DShot ESC - no analog calibration needed)
+    /// Initializes hardware and runs Gyro Calibration (Digital DShot)
     #[cfg(feature = "dshot")]
-    pub async fn init(&mut self, status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>) {
-        // Gyro Stationary Calibration
+    pub async fn init(
+        &mut self,
+        status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
+    ) {
+        self.init_common(status_tx).await;
+    }
+
+    async fn init_common(
+        &mut self,
+        status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
+    ) {
         status_tx.send(VisualStatus::calibrating());
 
         if let Err(e) = self.imu.init().await {
@@ -188,6 +194,8 @@ impl<'d> FlightLoopState<'d> {
         &mut self,
         rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
         status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
+        #[cfg(any(feature = "baro", feature = "compass"))]
+        ext_sensor_rx: &mut WatchReceiver<'static, ThreadModeRawMutex, ExternalSensorSnapshot, 2>,
         dt: f32,
     ) -> AirframeOutputs {
         // 1. Drain latest RC packet
@@ -248,7 +256,22 @@ impl<'d> FlightLoopState<'d> {
             status_tx.send(visual);
         }
 
-        // 5. Read IMU
+        // 5. Ingest External Sensor Snapshot (Baro / Compass)
+        #[cfg(any(feature = "baro", feature = "compass"))]
+        {
+            if let Some(snapshot) = ext_sensor_rx.try_get() {
+                #[cfg(feature = "compass")]
+                if snapshot.mag_updated {
+                    self.latest_mag = snapshot.mag;
+                }
+                #[cfg(feature = "baro")]
+                if snapshot.baro_updated {
+                    self.vkf.update_baro(snapshot.baro_alt_m);
+                }
+            }
+        }
+
+        // 6. Read IMU
         let imu_data = self.imu.read().await;
 
         match self.status {
@@ -259,6 +282,10 @@ impl<'d> FlightLoopState<'d> {
                 self.pitch_pid.reset();
                 self.roll_pid.reset();
                 self.yaw_pid.reset();
+                #[cfg(feature = "baro")]
+                self.alt_hold.reset();
+                #[cfg(feature = "compass")]
+                self.heading_hold.reset();
 
                 // If IMU read succeeded, update AHRS so attitude is initialized before takeoff
                 if let Ok((raw_gyro, accel)) = imu_data {
@@ -267,6 +294,9 @@ impl<'d> FlightLoopState<'d> {
                         self.gyro_lpf_y.update(raw_gyro.y),
                         self.gyro_lpf_z.update(raw_gyro.z),
                     );
+                    #[cfg(feature = "compass")]
+                    self.ahrs.update_9dof(gyro, accel, self.latest_mag, dt);
+                    #[cfg(not(feature = "compass"))]
                     self.ahrs.update_6dof(gyro, accel, dt);
                 }
 
@@ -297,12 +327,29 @@ impl<'d> FlightLoopState<'d> {
             self.gyro_lpf_z.update(raw_gyro.z),
         );
 
-        // 6. Update Attitude Estimation (Madgwick AHRS)
+        // 7. Update Attitude Estimation (Madgwick AHRS)
+        #[cfg(feature = "compass")]
+        self.ahrs.update_9dof(gyro, accel, self.latest_mag, dt);
+        #[cfg(not(feature = "compass"))]
         self.ahrs.update_6dof(gyro, accel, dt);
+
         if self.status.requires_attitude() {
             self.cached_euler = self.ahrs.get_euler_angles();
         }
         let (est_pitch, est_roll, _est_yaw) = self.cached_euler;
+
+        // 8. Vertical Kalman Filter High-Rate Prediction Step
+        #[cfg(feature = "baro")]
+        {
+            // Earth-frame vertical acceleration:
+            // a_z_earth = -sin(pitch)*a_x + sin(roll)*cos(pitch)*a_y + cos(roll)*cos(pitch)*a_z - 9.80665
+            let sp = libm::sinf(est_pitch);
+            let cp = libm::cosf(est_pitch);
+            let sr = libm::sinf(est_roll);
+            let cr = libm::cosf(est_roll);
+            let az_earth = -sp * accel.x + sr * cp * accel.y + cr * cp * accel.z - 9.80665;
+            self.vkf.predict(az_earth, dt);
+        }
 
         let pitch_mix;
         let roll_mix;
@@ -353,9 +400,12 @@ impl<'d> FlightLoopState<'d> {
             #[cfg(feature = "baro")]
             ArmingStatus::ArmedAltHold => {
                 // ALTITUDE HOLD MODE: Cascaded baro/KF altitude controller onto Angle pitch
-                // (Fallback to current est_pitch if baro/KF not yet integrated into loop state)
-                let (target_pitch, alt_thr) =
-                    self.alt_hold.update(0.0, 0.0, pitch_stick, throttle_raw);
+                let (target_pitch, alt_thr) = self.alt_hold.update(
+                    self.vkf.altitude_m,
+                    self.vkf.velocity_ms,
+                    pitch_stick,
+                    throttle_raw,
+                );
                 let target_roll = roll_stick * MAX_ROLL_ANGLE;
 
                 let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
@@ -422,9 +472,9 @@ impl<'d> FlightLoopState<'d> {
             #[cfg(feature = "gps")]
             gps_has_fix: false, // TODO: Connect to GPS driver state once GPS task is merged
             #[cfg(feature = "baro")]
-            baro_alt_m: 0.0, // TODO: Connect to Baro driver state once Baro task is merged
+            baro_alt_m: self.vkf.altitude_m,
             #[cfg(feature = "baro")]
-            vario_cms: 0, // TODO: Connect to Baro/KF vario state once Baro task is merged
+            vario_cms: (self.vkf.velocity_ms * 100.0) as i16,
         }
     }
 }

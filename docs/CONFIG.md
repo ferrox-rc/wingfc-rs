@@ -181,9 +181,37 @@ in_flight_tuning:
 
 ## 7. Autonomous Navigation Suite
 
+```yaml
+navigation:
+  enabled: false
+
+  # External Digital Barometer (TWISPI1: D4 SDA, D5 SCL)
+  barometer:
+    enabled: false
+    model: dps310        # Options: dps310 (Carrier Board default), bmp280
+    i2c_address: 0x77    # 0x77 or 0x76
+
+  # External 3-Axis Magnetometer (TWISPI1: D4 SDA, D5 SCL)
+  compass:
+    enabled: false
+    model: qmc5883l      # Options: qmc5883l (addr 0x0D), hmc5883l (addr 0x1E)
+
+  # GPS Receiver Link (UARTE1 on Sense Plus: D14 RX, D15 TX)
+  gps: false
+
+  rth:
+    min_satellites: 6
+    max_hdop: 2.5
+    safe_altitude_agl_m: 30.0
+
+  hard_deck_agl_m: 15.0
+  max_ceiling_agl_m: 120.0
+```
+
 | Subsystem | Configuration | Reference Specification |
 | :--- | :--- | :--- |
-| **GPS Receiver Link** | NMEA parser @ 115,200 baud on Sense Plus `UARTE1` | [GPS Navigation Specification](GPS_NAVIGATION.md) |
+| **Digital Barometer** | Infineon DPS310 / Bosch BMP280 on `TWISPI1` (`D4`/`D5`) | [Architecture Specification](ARCHITECTURE.md) |
+| **External Magnetometer** | QMC5883L / HMC5883L I2C Fast-Mode on `TWISPI1` (`D4`/`D5`) | [Architecture Specification](ARCHITECTURE.md) |
+| **GPS Receiver Link** | NMEA parser @ 115,200 baud on Sense Plus `UARTE1` (`D14`/`D15`) | [GPS Navigation Specification](GPS_NAVIGATION.md) |
 | **Fail-safe Return-to-Home** | Autonomous climb, loiter, and 120m statutory ceiling | [GPS Navigation Specification](GPS_NAVIGATION.md) |
-| **External Magnetometer** | I2C Fast-Mode on `TWISPI1` (`D4`/`D5`) | [Architecture Specification](ARCHITECTURE.md) |
 

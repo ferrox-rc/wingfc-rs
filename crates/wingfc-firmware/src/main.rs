@@ -36,10 +36,14 @@ use drivers::{Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
 use pins::BoardPins;
 #[cfg(feature = "crsf")]
 use tasks::{crsf_telemetry_task, FlightTelemetrySnapshot};
+#[cfg(any(feature = "baro", feature = "compass"))]
+use tasks::{external_sensors_task, ExternalSensorSnapshot};
 use tasks::{receiver_task, telemetry_led_task, FlightLoopState, VisualStatus};
 
 bind_interrupts!(struct Irqs {
     TWISPI0 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI0>;
+    #[cfg(any(feature = "baro", feature = "compass"))]
+    TWISPI1 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI1>;
     UARTE0 => buffered_uarte::InterruptHandler<embassy_nrf::peripherals::UARTE0>;
 });
 
@@ -47,6 +51,8 @@ static RC_CHANNEL: Channel<ThreadModeRawMutex, RcChannels, 2> = Channel::new();
 static STATUS_WATCH: Watch<ThreadModeRawMutex, VisualStatus, 2> = Watch::new();
 #[cfg(feature = "crsf")]
 static TELEMETRY_WATCH: Watch<ThreadModeRawMutex, FlightTelemetrySnapshot, 2> = Watch::new();
+#[cfg(any(feature = "baro", feature = "compass"))]
+static EXT_SENSORS_WATCH: Watch<ThreadModeRawMutex, ExternalSensorSnapshot, 2> = Watch::new();
 
 #[cfg(all(feature = "crsf", feature = "ibus"))]
 compile_error!("Features 'crsf' and 'ibus' are mutually exclusive. Exactly one receiver protocol must be selected.");
@@ -124,6 +130,27 @@ async fn main(spawner: Spawner) {
     let imu_int1 = Input::new(pins.pin_imu_int1, Pull::Down);
     let imu_driver = Lsm6ds3Driver::new(twim, imu_int1);
 
+    // 3b. Optional External I2C Sensor Bus (TWISPI1 for Baro & Compass)
+    #[cfg(any(feature = "baro", feature = "compass"))]
+    {
+        let mut twim_ext_config = twim::Config::default();
+        twim_ext_config.frequency = twim::Frequency::K400;
+        static TWIM_EXT_TX_BUF: ConstStaticCell<[u8; 32]> = ConstStaticCell::new([0; 32]);
+        let twim_ext = Twim::new(
+            pins.twispi_ext,
+            Irqs,
+            pins.pin_ext_sda,
+            pins.pin_ext_scl,
+            twim_ext_config,
+            TWIM_EXT_TX_BUF.take(),
+        );
+        spawner.spawn(external_sensors_task(twim_ext, EXT_SENSORS_WATCH.sender()).unwrap());
+    }
+    #[cfg(not(any(feature = "baro", feature = "compass")))]
+    {
+        let _ = (pins.twispi_ext, pins.pin_ext_sda, pins.pin_ext_scl);
+    }
+
     // 4. Configure Buffered EasyDMA UART (UARTE0) matching the selected build-time protocol
     let mut uarte_config = uarte::Config::default();
     #[cfg(feature = "crsf")]
@@ -181,6 +208,8 @@ async fn main(spawner: Spawner) {
 
     #[cfg(feature = "crsf")]
     let telemetry_sender = TELEMETRY_WATCH.sender();
+    #[cfg(any(feature = "baro", feature = "compass"))]
+    let mut ext_sensor_receiver = EXT_SENSORS_WATCH.receiver().unwrap();
 
     // 6. Initialize 2000ms Hardware Watchdog Timer to guard 500Hz loop
     let mut wdt_config = wdt::Config::default();
@@ -215,7 +244,15 @@ async fn main(spawner: Spawner) {
         // Bound dt within [0.5 * NOMINAL_DT, 2.0 * NOMINAL_DT] for numerical safety
         let dt = measured_dt.clamp(NOMINAL_DT * 0.5, NOMINAL_DT * 2.0);
 
-        let outputs = flight_loop.step(&rc_receiver, &status_sender, dt).await;
+        let outputs = flight_loop
+            .step(
+                &rc_receiver,
+                &status_sender,
+                #[cfg(any(feature = "baro", feature = "compass"))]
+                &mut ext_sensor_receiver,
+                dt,
+            )
+            .await;
 
         #[cfg(feature = "crsf")]
         {

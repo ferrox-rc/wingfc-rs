@@ -332,7 +332,19 @@ def validate_config(cfg):
     # 5. Navigation & Altitude Limits
     nav_cfg = cfg.get("navigation", {})
     nav_enabled = bool(nav_cfg.get("enabled", False))
-    baro_enabled = bool(nav_cfg.get("barometer", False)) or nav_enabled
+    baro_raw = nav_cfg.get("barometer", False)
+    if isinstance(baro_raw, dict):
+        baro_enabled = bool(baro_raw.get("enabled", False)) or nav_enabled
+        baro_model = str(baro_raw.get("model", "dps310")).lower().strip()
+        baro_i2c_addr = int(baro_raw.get("i2c_address", 0x77))
+    else:
+        baro_enabled = bool(baro_raw) or nav_enabled
+        baro_model = str(nav_cfg.get("barometer_model", "dps310")).lower().strip()
+        baro_i2c_addr = int(nav_cfg.get("barometer_i2c_address", 0x77))
+
+    if baro_enabled and baro_model not in ["dps310", "bmp280"]:
+        errors.append(f"Invalid barometer model '{baro_model}'. Supported models: 'dps310', 'bmp280'.")
+
     compass_raw = nav_cfg.get("compass", False)
     if isinstance(compass_raw, dict):
         compass_enabled = bool(compass_raw.get("enabled", False)) or nav_enabled
@@ -546,6 +558,10 @@ def validate_config(cfg):
         "motor_pwm_hz": motor_pwm_hz,
         "diff_thrust": diff_thrust,
         "nav_enabled": nav_enabled,
+        "baro_enabled": baro_enabled,
+        "baro_model": baro_model,
+        "baro_model_rust": "BaroModel::" + ("Dps310" if baro_model == "dps310" else "Bmp280"),
+        "baro_i2c_addr": f"0x{baro_i2c_addr:02X}",
         "compass_enabled": compass_enabled,
         "compass_model": compass_model,
         "compass_model_rust": "CompassModel::" + ("Qmc5883l" if compass_model == "qmc5883l" else "Hmc5883l"),
@@ -698,11 +714,20 @@ pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {{
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};
 
-/// GPS autonomous navigation and Return-to-Home parameters
+/// Barometer configuration
+#[cfg(feature = "baro")]
+pub use crate::drivers::BaroModel;
+
+pub const BARO_ENABLED: bool = {str(cfg_vals['baro_enabled']).lower()};
+#[cfg(feature = "baro")]
+pub const BARO_MODEL: BaroModel = {cfg_vals['baro_model_rust']};
+#[cfg(feature = "baro")]
+pub const BARO_I2C_ADDR: u8 = {cfg_vals['baro_i2c_addr']};
+
+/// External Compass / Magnetometer configuration
 #[cfg(feature = "compass")]
 pub use crate::drivers::CompassModel;
 
-/// External Compass / Magnetometer configuration
 pub const COMPASS_ENABLED: bool = {str(cfg_vals['compass_enabled']).lower()};
 #[cfg(feature = "compass")]
 pub const COMPASS_MODEL: CompassModel = {cfg_vals['compass_model_rust']};

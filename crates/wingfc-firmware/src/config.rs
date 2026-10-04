@@ -208,11 +208,20 @@ pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = 15.0;
 
-/// GPS autonomous navigation and Return-to-Home parameters
+/// Barometer configuration
+#[cfg(feature = "baro")]
+pub use crate::drivers::BaroModel;
+
+pub const BARO_ENABLED: bool = false;
+#[cfg(feature = "baro")]
+pub const BARO_MODEL: BaroModel = BaroModel::Dps310;
+#[cfg(feature = "baro")]
+pub const BARO_I2C_ADDR: u8 = 0x77;
+
+/// External Compass / Magnetometer configuration
 #[cfg(feature = "compass")]
 pub use crate::drivers::CompassModel;
 
-/// External Compass / Magnetometer configuration
 pub const COMPASS_ENABLED: bool = false;
 #[cfg(feature = "compass")]
 pub const COMPASS_MODEL: CompassModel = CompassModel::Qmc5883l;

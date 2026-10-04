@@ -268,7 +268,14 @@ navigation:
   enabled: false
 
   # Individual sensor toggles (when enabled: true, baro, compass, and gps are activated)
-  barometer: false             # Vertical Kalman filter altitude fusion (BMP280/SPL06 on TWISPI1)
+  # External Digital Barometer (on TWISPI1: D4 SDA, D5 SCL)
+  # Model must be explicitly specified:
+  #   - dps310 : Infineon DPS310 (Hardware carrier board default, I2C address 0x77 or 0x76)
+  #   - bmp280 : Bosch BMP280 (Standard external puck, I2C address 0x76 or 0x77)
+  barometer:
+    enabled: false
+    model: dps310
+    i2c_address: 0x77
 
   # External 3-Axis Magnetometer (on TWISPI1: D4 SDA, D5 SCL)
   # Model must be explicitly specified (no auto-detection):
