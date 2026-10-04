@@ -21,6 +21,7 @@ use static_cell::ConstStaticCell;
 
 use wingfc_core::protocol::RcChannels;
 
+mod bus;
 pub mod config;
 mod drivers;
 pub mod pins;
