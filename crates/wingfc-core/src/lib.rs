@@ -1,9 +1,11 @@
 #![no_std]
 
 pub mod ahrs;
+pub mod downsample;
 #[cfg(feature = "baro")]
 pub mod altitude_safety;
 pub mod autolaunch;
+pub mod compass;
 pub mod dshot;
 pub mod filter;
 #[cfg(feature = "gps")]
@@ -14,6 +16,7 @@ pub mod mode;
 pub mod pid;
 pub mod protocol;
 pub mod safety;
+pub mod sensor_health;
 pub mod tuning;
 #[cfg(feature = "baro")]
 pub mod vertical_kf;
@@ -35,6 +38,7 @@ pub use mode::{HeadingHoldConfig, HeadingHoldController};
 pub use pid::{PidConfig, PidController};
 pub use protocol::{CrsfTelemetryEncoder, RcChannels};
 pub use safety::{ArmingSafety, ArmingStatus};
+pub use sensor_health::{SensorHealth, SystemSensorHealth};
 pub use tuning::{InFlightTuning, TuneParameter, TuneSlot};
 #[cfg(feature = "baro")]
 pub use vertical_kf::VerticalKalmanFilter;

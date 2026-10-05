@@ -5,6 +5,25 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🚀 Features
+
+- **Multi-Rate Loop Profile (`loop_rate: multirate`):** LSM6DS3TR-C sampled at 1.66 kHz and boxcar-averaged 8:1 into a fixed 208.33 Hz (`dt` = 4.8 ms) flight loop with sinc decimation anti-aliasing.
+- **8:1 Boxcar Downsampler:** Host-tested `wingfc_core::downsample::BoxcarAccumulator8` with zero heap allocation.
+- **Sensor Health State Machine:** Tri-state `SensorHealth` tracking (`Healthy`, `Degraded`, `Failed`) with timeout-based fault detection, consecutive sample recovery, and automatic safe mode fallback (`HeadingHold`/`AltHold` to `Angle`).
+- **Granular Build Profiles (`ultralight` & `gps`):** High-level profiles (`ultralight` as sub-250g default, `gps` for autonomous navigation) decoupling granular feature flags (`baro`, `compass`, `gps`) while standardizing blackbox logging.
+- **Tilt-Compensated Compass:** `wingfc_core::compass` with hard-iron/soft-iron calibration (`MagCalibration`, `MagCalibrator`) and tilt-compensated heading estimation.
+- **Inter-Task Mailboxes:** `IMU_WATCH` and lock-free `ACTUATOR_LATCH` scaffolding in the firmware `bus` module for future decoupled flight loop workers.
+- **External Sensors:** DPS310/BMP280 barometer drivers and a `TWISPI1` external-sensor task feeding the Vertical Kalman Filter.
+- **In-Flight PID Tuning Banks:** Multi-bank, switch-selected potentiometer tuning.
+
+### 🔧 Changes
+
+- External sensor task now polls at 20 Hz (previously 50 Hz) on the navigation bus.
+- CRSF telemetry divider now scales dynamically to ~50 Hz across all loop rates.
+- QSPI flash pinout verified and documented on `P0.20`..`P0.25`, preserving Servo 7 on `P0.19`.
+
 ## [0.3.0] - 2026-09-10
 
 ### 🚀 Features

@@ -74,11 +74,16 @@ def validate_config(cfg):
     errors = []
     advisories = []
 
-    # 1. Board Target
+    # 1. Board & Profile Target
     board = str(cfg.get("board", "xiao-sense")).strip().lower()
     valid_boards = ["xiao-sense", "xiao-sense-plus"]
     if board not in valid_boards:
         errors.append(f"Invalid board '{board}'. Must be one of: {valid_boards}")
+
+    profile = str(cfg.get("profile", "ultralight")).strip().lower()
+    valid_profiles = ["ultralight", "gps"]
+    if profile not in valid_profiles:
+        errors.append(f"Invalid profile '{profile}'. Must be one of: {valid_profiles}")
 
     valid_orientations = {
         "default": "BoardOrientation::Default",
@@ -117,6 +122,7 @@ def validate_config(cfg):
             "xl_reg": 0x64,  # 416 Hz ODR, +/-16g (0x60 | 0x04)
             "g_reg": 0x6C,   # 416 Hz ODR, +/-2000 dps (0x60 | 0x0C)
             "name": "Standard (416 Hz)",
+            "decimation": 1,
         },
         "high": {
             "profile": "LoopRateProfile::High833Hz",
@@ -125,6 +131,16 @@ def validate_config(cfg):
             "xl_reg": 0x74,  # 833 Hz ODR, +/-16g (0x70 | 0x04)
             "g_reg": 0x7C,   # 833 Hz ODR, +/-2000 dps (0x70 | 0x0C)
             "name": "High-Speed (833 Hz)",
+            "decimation": 1,
+        },
+        "multirate": {
+            "profile": "LoopRateProfile::MultiRate208Hz",
+            "hz": 208,
+            "nominal_dt": 0.0048,  # 8 samples @ 1666 Hz
+            "xl_reg": 0x84,  # 1.66 kHz ODR, +/-16g (0x80 | 0x04)
+            "g_reg": 0x8C,   # 1.66 kHz ODR, +/-2000 dps (0x80 | 0x0C)
+            "name": "Multi-Rate (1666 Hz -> 208.33 Hz, 8:1 boxcar)",
+            "decimation": 8,
         },
     }
     raw_loop_rate = str(cfg.get("loop_rate", "standard")).strip().lower()
@@ -225,7 +241,7 @@ def validate_config(cfg):
     servo7_rust = parse_servo("servo7")
     servo8_rust = parse_servo("servo8")
 
-    # In-Flight Dynamic PID Tuning (Slots A & B)
+    # In-Flight Dynamic PID Tuning (Banks & Slots)
     param_map = {
         "none": "TuneParameter::None",
         "pitch_kp": "TuneParameter::PitchKp",
@@ -236,26 +252,73 @@ def validate_config(cfg):
         "roll_kd": "TuneParameter::RollKd",
         "pitch_kff": "TuneParameter::PitchKff",
         "roll_kff": "TuneParameter::RollKff",
+        "yaw_kp": "TuneParameter::YawKp",
+        "yaw_ki": "TuneParameter::YawKi",
+        "yaw_kd": "TuneParameter::YawKd",
+        "yaw_kff": "TuneParameter::YawKff",
     }
     ift_cfg = cfg.get("in_flight_tuning", {})
     ift_enabled = bool(ift_cfg.get("enabled", False))
 
-    def parse_slot(slot_name, def_ch):
-        sc = ift_cfg.get(slot_name, {})
+    def parse_slot_dict(sc, prefix, def_ch=6):
         param = str(sc.get("parameter", "none")).strip().lower()
         if param not in param_map:
-            errors.append(f"in_flight_tuning.{slot_name}.parameter '{param}' invalid. Valid: {list(param_map.keys())}")
+            errors.append(f"{prefix}.parameter '{param}' invalid. Valid: {list(param_map.keys())}")
         param_rust = param_map.get(param, "TuneParameter::None")
         ch = int(sc.get("channel", def_ch))
         if ch < 1 or ch > 16:
-            errors.append(f"in_flight_tuning.{slot_name}.channel ({ch}) out of bounds [1, 16]")
+            errors.append(f"{prefix}.channel ({ch}) out of bounds [1, 16]")
         min_v = float(sc.get("min_val", 0.0))
         max_v = float(sc.get("max_val", 1.0))
         ch_idx = max(0, ch - 1)
         return f"TuneSlot {{ parameter: {param_rust}, channel_idx: {ch_idx}, min_val: {min_v:.4f}, max_val: {max_v:.4f} }}"
 
-    slot_a_rust = parse_slot("slot_a", 6)
-    slot_b_rust = parse_slot("slot_b", 7)
+    raw_banks = ift_cfg.get("banks", [])
+    selector_ch = ift_cfg.get("selector_channel", None)
+    if selector_ch is not None:
+        try:
+            sel_ch_int = int(selector_ch)
+            if sel_ch_int < 1 or sel_ch_int > 16:
+                errors.append(f"in_flight_tuning.selector_channel ({sel_ch_int}) out of bounds [1, 16]")
+                selector_ch_idx = 0xFF
+            else:
+                selector_ch_idx = sel_ch_int - 1
+        except (ValueError, TypeError):
+            errors.append(f"in_flight_tuning.selector_channel '{selector_ch}' must be an integer between 1 and 16")
+            selector_ch_idx = 0xFF
+    else:
+        selector_ch_idx = 0xFF
+
+    parsed_banks = []
+    if raw_banks:
+        if len(raw_banks) > 6:
+            errors.append(f"in_flight_tuning: maximum 6 banks supported, found {len(raw_banks)}")
+        for idx, b in enumerate(raw_banks[:6]):
+            prefix = f"in_flight_tuning.banks[{idx}]"
+            sw_range = b.get("switch_range", [800, 2200])
+            if not isinstance(sw_range, (list, tuple)) or len(sw_range) != 2:
+                errors.append(f"{prefix}.switch_range must be a [min_us, max_us] pair, got {sw_range}")
+                r_min, r_max = 800, 2200
+            else:
+                r_min = int(sw_range[0])
+                r_max = int(sw_range[1])
+                if r_min < 800 or r_max > 2200 or r_min > r_max:
+                    errors.append(f"{prefix}.switch_range [{r_min}, {r_max}] invalid. Must satisfy 800 <= min <= max <= 2200.")
+            slot_a_rust = parse_slot_dict(b.get("slot_a", {}), f"{prefix}.slot_a", def_ch=6)
+            slot_b_rust = parse_slot_dict(b.get("slot_b", {}), f"{prefix}.slot_b", def_ch=7)
+            parsed_banks.append(f"TuneBank {{\n            range_min_us: {r_min},\n            range_max_us: {r_max},\n            slot_a: {slot_a_rust},\n            slot_b: {slot_b_rust},\n        }}")
+    else:
+        # Legacy fallback: single bank from top-level slot_a and slot_b
+        slot_a_rust = parse_slot_dict(ift_cfg.get("slot_a", {}), "in_flight_tuning.slot_a", def_ch=6)
+        slot_b_rust = parse_slot_dict(ift_cfg.get("slot_b", {}), "in_flight_tuning.slot_b", def_ch=7)
+        parsed_banks.append(f"TuneBank {{\n            range_min_us: 800,\n            range_max_us: 2200,\n            slot_a: {slot_a_rust},\n            slot_b: {slot_b_rust},\n        }}")
+
+    num_banks = len(parsed_banks)
+    # Pad out to MAX_TUNE_BANKS (6) with const DEFAULT
+    while len(parsed_banks) < 6:
+        parsed_banks.append("TuneBank::DEFAULT")
+
+    banks_rust = "[\n        " + ",\n        ".join(parsed_banks) + ",\n    ]"
     # 4. Motor ESC Protocol & PWM Frequency
     motor_cfg = cfg.get("motor", {})
     motor_proto = str(motor_cfg.get("protocol", "pwm")).strip().lower()
@@ -285,18 +348,47 @@ def validate_config(cfg):
     # 5. Navigation & Altitude Limits
     nav_cfg = cfg.get("navigation", {})
     nav_enabled = bool(nav_cfg.get("enabled", False))
-    baro_enabled = bool(nav_cfg.get("barometer", False)) or nav_enabled
+    baro_raw = nav_cfg.get("barometer", False)
+    if isinstance(baro_raw, dict):
+        baro_enabled = bool(baro_raw.get("enabled", False)) or nav_enabled
+        baro_model = str(baro_raw.get("model", "dps310")).lower().strip()
+        baro_i2c_addr = int(baro_raw.get("i2c_address", 0x77))
+    else:
+        baro_enabled = bool(baro_raw) or nav_enabled
+        baro_model = str(nav_cfg.get("barometer_model", "dps310")).lower().strip()
+        baro_i2c_addr = int(nav_cfg.get("barometer_i2c_address", 0x77))
+
+    if baro_enabled and baro_model not in ["dps310", "bmp280"]:
+        errors.append(f"Invalid barometer model '{baro_model}'. Supported models: 'dps310', 'bmp280'.")
+
     compass_raw = nav_cfg.get("compass", False)
+    compass_declination_deg = 0.0
+    compass_hard_iron = [0.0, 0.0, 0.0]
+    compass_soft_iron = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
     if isinstance(compass_raw, dict):
         compass_enabled = bool(compass_raw.get("enabled", False)) or nav_enabled
         compass_model = str(compass_raw.get("model", "qmc5883l")).lower().strip()
+        compass_declination_deg = float(compass_raw.get("declination_deg", 0.0))
+        hi = compass_raw.get("hard_iron", [0.0, 0.0, 0.0])
+        if isinstance(hi, list) and len(hi) == 3:
+            compass_hard_iron = [float(x) for x in hi]
+        si = compass_raw.get("soft_iron", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        if isinstance(si, list) and len(si) == 3 and all(isinstance(r, list) and len(r) == 3 for r in si):
+            compass_soft_iron = [[float(val) for val in row] for row in si]
     else:
         compass_enabled = bool(compass_raw) or nav_enabled
         compass_model = str(nav_cfg.get("compass_model", "qmc5883l")).lower().strip()
 
     if compass_enabled and compass_model not in ["qmc5883l", "hmc5883l"]:
         errors.append(f"Invalid compass model '{compass_model}'. Supported models: 'qmc5883l', 'hmc5883l'.")
-    gps_enabled = bool(nav_cfg.get("gps", False)) or nav_enabled
+    gps_enabled = bool(nav_cfg.get("gps", False)) or (nav_enabled and profile == "gps")
+
+    if profile == "ultralight" and gps_enabled:
+        errors.append(
+            "GPS navigation cannot be enabled under 'profile: ultralight'. "
+            "To enable GPS navigation and Return-to-Home, set 'profile: gps' and 'board: xiao-sense-plus'."
+        )
 
     rth_cfg = nav_cfg.get("rth", {})
     rth_min_sats = int(rth_cfg.get("min_satellites", 6))
@@ -305,7 +397,7 @@ def validate_config(cfg):
 
     if gps_enabled and board != "xiao-sense-plus":
         errors.append(
-            f"GPS navigation (navigation.gps: true or navigation.enabled: true) requires board: 'xiao-sense-plus'. "
+            f"GPS navigation (profile: gps) requires board: 'xiao-sense-plus'. "
             f"The standard '{board}' board lacks the secondary UART (UARTE1) broken out on pins D9/D10."
         )
 
@@ -428,28 +520,31 @@ def validate_config(cfg):
         print("=" * 70)
         sys.exit(1)
 
-    # Determine required cargo features
+    # Determine required cargo features (granular: baro, compass, gps)
     features = [proto]
     if motor_proto == "dshot":
         features.append("dshot")
 
-    if nav_enabled:
-        features.append("nav")
-    else:
-        if baro_enabled:
-            features.append("baro")
-        if compass_enabled:
-            features.append("compass")
-        if gps_enabled:
-            features.append("gps")
+    if baro_enabled:
+        features.append("baro")
+    if compass_enabled:
+        features.append("compass")
+    if gps_enabled:
+        features.append("gps")
 
-    variant_name = f"{proto}-{motor_proto}"
-    if nav_enabled or baro_enabled or compass_enabled:
-        variant_name += "-nav"
+    variant_parts = [proto, motor_proto]
+    if profile == "gps" or gps_enabled:
+        variant_parts.append("gps")
+    elif baro_enabled and compass_enabled:
+        variant_parts.append("nav")
     elif baro_enabled:
-        variant_name += "-baro"
+        variant_parts.append("baro")
     elif compass_enabled:
-        variant_name += "-compass"
+        variant_parts.append("compass")
+    else:
+        variant_parts.append("ultralight")
+
+    variant_name = "-".join(variant_parts)
 
     if raw_loop_rate == "high":
         if nav_enabled or gps_enabled:
@@ -459,6 +554,7 @@ def validate_config(cfg):
 
     return {
         "board": board,
+        "profile": profile,
         "orientation_rust": orientation_rust,
         "airframe_rust": airframe_rust,
         "loop_rate_name": loop_rate_info["name"],
@@ -467,6 +563,7 @@ def validate_config(cfg):
         "nominal_dt": loop_rate_info["nominal_dt"],
         "imu_xl_reg": loop_rate_info["xl_reg"],
         "imu_g_reg": loop_rate_info["g_reg"],
+        "imu_decimation": loop_rate_info["decimation"],
         "protocol": proto,
 
         "failsafe_ms": int(failsafe_ms),
@@ -490,15 +587,25 @@ def validate_config(cfg):
         "servo7_rust": servo7_rust,
         "servo8_rust": servo8_rust,
         "ift_enabled": "true" if ift_enabled else "false",
+        "ift_selector_idx": f"0x{selector_ch_idx:02X}" if selector_ch_idx == 0xFF else str(selector_ch_idx),
+        "ift_num_banks": str(num_banks),
+        "ift_banks_rust": banks_rust,
         "slot_a_rust": slot_a_rust,
         "slot_b_rust": slot_b_rust,
         "motor_proto": motor_proto,
         "motor_pwm_hz": motor_pwm_hz,
         "diff_thrust": diff_thrust,
         "nav_enabled": nav_enabled,
+        "baro_enabled": baro_enabled,
+        "baro_model": baro_model,
+        "baro_model_rust": "BaroModel::" + ("Dps310" if baro_model == "dps310" else "Bmp280"),
+        "baro_i2c_addr": f"0x{baro_i2c_addr:02X}",
         "compass_enabled": compass_enabled,
         "compass_model": compass_model,
         "compass_model_rust": "CompassModel::" + ("Qmc5883l" if compass_model == "qmc5883l" else "Hmc5883l"),
+        "compass_declination_rad": f"{(compass_declination_deg * 3.141592653589793 / 180.0):.6f}",
+        "compass_hard_iron_rust": f"Vector3::new({compass_hard_iron[0]:.4f}, {compass_hard_iron[1]:.4f}, {compass_hard_iron[2]:.4f})",
+        "compass_soft_iron_rust": f"[\n    [{compass_soft_iron[0][0]:.4f}, {compass_soft_iron[0][1]:.4f}, {compass_soft_iron[0][2]:.4f}],\n    [{compass_soft_iron[1][0]:.4f}, {compass_soft_iron[1][1]:.4f}, {compass_soft_iron[1][2]:.4f}],\n    [{compass_soft_iron[2][0]:.4f}, {compass_soft_iron[2][1]:.4f}, {compass_soft_iron[2][2]:.4f}],\n]",
         "gps_enabled": gps_enabled,
         "rth_min_sats": rth_min_sats,
         "rth_max_hdop": rth_max_hdop,
@@ -538,9 +645,9 @@ def generate_rust_config(cfg_vals):
 //! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
 use embassy_time::Duration;
-use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
+use wingfc_core::math::{{BoardOrientation, Vector3, DEG_TO_RAD}};
 use wingfc_core::mixer::{{AirframeType, ServoConfig}};
-use wingfc_core::tuning::{{InFlightTuning, TuneParameter, TuneSlot}};
+use wingfc_core::tuning::{{InFlightTuning, TuneBank, TuneParameter, TuneSlot}};
 use wingfc_core::pid::PidConfig;
 use wingfc_core::mode::{{FlightMode, ModeMatrix, ModeRange}};
 
@@ -555,6 +662,7 @@ pub const AIRFRAME_TYPE: AirframeType = {cfg_vals['airframe_rust']};
 pub enum LoopRateProfile {{
     Standard416Hz,
     High833Hz,
+    MultiRate208Hz,
 }}
 
 /// Configured flight loop rate profile
@@ -574,6 +682,9 @@ pub const IMU_ODR_XL_REG_VAL: u8 = {hex(cfg_vals['imu_xl_reg'])};
 
 /// LSM6DS3 register value for Gyro (CTRL2_G): configured ODR + +/-2000 dps range
 pub const IMU_ODR_G_REG_VAL: u8 = {hex(cfg_vals['imu_g_reg'])};
+
+/// Number of raw IMU samples boxcar-averaged per flight loop iteration (1 = no decimation)
+pub const IMU_DECIMATION: u8 = {cfg_vals['imu_decimation']};
 
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis({cfg_vals['failsafe_ms']});
@@ -640,21 +751,38 @@ pub const ANGLE_P_GAIN: f32 = {cfg_vals['angle_p_gain']:.2f};
 /// In-flight real-time PID potentiometer tuning configuration
 pub const IN_FLIGHT_TUNING_ENABLED: bool = {cfg_vals['ift_enabled']};
 pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {{
-    slot_a: {cfg_vals['slot_a_rust']},
-    slot_b: {cfg_vals['slot_b_rust']},
+    selector_channel_idx: {cfg_vals['ift_selector_idx']},
+    num_banks: {cfg_vals['ift_num_banks']},
+    banks: {cfg_vals['ift_banks_rust']},
 }};
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};
 
-/// GPS autonomous navigation and Return-to-Home parameters
+/// Barometer configuration
+#[cfg(feature = "baro")]
+pub use crate::drivers::BaroModel;
+
+pub const BARO_ENABLED: bool = {str(cfg_vals['baro_enabled']).lower()};
+#[cfg(feature = "baro")]
+pub const BARO_MODEL: BaroModel = {cfg_vals['baro_model_rust']};
+#[cfg(feature = "baro")]
+pub const BARO_I2C_ADDR: u8 = {cfg_vals['baro_i2c_addr']};
+
+/// External Compass / Magnetometer configuration
 #[cfg(feature = "compass")]
 pub use crate::drivers::CompassModel;
 
-/// External Compass / Magnetometer configuration
 pub const COMPASS_ENABLED: bool = {str(cfg_vals['compass_enabled']).lower()};
 #[cfg(feature = "compass")]
 pub const COMPASS_MODEL: CompassModel = {cfg_vals['compass_model_rust']};
+#[cfg(feature = "compass")]
+pub const MAG_DECLINATION_RAD: f32 = {cfg_vals['compass_declination_rad']};
+#[cfg(feature = "compass")]
+pub const MAG_CALIBRATION: wingfc_core::compass::MagCalibration = wingfc_core::compass::MagCalibration {{
+    hard_iron: {cfg_vals['compass_hard_iron_rust']},
+    soft_iron: {cfg_vals['compass_soft_iron_rust']},
+}};
 
 /// GPS autonomous navigation and Return-to-Home parameters
 pub const GPS_ENABLED: bool = {str(cfg_vals['gps_enabled']).lower()};
@@ -742,6 +870,7 @@ def cmd_check(cfg_vals):
     print("WINGFC-RS CONFIGURATION CHECK")
     print("=" * 70)
     print(f"Target Board     : {cfg_vals['board']}")
+    print(f"Build Profile    : {cfg_vals['profile'].upper()}")
     print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
     print(f"Arm Thresholds   : Arm Switch > {cfg_vals['arm_switch_threshold_us']} μs, Throttle <= {cfg_vals['throttle_zero_threshold_us']} μs")
     print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")

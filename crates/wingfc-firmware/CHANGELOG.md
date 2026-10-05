@@ -5,7 +5,34 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🚀 Features
+
+- **Multi-Rate Decoupled Architecture:** LSM6DS3TR-C sampled at 1.66 kHz and downsampled 8:1 to 208.33 Hz (`dt` = 4.8 ms) via boxcar averaging.
+- **Sensor Health State Machine:** Tri-state health checking (`Healthy`, `Degraded`, `Failed`) with automatic flight mode degradation (`HeadingHold`/`AltHold` to `Angle`).
+- **Build Profiles (`ultralight` & `gps`):** Profiles decoupled from granular hardware feature flags (`baro`, `compass`, `gps`), with native blackbox logging enabled.
+- **Inter-Task Mailboxes:** Scaffolding for `IMU_WATCH` and `ACTUATOR_LATCH` lock-free ringbuffers.
+
+### 🔧 Changes
+
+- Documented and verified QSPI flash pinout (`P0.20`..`P0.25`), preserving Servo 7 on `P0.19`.
+- External sensor bus polled at 20 Hz.
+
+## [0.4.0] - 2026-09-25
+
+### 💼 Other Changes
+
+- Merge pull request #1 from BryanSouza91/dev
+
+### 🚀 Features
+
+- Feat(flight-loop): Implement IMU INT1 DRDY event pacing, dynamic DT, and selectable loop rates
 ## [0.3.1] - 2026-09-11
+
+### ⚙️ Miscellaneous Tasks
+
+- Chore(release): Release v0.3.1
 
 ### ⚡ Performance
 

@@ -6,7 +6,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 authors = ["Bryan Souza <brybryflys@gmail.com>"]
 license = "MIT"
@@ -14,7 +14,7 @@ repository = "https://github.com/BryanSouza91/wingfc-rs"
 homepage = "https://github.com/BryanSouza91/wingfc-rs"
 
 [workspace.dependencies]
-wingfc-core = { path = "crates/wingfc-core", version = "0.3.1", default-features = false }
+wingfc-core = { path = "crates/wingfc-core", version = "0.4.0", default-features = false }
 
 [workspace.metadata.release]
 shared-version = true

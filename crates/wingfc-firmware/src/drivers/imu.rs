@@ -1,7 +1,10 @@
-use crate::config::{BOARD_ORIENTATION, IMU_ODR_G_REG_VAL, IMU_ODR_XL_REG_VAL, NOMINAL_LOOP_HZ};
+use crate::config::{
+    BOARD_ORIENTATION, IMU_DECIMATION, IMU_ODR_G_REG_VAL, IMU_ODR_XL_REG_VAL, NOMINAL_LOOP_HZ,
+};
 use embassy_nrf::gpio::Input;
 use embassy_nrf::twim::Twim;
 use embassy_time::{with_timeout, Duration, Timer};
+use wingfc_core::downsample::BoxcarAccumulator8;
 use wingfc_core::math::Vector3;
 
 pub const LSM6DS3_ADDR: u8 = 0x6A;
@@ -30,6 +33,10 @@ pub struct Lsm6ds3Driver<'d> {
     twim: Twim<'d>,
     int1: Input<'d>,
     gyro_bias: Vector3,
+    /// 8:1 boxcar accumulator (used only when `IMU_DECIMATION > 1`)
+    accumulator: BoxcarAccumulator8,
+    /// Latest decimated (gyro, accel) frame, or `None` if a sample read failed
+    frame: Option<(Vector3, Vector3)>,
 }
 
 impl<'d> Lsm6ds3Driver<'d> {
@@ -38,6 +45,8 @@ impl<'d> Lsm6ds3Driver<'d> {
             twim,
             int1,
             gyro_bias: Vector3::ZERO,
+            accumulator: BoxcarAccumulator8::new(),
+            frame: None,
         }
     }
 
@@ -85,8 +94,9 @@ impl<'d> Lsm6ds3Driver<'d> {
             .map_err(|_| ImuError::I2cError)?;
 
         defmt::info!(
-            "LSM6DS3TR IMU initialized @ {}Hz ODR (DRDY on INT1, +/-2000 dps, +/-16g)",
-            NOMINAL_LOOP_HZ
+            "LSM6DS3TR IMU initialized (loop {}Hz, decimation {}:1, DRDY on INT1, +/-2000 dps, +/-16g)",
+            NOMINAL_LOOP_HZ,
+            IMU_DECIMATION
         );
         Ok(())
     }
@@ -95,9 +105,31 @@ impl<'d> Lsm6ds3Driver<'d> {
     ///
     /// Suspends the CPU in low-power WFE sleep until the INT1 pin asserts HIGH, indicating
     /// new Gyro and Accel sample data is latched in hardware registers.
-    #[inline(always)]
+    ///
+    /// When `IMU_DECIMATION > 1`, this waits for and reads `IMU_DECIMATION` consecutive
+    /// samples, averaging them into a single frame returned by [`Self::read`]. The
+    /// accumulator persists across cancellation (e.g. watchdog timeouts).
     pub async fn wait_data_ready(&mut self) {
-        self.int1.wait_for_high().await;
+        if IMU_DECIMATION <= 1 {
+            self.int1.wait_for_high().await;
+            return;
+        }
+        loop {
+            self.int1.wait_for_high().await;
+            match self.read_sample().await {
+                Ok((gyro, accel)) => {
+                    if let Some(f) = self.accumulator.push(accel, gyro) {
+                        self.frame = Some((f.gyro, f.accel));
+                        return;
+                    }
+                }
+                Err(_) => {
+                    self.accumulator.reset();
+                    self.frame = None;
+                    return;
+                }
+            }
+        }
     }
 
     /// Calibrates gyroscope offsets by averaging stationary samples
@@ -108,7 +140,7 @@ impl<'d> Lsm6ds3Driver<'d> {
         let mut sum_z = 0.0f32;
 
         for _ in 0..sample_count {
-            let (gyro, _) = self.read().await?;
+            let (gyro, _) = self.read_sample().await?;
             sum_x += gyro.x;
             sum_y += gyro.y;
             sum_z += gyro.z;
@@ -125,8 +157,20 @@ impl<'d> Lsm6ds3Driver<'d> {
         Ok(())
     }
 
-    /// Burst-reads 12 bytes of Gyro and Accel data over 400kHz Fast-Mode EasyDMA I2C.
+    /// Returns the latest `(gyro, accel)` sample.
+    ///
+    /// Without decimation this burst-reads 12 bytes over 400kHz Fast-Mode EasyDMA I2C. With
+    /// decimation it returns the boxcar-averaged frame produced by [`Self::wait_data_ready`]
+    /// instead of touching the bus.
     pub async fn read(&mut self) -> Result<(Vector3, Vector3), ImuError> {
+        if IMU_DECIMATION > 1 {
+            return self.frame.take().ok_or(ImuError::I2cError);
+        }
+        self.read_sample().await
+    }
+
+    /// Reads one raw sample (bias-corrected, body-frame) as `(gyro, accel)`.
+    async fn read_sample(&mut self) -> Result<(Vector3, Vector3), ImuError> {
         let (raw_gyro, accel) = self.read_raw_scaled().await?;
         // Gyro calibration offsets are captured directly from sensor registers in the physical sensor frame.
         // Therefore, bias MUST be subtracted in the raw sensor frame BEFORE applying BOARD_ORIENTATION
