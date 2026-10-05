@@ -4,7 +4,7 @@
 //! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
 use embassy_time::Duration;
-use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
+use wingfc_core::math::{BoardOrientation, Vector3, DEG_TO_RAD};
 use wingfc_core::mixer::{AirframeType, ServoConfig};
 use wingfc_core::mode::{FlightMode, ModeMatrix, ModeRange};
 use wingfc_core::pid::PidConfig;

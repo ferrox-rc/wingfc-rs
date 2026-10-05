@@ -23,6 +23,13 @@
 #   - 'xiao-sense-plus'  : XIAO nRF52840 Sense Plus (Required for GPS navigation with extra UART)
 board: xiao-sense
 
+# Aircraft Build Profile:
+#   - 'ultralight' : (Default) Lightweight profile for sub-250g wings. Supports optional onboard
+#                    or external Baro & Compass, with zero GPS overhead.
+#   - 'gps'        : Autonomous navigation profile enabling GPS serial link, Return-to-Home (RTH),
+#                    and statutory ceiling tracking (Requires board: xiao-sense-plus).
+profile: ultralight
+
 # Board Mounting Orientation: default, cw90, cw180, cw270, flip, flip_cw90, flip_cw180, flip_cw270
 orientation: default
 

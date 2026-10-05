@@ -74,11 +74,16 @@ def validate_config(cfg):
     errors = []
     advisories = []
 
-    # 1. Board Target
+    # 1. Board & Profile Target
     board = str(cfg.get("board", "xiao-sense")).strip().lower()
     valid_boards = ["xiao-sense", "xiao-sense-plus"]
     if board not in valid_boards:
         errors.append(f"Invalid board '{board}'. Must be one of: {valid_boards}")
+
+    profile = str(cfg.get("profile", "ultralight")).strip().lower()
+    valid_profiles = ["ultralight", "gps"]
+    if profile not in valid_profiles:
+        errors.append(f"Invalid profile '{profile}'. Must be one of: {valid_profiles}")
 
     valid_orientations = {
         "default": "BoardOrientation::Default",
@@ -377,7 +382,13 @@ def validate_config(cfg):
 
     if compass_enabled and compass_model not in ["qmc5883l", "hmc5883l"]:
         errors.append(f"Invalid compass model '{compass_model}'. Supported models: 'qmc5883l', 'hmc5883l'.")
-    gps_enabled = bool(nav_cfg.get("gps", False)) or nav_enabled
+    gps_enabled = bool(nav_cfg.get("gps", False)) or (nav_enabled and profile == "gps")
+
+    if profile == "ultralight" and gps_enabled:
+        errors.append(
+            "GPS navigation cannot be enabled under 'profile: ultralight'. "
+            "To enable GPS navigation and Return-to-Home, set 'profile: gps' and 'board: xiao-sense-plus'."
+        )
 
     rth_cfg = nav_cfg.get("rth", {})
     rth_min_sats = int(rth_cfg.get("min_satellites", 6))
@@ -386,7 +397,7 @@ def validate_config(cfg):
 
     if gps_enabled and board != "xiao-sense-plus":
         errors.append(
-            f"GPS navigation (navigation.gps: true or navigation.enabled: true) requires board: 'xiao-sense-plus'. "
+            f"GPS navigation (profile: gps) requires board: 'xiao-sense-plus'. "
             f"The standard '{board}' board lacks the secondary UART (UARTE1) broken out on pins D9/D10."
         )
 
@@ -509,28 +520,31 @@ def validate_config(cfg):
         print("=" * 70)
         sys.exit(1)
 
-    # Determine required cargo features
+    # Determine required cargo features (granular: baro, compass, gps)
     features = [proto]
     if motor_proto == "dshot":
         features.append("dshot")
 
-    if nav_enabled:
-        features.append("nav")
-    else:
-        if baro_enabled:
-            features.append("baro")
-        if compass_enabled:
-            features.append("compass")
-        if gps_enabled:
-            features.append("gps")
+    if baro_enabled:
+        features.append("baro")
+    if compass_enabled:
+        features.append("compass")
+    if gps_enabled:
+        features.append("gps")
 
-    variant_name = f"{proto}-{motor_proto}"
-    if nav_enabled or baro_enabled or compass_enabled:
-        variant_name += "-nav"
+    variant_parts = [proto, motor_proto]
+    if profile == "gps" or gps_enabled:
+        variant_parts.append("gps")
+    elif baro_enabled and compass_enabled:
+        variant_parts.append("nav")
     elif baro_enabled:
-        variant_name += "-baro"
+        variant_parts.append("baro")
     elif compass_enabled:
-        variant_name += "-compass"
+        variant_parts.append("compass")
+    else:
+        variant_parts.append("ultralight")
+
+    variant_name = "-".join(variant_parts)
 
     if raw_loop_rate == "high":
         if nav_enabled or gps_enabled:
@@ -540,6 +554,7 @@ def validate_config(cfg):
 
     return {
         "board": board,
+        "profile": profile,
         "orientation_rust": orientation_rust,
         "airframe_rust": airframe_rust,
         "loop_rate_name": loop_rate_info["name"],
@@ -630,7 +645,7 @@ def generate_rust_config(cfg_vals):
 //! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
 use embassy_time::Duration;
-use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
+use wingfc_core::math::{{BoardOrientation, Vector3, DEG_TO_RAD}};
 use wingfc_core::mixer::{{AirframeType, ServoConfig}};
 use wingfc_core::tuning::{{InFlightTuning, TuneBank, TuneParameter, TuneSlot}};
 use wingfc_core::pid::PidConfig;
@@ -855,6 +870,7 @@ def cmd_check(cfg_vals):
     print("WINGFC-RS CONFIGURATION CHECK")
     print("=" * 70)
     print(f"Target Board     : {cfg_vals['board']}")
+    print(f"Build Profile    : {cfg_vals['profile'].upper()}")
     print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
     print(f"Arm Thresholds   : Arm Switch > {cfg_vals['arm_switch_threshold_us']} μs, Throttle <= {cfg_vals['throttle_zero_threshold_us']} μs")
     print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
