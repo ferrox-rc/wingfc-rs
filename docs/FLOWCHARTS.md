@@ -27,37 +27,49 @@ flowchart TD
 
 ---
 
-## 2. Hardware Event-Driven Real-Time Flight Loop (416 Hz / 833 Hz)
+## 2. Multi-Rate Decoupled Flight Loop (1666.6 Hz IMU -> 208.33 Hz Loop)
 
 ```mermaid
 flowchart TD
-    DRDY([LSM6DS3 INT1 DRDY Interrupt via GPIOTE]) --> PetWDT[Pet 2000ms Hardware Watchdog]
-    PetWDT --> MeasureDT[Measure Dynamic dt via Instant::now() delta]
-    MeasureDT --> DrainRC[Drain Latest RC Channels from Buffered Receiver Channel]
+    DRDY([LSM6DS3 INT1 DRDY Interrupt @ 1666.6 Hz]) --> Accum[8:1 Sinc / Boxcar Accumulator<br/>Average 8 consecutive samples]
+    Accum -- 8th Sample Emitted --> PetWDT[Pet 2000ms Hardware Watchdog]
+    PetWDT --> FixedDT[Deterministic dt = 0.0048s / 208.33 Hz]
+    FixedDT --> DrainRC[Drain Latest RC Channels from Buffered Receiver Channel]
     DrainRC --> CheckFailsafe{Duration since last packet > 500ms?}
     
     CheckFailsafe -- Yes --> ForceFailsafe[Force ArmingStatus::Failsafe<br/>Slow-Blink Red LED]
     CheckFailsafe -- No --> ModeMatrix[Evaluate Flight Mode Activation Matrix<br/>CH5 Arm, CH6 Mode, Throttle Interlocks]
     
-    ForceFailsafe --> ReadIMU[Burst Read LSM6DS3TR-C Gyro & Accel via EasyDMA I2C<br/>Clears DRDY on Sensor]
-    ModeMatrix --> ReadIMU
+    ModeMatrix --> IngestExt[Ingest External Sensors Watch @ 20 Hz<br/>Baro & Calibrated Compass]
+    ForceFailsafe --> IngestExt
     
-    ReadIMU --> CheckArmStatus{Current Flight Status?}
+    IngestExt --> HealthCheck{Sensor Health Check<br/>Plausible Mag & Timely Baro?}
+    HealthCheck -- Mag Healthy --> Mag9DoF[Enable 9-DoF AHRS & Heading Hold]
+    HealthCheck -- Mag Degraded / Timeout --> Mag6DoF[Fallback to 6-DoF AHRS & Angle Mode]
+    HealthCheck -- Baro Degraded / Timeout --> BaroFallback[Fallback AltHold to Angle Mode]
+    
+    Mag9DoF --> CheckArmStatus{Current Flight Status?}
+    Mag6DoF --> CheckArmStatus
+    BaroFallback --> CheckArmStatus
     
     CheckArmStatus -- Disarmed --> Passthrough[Zero PIDs<br/>Direct Stick Passthrough to Servos<br/>Throttle Locked to 1000us<br/>Solid Green LED]
     CheckArmStatus -- Failsafe --> Neutralize[Motor Cut to 1000us<br/>Flight Surfaces Neutralized to 1500us]
-    CheckArmStatus -- ArmedAcro --> AcroLoop[PT1 Gyro Filter -> Angular Rate PID + Feedforward with Dynamic dt]
-    CheckArmStatus -- ArmedAngle --> AngleLoop[PT1 Gyro Filter -> Madgwick AHRS -> Cascaded Angle P + Rate PID with Dynamic dt]
+    CheckArmStatus -- ArmedAcro --> AcroLoop[PT1 Gyro Filter -> Angular Rate PID + Feedforward with Fixed dt]
+    CheckArmStatus -- ArmedAngle --> AngleLoop[PT1 Gyro Filter -> Madgwick AHRS -> Cascaded Angle P + Rate PID with Fixed dt]
+    CheckArmStatus -- ArmedHeadingHold --> HeadingLoop[Tilt-Compensated Heading -> Bank Angle Cascaded Controller]
+    CheckArmStatus -- ArmedAltHold --> AltLoop[Vertical Kalman Filter -> Cascaded Altitude / Pitch Controller]
     
     Passthrough --> Mixer[Airframe Mixer]
     Neutralize --> Mixer
     AcroLoop --> Mixer
     AngleLoop --> Mixer
+    HeadingLoop --> Mixer
+    AltLoop --> Mixer
     
     Mixer --> Clamping[Per-Servo Clamping, Inversion, Subtrim]
     Clamping --> Dispatch[Write Duty Cycles to Hardware PWM0 & PWM1/2]
-    Dispatch --> TelemetryCheck{loop_counter multiple of 8 or 16?}
-    TelemetryCheck -- Yes --> EmitTelemetry[Send CRSF Telemetry Snapshot]
+    Dispatch --> TelemetryCheck{loop_counter % divider == 0?}
+    TelemetryCheck -- Yes --> EmitTelemetry[Send CRSF Telemetry Snapshot @ ~50 Hz]
     TelemetryCheck -- No --> Sleep([Sleep in WFE awaiting next Hardware DRDY Interrupt])
     EmitTelemetry --> Sleep
 ```

@@ -3,17 +3,18 @@
 High-performance, zero-latency, bare-metal Rust flight controller firmware for sub-250g FPV flying wings, acrobatic wings, and autonomous UAVs.
 
 ## Key Features
-- **YAML Aircraft Configuration:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](wingfc.yaml) without touching build files or Rust code.
-- **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and hardware DRDY interrupt-paced control loop with selectable rates (416 Hz standard / 833 Hz high-speed).
+- **YAML Aircraft Configuration & Build Profiles:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](wingfc.yaml). Supports high-level build profiles (`ultralight` sub-250g default, `gps` full navigation) with granular hardware feature flags.
+- **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and hardware DRDY interrupt-paced control loop. Supports multi-rate sinc decimation (1.66 kHz IMU ODR downsampled 8:1 to 208.33 Hz) and legacy direct modes (416 Hz / 833 Hz).
 - **Acrobatic & Rates Mode:** Direct angular velocity tracking with PT1 vibration filtering and FeedForward.
 - **Madgwick Quaternion AHRS:** 6-DoF and 9-DoF attitude estimation without gimbal lock and with dynamic G-rejection.
-- **Autonomous Navigation Suite:** Barometric Vertical Kalman Filter (altitude hold, stall prevention, hard-deck floor, statutory 120m ceiling limiter), tilt-compensated magnetic compass, and GPS Return-to-Home (RTH).
+- **Sensor Health Supervision:** Tri-state state machine (`Healthy`, `Degraded`, `Failed`) with timeout fault detection and automatic graceful fallback (e.g. `HeadingHold`/`AltHold` to `Angle`).
+- **Autonomous Navigation Suite:** Barometric Vertical Kalman Filter (altitude hold, stall prevention, hard-deck floor, statutory 120m ceiling limiter), tilt-compensated magnetic compass with 3x3 soft/hard iron calibration, and GPS Return-to-Home (RTH).
 - **Zero-Allocation NMEA GPS Engine:** High-speed streaming parser with automatic launch point latching and equirectangular flat-Earth coordinate projection.
 - **DMA-Driven Hardware I/O:** Embassy-based async UART (CRSF / ELRS @ 420 kBaud, iBus @ 115.2 kBaud, GPS @ 115.2 kBaud), SPI (DShot), and multi-frequency PWM (50 Hz &ndash; 400 Hz).
 - **Bidirectional CRSF / ELRS Telemetry:** Broadcasts 3D vehicle attitude, active flight mode, battery status, and GPS coordinates to EdgeTX / OpenTX transmitters via EasyDMA UARTE0 TX (`D6` / `P1.11`).
 - **Configurable Arming Interlocks:** Pilot-configurable arm switch and throttle-zero thresholds with active motor spin-up warning systems.
 - **Multi-Bank In-Flight PID Tuning:** Real-time gain adjustment across up to 6 selectable banks via auxiliary switch, supporting parameter persistence and safe lockouts.
-- **Next-Gen Telemetry & Bench Debugging:** Sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and real-time binary blackbox structures.
+- **Next-Gen Telemetry & Bench Debugging:** Native QSPI flash blackbox logging (2MB onboard P25Q16H), sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and real-time binary blackbox structures.
 
 ## Documentation
 - ⚙️ [Aircraft Configuration Guide (`wingfc.yaml`)](docs/CONFIG.md)
