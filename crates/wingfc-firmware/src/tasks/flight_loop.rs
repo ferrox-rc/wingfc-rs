@@ -33,7 +33,12 @@ use wingfc_core::mode::AltHoldController;
 #[cfg(feature = "baro")]
 use wingfc_core::vertical_kf::VerticalKalmanFilter;
 #[cfg(feature = "compass")]
+use crate::config::MAG_DECLINATION_RAD;
+#[cfg(feature = "compass")]
+use wingfc_core::compass::tilt_compensated_heading;
+#[cfg(feature = "compass")]
 use wingfc_core::mode::HeadingHoldController;
+use wingfc_core::sensor_health::SensorHealth;
 
 pub struct FlightLoopState<'d> {
     pub imu: Lsm6ds3Driver<'d>,
@@ -50,10 +55,16 @@ pub struct FlightLoopState<'d> {
     pub heading_hold: HeadingHoldController,
     #[cfg(feature = "compass")]
     pub latest_mag: Vector3,
+    #[cfg(feature = "compass")]
+    pub mag_health: SensorHealth,
+    #[cfg(feature = "compass")]
+    pub tilt_heading_rad: f32,
     #[cfg(feature = "baro")]
     pub alt_hold: AltHoldController,
     #[cfg(feature = "baro")]
     pub vkf: VerticalKalmanFilter,
+    #[cfg(feature = "baro")]
+    pub baro_health: SensorHealth,
     pub last_packet_time: Instant,
     pub latest_rc: RcChannels,
     pub status: ArmingStatus,
@@ -94,10 +105,16 @@ impl<'d> FlightLoopState<'d> {
             heading_hold: HeadingHoldController::default(),
             #[cfg(feature = "compass")]
             latest_mag: Vector3::ZERO,
+            #[cfg(feature = "compass")]
+            mag_health: SensorHealth::Absent,
+            #[cfg(feature = "compass")]
+            tilt_heading_rad: 0.0,
             #[cfg(feature = "baro")]
             alt_hold: AltHoldController::default(),
             #[cfg(feature = "baro")]
             vkf: VerticalKalmanFilter::default(),
+            #[cfg(feature = "baro")]
+            baro_health: SensorHealth::Absent,
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
             status: ArmingStatus::Disarmed,
@@ -261,12 +278,18 @@ impl<'d> FlightLoopState<'d> {
         {
             if let Some(snapshot) = ext_sensor_rx.try_get() {
                 #[cfg(feature = "compass")]
-                if snapshot.mag_updated {
-                    self.latest_mag = snapshot.mag;
+                {
+                    self.mag_health = snapshot.mag_health;
+                    if snapshot.mag_updated && snapshot.mag_health.is_healthy() {
+                        self.latest_mag = snapshot.mag;
+                    }
                 }
                 #[cfg(feature = "baro")]
-                if snapshot.baro_updated {
-                    self.vkf.update_baro(snapshot.baro_alt_m);
+                {
+                    self.baro_health = snapshot.baro_health;
+                    if snapshot.baro_updated && snapshot.baro_health.is_healthy() {
+                        self.vkf.update_baro(snapshot.baro_alt_m);
+                    }
                 }
             }
         }
@@ -329,7 +352,13 @@ impl<'d> FlightLoopState<'d> {
 
         // 7. Update Attitude Estimation (Madgwick AHRS)
         #[cfg(feature = "compass")]
-        self.ahrs.update_9dof(gyro, accel, self.latest_mag, dt);
+        {
+            if self.mag_health.is_healthy() {
+                self.ahrs.update_9dof(gyro, accel, self.latest_mag, dt);
+            } else {
+                self.ahrs.update_6dof(gyro, accel, dt);
+            }
+        }
         #[cfg(not(feature = "compass"))]
         self.ahrs.update_6dof(gyro, accel, dt);
 
@@ -337,6 +366,18 @@ impl<'d> FlightLoopState<'d> {
             self.cached_euler = self.ahrs.get_euler_angles();
         }
         let (est_pitch, est_roll, _est_yaw) = self.cached_euler;
+
+        #[cfg(feature = "compass")]
+        if self.mag_health.is_healthy() {
+            self.tilt_heading_rad = tilt_compensated_heading(
+                self.latest_mag,
+                est_roll,
+                est_pitch,
+                MAG_DECLINATION_RAD,
+            );
+        } else {
+            self.tilt_heading_rad = _est_yaw;
+        }
 
         // 8. Vertical Kalman Filter High-Rate Prediction Step
         #[cfg(feature = "baro")]
@@ -385,12 +426,17 @@ impl<'d> FlightLoopState<'d> {
             #[cfg(feature = "compass")]
             ArmingStatus::ArmedHeadingHold => {
                 // HEADING HOLD MODE: Cascaded heading controller onto Angle roll
-                let target_roll = self.heading_hold.update(_est_yaw, roll_stick, yaw_stick);
+                // Graceful fallback: If compass is degraded/lost mid-flight, fallback to standard Angle mode
+                let target_roll = if self.mag_health.is_healthy() {
+                    self.heading_hold.update(self.tilt_heading_rad, roll_stick, yaw_stick)
+                } else {
+                    roll_stick * MAX_ROLL_ANGLE
+                };
                 let target_pitch = pitch_stick * MAX_PITCH_ANGLE;
 
                 let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
-                let target_yaw_rate = 0.0; // Heading hold locks yaw via roll banking
+                let target_yaw_rate = if self.mag_health.is_healthy() { 0.0 } else { yaw_stick * MAX_YAW_RATE };
 
                 roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
                 pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
@@ -400,12 +446,17 @@ impl<'d> FlightLoopState<'d> {
             #[cfg(feature = "baro")]
             ArmingStatus::ArmedAltHold => {
                 // ALTITUDE HOLD MODE: Cascaded baro/KF altitude controller onto Angle pitch
-                let (target_pitch, alt_thr) = self.alt_hold.update(
-                    self.vkf.altitude_m,
-                    self.vkf.velocity_ms,
-                    pitch_stick,
-                    throttle_raw,
-                );
+                // Graceful fallback: If barometer is degraded/lost mid-flight, fallback to standard Angle mode
+                let (target_pitch, alt_thr) = if self.baro_health.is_healthy() {
+                    self.alt_hold.update(
+                        self.vkf.altitude_m,
+                        self.vkf.velocity_ms,
+                        pitch_stick,
+                        throttle_raw,
+                    )
+                } else {
+                    (pitch_stick * MAX_PITCH_ANGLE, throttle_raw)
+                };
                 let target_roll = roll_stick * MAX_ROLL_ANGLE;
 
                 let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;

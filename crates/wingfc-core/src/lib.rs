@@ -16,6 +16,7 @@ pub mod mode;
 pub mod pid;
 pub mod protocol;
 pub mod safety;
+pub mod sensor_health;
 pub mod tuning;
 #[cfg(feature = "baro")]
 pub mod vertical_kf;
@@ -37,6 +38,7 @@ pub use mode::{HeadingHoldConfig, HeadingHoldController};
 pub use pid::{PidConfig, PidController};
 pub use protocol::{CrsfTelemetryEncoder, RcChannels};
 pub use safety::{ArmingSafety, ArmingStatus};
+pub use sensor_health::{SensorHealth, SystemSensorHealth};
 pub use tuning::{InFlightTuning, TuneParameter, TuneSlot};
 #[cfg(feature = "baro")]
 pub use vertical_kf::VerticalKalmanFilter;

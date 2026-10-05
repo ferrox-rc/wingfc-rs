@@ -284,6 +284,15 @@ navigation:
   compass:
     enabled: false
     model: qmc5883l
+    declination_deg: 0.0        # Local magnetic declination in degrees (+ for East, - for West)
+    # Hard-iron bias offsets (uT or raw LSB) subtracted prior to rotation
+    hard_iron: [0.0, 0.0, 0.0]
+    # Soft-iron 3x3 distortion matrix (defaults to identity)
+    soft_iron: [
+      [1.0, 0.0, 0.0],
+      [0.0, 1.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ]
 
   gps: false                   # NMEA/UBX GPS navigation & Return-to-Home (Requires board: xiao-sense-plus)
 

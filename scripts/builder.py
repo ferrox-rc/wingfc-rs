@@ -357,9 +357,20 @@ def validate_config(cfg):
         errors.append(f"Invalid barometer model '{baro_model}'. Supported models: 'dps310', 'bmp280'.")
 
     compass_raw = nav_cfg.get("compass", False)
+    compass_declination_deg = 0.0
+    compass_hard_iron = [0.0, 0.0, 0.0]
+    compass_soft_iron = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
     if isinstance(compass_raw, dict):
         compass_enabled = bool(compass_raw.get("enabled", False)) or nav_enabled
         compass_model = str(compass_raw.get("model", "qmc5883l")).lower().strip()
+        compass_declination_deg = float(compass_raw.get("declination_deg", 0.0))
+        hi = compass_raw.get("hard_iron", [0.0, 0.0, 0.0])
+        if isinstance(hi, list) and len(hi) == 3:
+            compass_hard_iron = [float(x) for x in hi]
+        si = compass_raw.get("soft_iron", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        if isinstance(si, list) and len(si) == 3 and all(isinstance(r, list) and len(r) == 3 for r in si):
+            compass_soft_iron = [[float(val) for val in row] for row in si]
     else:
         compass_enabled = bool(compass_raw) or nav_enabled
         compass_model = str(nav_cfg.get("compass_model", "qmc5883l")).lower().strip()
@@ -577,6 +588,9 @@ def validate_config(cfg):
         "compass_enabled": compass_enabled,
         "compass_model": compass_model,
         "compass_model_rust": "CompassModel::" + ("Qmc5883l" if compass_model == "qmc5883l" else "Hmc5883l"),
+        "compass_declination_rad": f"{(compass_declination_deg * 3.141592653589793 / 180.0):.6f}",
+        "compass_hard_iron_rust": f"Vector3::new({compass_hard_iron[0]:.4f}, {compass_hard_iron[1]:.4f}, {compass_hard_iron[2]:.4f})",
+        "compass_soft_iron_rust": f"[\n    [{compass_soft_iron[0][0]:.4f}, {compass_soft_iron[0][1]:.4f}, {compass_soft_iron[0][2]:.4f}],\n    [{compass_soft_iron[1][0]:.4f}, {compass_soft_iron[1][1]:.4f}, {compass_soft_iron[1][2]:.4f}],\n    [{compass_soft_iron[2][0]:.4f}, {compass_soft_iron[2][1]:.4f}, {compass_soft_iron[2][2]:.4f}],\n]",
         "gps_enabled": gps_enabled,
         "rth_min_sats": rth_min_sats,
         "rth_max_hdop": rth_max_hdop,
@@ -747,6 +761,13 @@ pub use crate::drivers::CompassModel;
 pub const COMPASS_ENABLED: bool = {str(cfg_vals['compass_enabled']).lower()};
 #[cfg(feature = "compass")]
 pub const COMPASS_MODEL: CompassModel = {cfg_vals['compass_model_rust']};
+#[cfg(feature = "compass")]
+pub const MAG_DECLINATION_RAD: f32 = {cfg_vals['compass_declination_rad']};
+#[cfg(feature = "compass")]
+pub const MAG_CALIBRATION: wingfc_core::compass::MagCalibration = wingfc_core::compass::MagCalibration {{
+    hard_iron: {cfg_vals['compass_hard_iron_rust']},
+    soft_iron: {cfg_vals['compass_soft_iron_rust']},
+}};
 
 /// GPS autonomous navigation and Return-to-Home parameters
 pub const GPS_ENABLED: bool = {str(cfg_vals['gps_enabled']).lower()};

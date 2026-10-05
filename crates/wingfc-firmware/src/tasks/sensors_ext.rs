@@ -16,9 +16,10 @@ use crate::config::{BARO_ENABLED, BARO_I2C_ADDR, BARO_MODEL};
 use crate::drivers::baro::{pressure_to_altitude, BaroModel, Bmp280Driver, Dps310Driver};
 
 #[cfg(feature = "compass")]
-use crate::config::{COMPASS_ENABLED, COMPASS_MODEL};
+use crate::config::{COMPASS_ENABLED, COMPASS_MODEL, MAG_CALIBRATION};
 #[cfg(feature = "compass")]
 use crate::drivers::compass::{CompassModel, Hmc5883lDriver, Qmc5883lDriver};
+use wingfc_core::sensor_health::{is_mag_magnitude_plausible, SensorHealth};
 
 /// External (slow) sensor poll period: 20 Hz navigation tier.
 const EXT_SENSOR_PERIOD_MS: u64 = 50;
@@ -29,8 +30,10 @@ pub struct ExternalSensorSnapshot {
     pub baro_temp_c: f32,
     pub baro_pressure_pa: f32,
     pub baro_updated: bool,
+    pub baro_health: SensorHealth,
     pub mag: Vector3,
     pub mag_updated: bool,
+    pub mag_health: SensorHealth,
 }
 
 #[embassy_executor::task]
@@ -145,7 +148,12 @@ pub async fn external_sensors_task(
                     snapshot.baro_temp_c = temp_c;
                     snapshot.baro_alt_m = pressure_to_altitude(press_pa, ground_pressure_pa);
                     snapshot.baro_updated = true;
+                    snapshot.baro_health = SensorHealth::Healthy;
+                } else {
+                    snapshot.baro_health = SensorHealth::Degraded;
                 }
+            } else {
+                snapshot.baro_health = SensorHealth::Absent;
             }
         }
 
@@ -161,10 +169,22 @@ pub async fn external_sensors_task(
                     None
                 };
 
-                if let Some(mag_vec) = mag_res {
-                    snapshot.mag = mag_vec;
+                if let Some(raw_mag) = mag_res {
+                    // Apply hard-iron offset and soft-iron calibration
+                    let calibrated_mag = MAG_CALIBRATION.apply(raw_mag);
+                    snapshot.mag = calibrated_mag;
                     snapshot.mag_updated = true;
+                    // Check physical plausibility of field magnitude
+                    if is_mag_magnitude_plausible(calibrated_mag) {
+                        snapshot.mag_health = SensorHealth::Healthy;
+                    } else {
+                        snapshot.mag_health = SensorHealth::Degraded;
+                    }
+                } else {
+                    snapshot.mag_health = SensorHealth::Degraded;
                 }
+            } else {
+                snapshot.mag_health = SensorHealth::Absent;
             }
         }
 

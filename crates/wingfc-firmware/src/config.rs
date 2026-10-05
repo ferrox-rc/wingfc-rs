@@ -229,6 +229,18 @@ pub use crate::drivers::CompassModel;
 pub const COMPASS_ENABLED: bool = false;
 #[cfg(feature = "compass")]
 pub const COMPASS_MODEL: CompassModel = CompassModel::Qmc5883l;
+#[cfg(feature = "compass")]
+pub const MAG_DECLINATION_RAD: f32 = 0.000000;
+#[cfg(feature = "compass")]
+pub const MAG_CALIBRATION: wingfc_core::compass::MagCalibration =
+    wingfc_core::compass::MagCalibration {
+        hard_iron: Vector3::new(0.0000, 0.0000, 0.0000),
+        soft_iron: [
+            [1.0000, 0.0000, 0.0000],
+            [0.0000, 1.0000, 0.0000],
+            [0.0000, 0.0000, 1.0000],
+        ],
+    };
 
 /// GPS autonomous navigation and Return-to-Home parameters
 pub const GPS_ENABLED: bool = false;
