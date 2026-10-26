@@ -5,6 +5,7 @@ pub mod compass;
 pub mod imu;
 pub mod led;
 pub mod pwm;
+pub mod qspi;
 
 #[cfg(feature = "baro")]
 pub use baro::BaroModel;
@@ -15,3 +16,5 @@ pub use led::{LedColor, RgbLedDriver};
 #[cfg(not(feature = "dshot"))]
 pub use pwm::EscPwmDriver;
 pub use pwm::ServoPwmDriver;
+pub use qspi::QspiDriver;
+

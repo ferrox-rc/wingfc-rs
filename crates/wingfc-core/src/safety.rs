@@ -27,6 +27,21 @@ pub enum ArmingStatus {
 }
 
 impl ArmingStatus {
+    /// Indicates whether the aircraft is currently armed in any operational flight mode.
+    #[inline(always)]
+    pub const fn is_armed(&self) -> bool {
+        match self {
+            ArmingStatus::ArmedAcro | ArmingStatus::ArmedAngle => true,
+            #[cfg(feature = "compass")]
+            ArmingStatus::ArmedHeadingHold => true,
+            #[cfg(feature = "baro")]
+            ArmingStatus::ArmedAltHold => true,
+            #[cfg(feature = "gps")]
+            ArmingStatus::ArmedRth => true,
+            _ => false,
+        }
+    }
+
     /// Indicates whether the active flight mode relies on estimated Euler angles (pitch/roll/yaw)
     /// for closed-loop attitude stabilization.
     #[inline(always)]

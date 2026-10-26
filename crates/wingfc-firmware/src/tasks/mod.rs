@@ -1,4 +1,5 @@
 pub mod actuator;
+pub mod blackbox;
 pub mod flight_loop;
 pub mod receiver;
 #[cfg(any(feature = "baro", feature = "compass"))]
@@ -6,6 +7,7 @@ pub mod sensors_ext;
 pub mod telemetry;
 
 pub use actuator::actuator_pwm_task;
+pub use blackbox::{blackbox_task, usb_task};
 #[cfg(not(feature = "dshot"))]
 pub use flight_loop::calibrate_esc_if_requested;
 pub use flight_loop::{calibrate_imu_and_gyro, FlightLoopState};

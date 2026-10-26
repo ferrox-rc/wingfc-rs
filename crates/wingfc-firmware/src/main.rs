@@ -17,7 +17,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
 use embassy_time::{with_timeout, Duration, Instant};
-use static_cell::ConstStaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 use wingfc_core::protocol::RcChannels;
 
@@ -31,9 +31,12 @@ mod tasks;
 use config::ESC_PWM_HZ;
 use config::{NOMINAL_DT, NOMINAL_LOOP_HZ, SERVO_PWM_HZ};
 
+use embassy_nrf::qspi;
+use embassy_nrf::usb;
+
 #[cfg(not(feature = "dshot"))]
 use drivers::EscPwmDriver;
-use drivers::{imu_worker_task, Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
+use drivers::{imu_worker_task, Lsm6ds3Driver, QspiDriver, RgbLedDriver, ServoPwmDriver};
 use pins::BoardPins;
 #[cfg(feature = "crsf")]
 use tasks::{crsf_telemetry_task, FlightTelemetrySnapshot};
@@ -42,8 +45,8 @@ use tasks::{external_sensors_task, ExternalSensorSnapshot};
 #[cfg(not(feature = "dshot"))]
 use tasks::calibrate_esc_if_requested;
 use tasks::{
-    actuator_pwm_task, calibrate_imu_and_gyro, receiver_task, telemetry_led_task,
-    FlightLoopState, VisualStatus,
+    actuator_pwm_task, blackbox_task, calibrate_imu_and_gyro, receiver_task, telemetry_led_task,
+    usb_task, FlightLoopState, VisualStatus,
 };
 
 bind_interrupts!(struct Irqs {
@@ -51,6 +54,9 @@ bind_interrupts!(struct Irqs {
     #[cfg(any(feature = "baro", feature = "compass"))]
     TWISPI1 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI1>;
     UARTE0 => buffered_uarte::InterruptHandler<embassy_nrf::peripherals::UARTE0>;
+    QSPI => qspi::InterruptHandler<embassy_nrf::peripherals::QSPI>;
+    USBD => usb::InterruptHandler<embassy_nrf::peripherals::USBD>;
+    CLOCK_POWER => usb::vbus_detect::InterruptHandler;
 });
 
 static RC_CHANNEL: Channel<ThreadModeRawMutex, RcChannels, 2> = Channel::new();
@@ -200,6 +206,74 @@ async fn main(spawner: Spawner) {
         let _ = tx;
     }
 
+    // 4b. Initialize On-Board Puya P25Q16H 2MB QSPI NOR Flash
+    let qspi_driver = match QspiDriver::init(
+        pins.qspi,
+        Irqs,
+        pins.pin_qspi_sck,
+        pins.pin_qspi_csn,
+        pins.pin_qspi_io0,
+        pins.pin_qspi_io1,
+        pins.pin_qspi_io2,
+        pins.pin_qspi_io3,
+    )
+    .await
+    {
+        Ok(q) => Some(q),
+        Err(e) => {
+            defmt::error!("QSPI NOR Flash init failed: {:?}", e);
+            None
+        }
+    };
+
+    // 4c. Initialize Native USB Device (CDC-ACM Log Offload)
+    let usb_driver = embassy_nrf::usb::Driver::new(
+        pins.usbd,
+        Irqs,
+        embassy_nrf::usb::vbus_detect::HardwareVbusDetect::new(Irqs),
+    );
+
+    static CONFIG_DESC: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0; 256]);
+    static BOS_DESC: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0; 256]);
+    static MSOS_DESC: ConstStaticCell<[u8; 256]> = ConstStaticCell::new([0; 256]);
+    static CONTROL_BUF: ConstStaticCell<[u8; 128]> = ConstStaticCell::new([0; 128]);
+    static USB_STATE: StaticCell<embassy_usb::class::cdc_acm::State> = StaticCell::new();
+    let usb_state = USB_STATE.init(embassy_usb::class::cdc_acm::State::new());
+
+    let mut usb_config = embassy_usb::Config::new(0x1209, 0x0001);
+    usb_config.manufacturer = Some("Seeed Studio / WingFC");
+    usb_config.product = Some("WingFC Flight Controller");
+    usb_config.serial_number = Some("12345678");
+    usb_config.max_power = 100;
+    usb_config.max_packet_size_0 = 64;
+
+    let mut builder = embassy_usb::Builder::new(
+        usb_driver,
+        usb_config,
+        CONFIG_DESC.take(),
+        BOS_DESC.take(),
+        MSOS_DESC.take(),
+        CONTROL_BUF.take(),
+    );
+
+    let cdc_class = embassy_usb::class::cdc_acm::CdcAcmClass::new(&mut builder, usb_state, 64);
+    let (cdc_tx, cdc_rx) = cdc_class.split();
+    let usb_dev = builder.build();
+
+    spawner.spawn(usb_task(usb_dev).unwrap());
+
+    if let Some(qspi) = qspi_driver {
+        spawner.spawn(
+            blackbox_task(
+                qspi,
+                cdc_tx,
+                cdc_rx,
+                STATUS_WATCH.receiver().unwrap(),
+            )
+            .unwrap(),
+        );
+    }
+
     // 5. Pre-Spawn Boot Calibration Sequence
     let status_sender = STATUS_WATCH.sender();
     let rc_receiver = RC_CHANNEL.receiver();
@@ -286,12 +360,51 @@ async fn main(spawner: Spawner) {
             dt,
         );
 
-        #[cfg(feature = "crsf")]
-        {
-            // Transmit telemetry at ~50 Hz regardless of loop rate
-            const TELEMETRY_DIVIDER: u32 = if NOMINAL_LOOP_HZ >= 100 { NOMINAL_LOOP_HZ / 50 } else { 1 };
-            if loop_counter.is_multiple_of(TELEMETRY_DIVIDER) {
-                telemetry_sender.send(flight_loop.telemetry_snapshot());
+        // Transmit telemetry & blackbox logging at ~50 Hz
+        const LOG_DIVIDER: u32 = if NOMINAL_LOOP_HZ >= 100 { NOMINAL_LOOP_HZ / 50 } else { 1 };
+        if loop_counter.is_multiple_of(LOG_DIVIDER) {
+            #[cfg(feature = "crsf")]
+            telemetry_sender.send(flight_loop.telemetry_snapshot());
+
+            if flight_loop.status.is_armed() {
+                let euler = flight_loop.cached_euler;
+                let (gx, gy, gz) = match imu_data {
+                    Ok(f) => (
+                        (f.gyro.x * 1000.0) as i16,
+                        (f.gyro.y * 1000.0) as i16,
+                        (f.gyro.z * 1000.0) as i16,
+                    ),
+                    Err(_) => (0, 0, 0),
+                };
+                let (ax, ay, az) = match imu_data {
+                    Ok(f) => (
+                        (f.accel.x * 100.0) as i16,
+                        (f.accel.y * 100.0) as i16,
+                        (f.accel.z * 100.0) as i16,
+                    ),
+                    Err(_) => (0, 0, 0),
+                };
+                let roll_mrad = (euler.1 * 1000.0) as i16;
+                let pitch_mrad = (euler.0 * 1000.0) as i16;
+                let yaw_mrad = (euler.2 * 1000.0) as i16;
+
+                let s1 = outputs.servo1_us;
+                let s2 = outputs.servo2_us;
+                let thr = outputs.motor1_throttle;
+
+                let frame = wingfc_core::blackbox::BlackboxFrame::new(
+                    flight_loop.status as u8,
+                    (loop_counter & 0xFF) as u8,
+                    now.as_millis() as u32,
+                    [gx, gy, gz],
+                    [ax, ay, az],
+                    [roll_mrad, pitch_mrad, yaw_mrad],
+                    s1,
+                    s2,
+                    thr,
+                    0,
+                );
+                let _ = crate::tasks::blackbox::BLACKBOX_CHANNEL.try_send(frame);
             }
         }
 
