@@ -75,7 +75,7 @@ pub const THROTTLE_ZERO_THRESHOLD: u16 = 1050;
 
 /// Configured PWM frame frequency for servo outputs in Hz (50Hz - 400Hz).
 /// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
-pub const SERVO_PWM_HZ: u32 = 50;
+pub const SERVO_PWM_HZ: u32 = 400;
 
 /// Per-servo output endpoint, subtrim, and inversion calibration profiles
 pub const SERVO_CONFIGS: [ServoConfig; 8] = [
