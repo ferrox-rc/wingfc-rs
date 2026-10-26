@@ -164,7 +164,10 @@ impl Dps310Driver {
             .map_err(|_| BaroError::I2cError)?
             .map_err(|_| BaroError::I2cError)?;
 
-        defmt::info!("DPS310 Barometer initialized on external I2C (addr 0x{:02X})", self.addr);
+        defmt::info!(
+            "DPS310 Barometer initialized on external I2C (addr 0x{:02X})",
+            self.addr
+        );
         Ok(())
     }
 
@@ -182,7 +185,8 @@ impl Dps310Driver {
         }
 
         // c00: 20-bit signed [b3, b4, b5 upper 4]
-        let mut c00 = ((buf[3] as i32) << 12) | ((buf[4] as i32) << 4) | (((buf[5] as i32) >> 4) & 0x0F);
+        let mut c00 =
+            ((buf[3] as i32) << 12) | ((buf[4] as i32) << 4) | (((buf[5] as i32) >> 4) & 0x0F);
         if c00 & 0x80000 != 0 {
             c00 -= 1 << 20;
         }
@@ -372,7 +376,10 @@ impl Bmp280Driver {
             .map_err(|_| BaroError::I2cError)?
             .map_err(|_| BaroError::I2cError)?;
 
-        defmt::info!("BMP280 Barometer initialized on external I2C (addr 0x{:02X})", self.addr);
+        defmt::info!(
+            "BMP280 Barometer initialized on external I2C (addr 0x{:02X})",
+            self.addr
+        );
         Ok(())
     }
 
@@ -394,7 +401,8 @@ impl Bmp280Driver {
         // Bosch temperature compensation
         let c = &self.calib;
         let var1_t = (((adc_t >> 3) - ((c.dig_t1 as i32) << 1)) * (c.dig_t2 as i32)) >> 11;
-        let var2_t = (((((adc_t >> 4) - (c.dig_t1 as i32)) * ((adc_t >> 4) - (c.dig_t1 as i32))) >> 12)
+        let var2_t = (((((adc_t >> 4) - (c.dig_t1 as i32)) * ((adc_t >> 4) - (c.dig_t1 as i32)))
+            >> 12)
             * (c.dig_t3 as i32))
             >> 14;
         self.t_fine = var1_t + var2_t;
@@ -405,7 +413,8 @@ impl Bmp280Driver {
         let mut var2_p = var1_p * var1_p * (c.dig_p6 as i64);
         var2_p += (var1_p * (c.dig_p5 as i64)) << 17;
         var2_p += (c.dig_p4 as i64) << 35;
-        var1_p = ((var1_p * var1_p * (c.dig_p3 as i64)) >> 8) + ((var1_p * (c.dig_p2 as i64)) << 12);
+        var1_p =
+            ((var1_p * var1_p * (c.dig_p3 as i64)) >> 8) + ((var1_p * (c.dig_p2 as i64)) << 12);
         var1_p = (((1i64 << 47) + var1_p) * (c.dig_p1 as i64)) >> 33;
 
         if var1_p == 0 {

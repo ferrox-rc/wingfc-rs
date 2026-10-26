@@ -110,6 +110,8 @@ mod tests {
         // Zero / dead sensor
         assert!(!is_mag_magnitude_plausible(Vector3::ZERO));
         // Extreme saturation near motor/ESC magnets (e.g. 150 uT)
-        assert!(!is_mag_magnitude_plausible(Vector3::new(100.0, 100.0, 50.0)));
+        assert!(!is_mag_magnitude_plausible(Vector3::new(
+            100.0, 100.0, 50.0
+        )));
     }
 }

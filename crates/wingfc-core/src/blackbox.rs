@@ -230,19 +230,32 @@ mod tests {
     #[test]
     fn test_blackbox_crc_rejection() {
         let frame = BlackboxFrame::new(
-            0x01, 1, 1000,
-            [0, 0, 0], [0, 0, 981], [0, 0, 0],
-            1500, 1500, 1000, 0,
+            0x01,
+            1,
+            1000,
+            [0, 0, 0],
+            [0, 0, 981],
+            [0, 0, 0],
+            1500,
+            1500,
+            1000,
+            0,
         );
         let mut bytes = frame.to_bytes();
 
         // Corrupt a payload byte
         bytes[10] ^= 0xFF;
-        assert_eq!(BlackboxFrame::from_bytes(&bytes), Err(BlackboxError::CrcMismatch));
+        assert_eq!(
+            BlackboxFrame::from_bytes(&bytes),
+            Err(BlackboxError::CrcMismatch)
+        );
 
         // Corrupt CRC itself
         bytes[10] ^= 0xFF; // restore
         bytes[31] ^= 0x01;
-        assert_eq!(BlackboxFrame::from_bytes(&bytes), Err(BlackboxError::CrcMismatch));
+        assert_eq!(
+            BlackboxFrame::from_bytes(&bytes),
+            Err(BlackboxError::CrcMismatch)
+        );
     }
 }

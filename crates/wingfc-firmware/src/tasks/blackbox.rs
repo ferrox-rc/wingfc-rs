@@ -56,15 +56,15 @@ pub const SWD_BUF_BYTES: usize = SWD_BUF_WORDS * 4;
 /// Memory-mapped SWD Mailbox in RAM for offloading and erasing blackbox logs via XIAO DebugMate (`probe-rs`).
 #[repr(C, align(4))]
 pub struct BblSwdMailbox {
-    pub magic: AtomicU32,                 // +0x00: 0x57464342
-    pub write_ptr: AtomicU32,             // +0x04: Current write_ptr (0x004000..0x200000)
-    pub capacity: AtomicU32,              // +0x08: LOG_CAPACITY_BYTES (2_080_768)
-    pub session_count: AtomicU32,         // +0x0C: Active session count
-    pub status: AtomicU32,                // +0x10: SWD_STATUS_*
-    pub cmd: AtomicU32,                   // +0x14: SWD_CMD_*
-    pub cmd_addr: AtomicU32,              // +0x18: Flash address for READ_CHUNK or progress for ERASE
-    pub cmd_len: AtomicU32,               // +0x1C: Byte length for READ_CHUNK or total sectors for ERASE
-    pub buf: [AtomicU32; SWD_BUF_WORDS],  // +0x20: 4 KB staging buffer
+    pub magic: AtomicU32,                // +0x00: 0x57464342
+    pub write_ptr: AtomicU32,            // +0x04: Current write_ptr (0x004000..0x200000)
+    pub capacity: AtomicU32,             // +0x08: LOG_CAPACITY_BYTES (2_080_768)
+    pub session_count: AtomicU32,        // +0x0C: Active session count
+    pub status: AtomicU32,               // +0x10: SWD_STATUS_*
+    pub cmd: AtomicU32,                  // +0x14: SWD_CMD_*
+    pub cmd_addr: AtomicU32, // +0x18: Flash address for READ_CHUNK or progress for ERASE
+    pub cmd_len: AtomicU32,  // +0x1C: Byte length for READ_CHUNK or total sectors for ERASE
+    pub buf: [AtomicU32; SWD_BUF_WORDS], // +0x20: 4 KB staging buffer
 }
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -103,9 +103,7 @@ pub async fn usb_task(mut usb: UsbDevice<'static, Driver<'static, HardwareVbusDe
 }
 
 #[embassy_executor::task]
-pub async fn usb_rx_task(
-    mut cdc_rx: CdcReceiver<'static, Driver<'static, HardwareVbusDetect>>,
-) {
+pub async fn usb_rx_task(mut cdc_rx: CdcReceiver<'static, Driver<'static, HardwareVbusDetect>>) {
     let mut rx_chunk = [0u8; 64];
     let mut usb_cmd_buf = [0u8; 64];
     let mut usb_cmd_len = 0;
@@ -153,18 +151,10 @@ pub async fn blackbox_task(
 
     if qspi.read_page(0x000000, &mut header_buf).await.is_ok() {
         if header_buf[0..4] == HEADER_MAGIC {
-            let stored_ptr = u32::from_le_bytes([
-                header_buf[4],
-                header_buf[5],
-                header_buf[6],
-                header_buf[7],
-            ]);
-            let stored_sessions = u32::from_le_bytes([
-                header_buf[8],
-                header_buf[9],
-                header_buf[10],
-                header_buf[11],
-            ]);
+            let stored_ptr =
+                u32::from_le_bytes([header_buf[4], header_buf[5], header_buf[6], header_buf[7]]);
+            let stored_sessions =
+                u32::from_le_bytes([header_buf[8], header_buf[9], header_buf[10], header_buf[11]]);
             if (LOG_START_ADDR..=LOG_END_ADDR).contains(&stored_ptr) {
                 write_ptr = stored_ptr;
                 session_count = stored_sessions.wrapping_add(1);
@@ -188,7 +178,10 @@ pub async fn blackbox_task(
         if let Some(visual) = status_rx.try_get() {
             let new_status = visual.arming;
             if !current_status.is_armed() && new_status.is_armed() {
-                defmt::info!("Blackbox recording started at write_ptr=0x{:06X}", write_ptr);
+                defmt::info!(
+                    "Blackbox recording started at write_ptr=0x{:06X}",
+                    write_ptr
+                );
             } else if current_status.is_armed() && !new_status.is_armed() {
                 // Transitioned from Armed -> Disarmed: Flush any partial page buffer
                 if frames_in_buf > 0 {
@@ -273,10 +266,16 @@ pub async fn blackbox_task(
 }
 
 fn sync_swd_mailbox(write_ptr: u32, session_count: u32) {
-    BBL_SWD_MAILBOX.magic.store(SWD_MAILBOX_MAGIC, Ordering::SeqCst);
+    BBL_SWD_MAILBOX
+        .magic
+        .store(SWD_MAILBOX_MAGIC, Ordering::SeqCst);
     BBL_SWD_MAILBOX.write_ptr.store(write_ptr, Ordering::SeqCst);
-    BBL_SWD_MAILBOX.capacity.store(LOG_CAPACITY_BYTES, Ordering::SeqCst);
-    BBL_SWD_MAILBOX.session_count.store(session_count, Ordering::SeqCst);
+    BBL_SWD_MAILBOX
+        .capacity
+        .store(LOG_CAPACITY_BYTES, Ordering::SeqCst);
+    BBL_SWD_MAILBOX
+        .session_count
+        .store(session_count, Ordering::SeqCst);
 }
 
 /// Ensures the 4 KB sector containing `write_ptr` is erased (`0xFF`) when starting a new sector
@@ -310,12 +309,16 @@ async fn handle_swd_command(
     session_count: u32,
 ) {
     if status.is_armed() {
-        BBL_SWD_MAILBOX.status.store(SWD_STATUS_ERR_ARMED, Ordering::SeqCst);
+        BBL_SWD_MAILBOX
+            .status
+            .store(SWD_STATUS_ERR_ARMED, Ordering::SeqCst);
         BBL_SWD_MAILBOX.cmd.store(SWD_CMD_NONE, Ordering::SeqCst);
         return;
     }
 
-    BBL_SWD_MAILBOX.status.store(SWD_STATUS_BUSY, Ordering::SeqCst);
+    BBL_SWD_MAILBOX
+        .status
+        .store(SWD_STATUS_BUSY, Ordering::SeqCst);
 
     match cmd {
         SWD_CMD_ERASE_USED | SWD_CMD_ERASE_ALL => {
@@ -323,13 +326,14 @@ async fn handle_swd_command(
                 LOG_END_ADDR
             } else {
                 // Erase all used sectors + 1 clean sector ahead
-                let used_end = (*write_ptr)
-                    .saturating_add(QSPI_SECTOR_SIZE as u32)
+                let used_end = (*write_ptr).saturating_add(QSPI_SECTOR_SIZE as u32)
                     & !((QSPI_SECTOR_SIZE as u32) - 1);
                 used_end.clamp(LOG_START_ADDR + (QSPI_SECTOR_SIZE as u32), LOG_END_ADDR)
             };
             let total_sectors = (end_addr - LOG_START_ADDR) / (QSPI_SECTOR_SIZE as u32);
-            BBL_SWD_MAILBOX.cmd_len.store(total_sectors, Ordering::SeqCst);
+            BBL_SWD_MAILBOX
+                .cmd_len
+                .store(total_sectors, Ordering::SeqCst);
 
             let mut sector_addr = LOG_START_ADDR;
             let mut idx = 0u32;
@@ -342,8 +346,13 @@ async fn handle_swd_command(
 
             *write_ptr = LOG_START_ADDR;
             write_flash_header(qspi, *write_ptr, session_count).await;
-            defmt::info!("Blackbox erased via SWD ({} sectors cleared)", total_sectors);
-            BBL_SWD_MAILBOX.status.store(SWD_STATUS_IDLE, Ordering::SeqCst);
+            defmt::info!(
+                "Blackbox erased via SWD ({} sectors cleared)",
+                total_sectors
+            );
+            BBL_SWD_MAILBOX
+                .status
+                .store(SWD_STATUS_IDLE, Ordering::SeqCst);
         }
         SWD_CMD_READ_CHUNK => {
             let addr = BBL_SWD_MAILBOX.cmd_addr.load(Ordering::SeqCst);
@@ -381,12 +390,18 @@ async fn handle_swd_command(
             }
 
             BBL_SWD_MAILBOX.status.store(
-                if ok { SWD_STATUS_IDLE } else { SWD_STATUS_ERR_IO },
+                if ok {
+                    SWD_STATUS_IDLE
+                } else {
+                    SWD_STATUS_ERR_IO
+                },
                 Ordering::SeqCst,
             );
         }
         _ => {
-            BBL_SWD_MAILBOX.status.store(SWD_STATUS_IDLE, Ordering::SeqCst);
+            BBL_SWD_MAILBOX
+                .status
+                .store(SWD_STATUS_IDLE, Ordering::SeqCst);
         }
     }
 

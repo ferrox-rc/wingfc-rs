@@ -118,7 +118,10 @@ pub async fn external_sensors_task(
 
             if samples > 0 {
                 ground_pressure_pa = sum_p / (samples as f32);
-                defmt::info!("Barometer calibrated: Ground Tare Pressure = {} Pa", ground_pressure_pa);
+                defmt::info!(
+                    "Barometer calibrated: Ground Tare Pressure = {} Pa",
+                    ground_pressure_pa
+                );
             }
         }
     }

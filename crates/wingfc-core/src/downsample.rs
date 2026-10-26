@@ -42,8 +42,16 @@ impl Default for BoxcarAccumulator8 {
 impl BoxcarAccumulator8 {
     pub const fn new() -> Self {
         Self {
-            accel: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
-            gyro: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+            accel: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            gyro: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
             count: 0,
             seq: 0,
         }
@@ -66,8 +74,16 @@ impl BoxcarAccumulator8 {
         let k = 1.0 / DECIMATION as f32;
         self.seq = self.seq.wrapping_add(1);
         let out = ImuDecimated {
-            accel: Vector3 { x: self.accel.x * k, y: self.accel.y * k, z: self.accel.z * k },
-            gyro: Vector3 { x: self.gyro.x * k, y: self.gyro.y * k, z: self.gyro.z * k },
+            accel: Vector3 {
+                x: self.accel.x * k,
+                y: self.accel.y * k,
+                z: self.accel.z * k,
+            },
+            gyro: Vector3 {
+                x: self.gyro.x * k,
+                y: self.gyro.y * k,
+                z: self.gyro.z * k,
+            },
             dt: DECIMATED_DT_S,
             seq: self.seq,
         };

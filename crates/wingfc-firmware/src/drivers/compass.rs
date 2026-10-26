@@ -46,7 +46,9 @@ impl Default for Qmc5883lDriver {
 
 impl Qmc5883lDriver {
     pub fn new() -> Self {
-        Self { addr: QMC5883L_ADDR }
+        Self {
+            addr: QMC5883L_ADDR,
+        }
     }
 
     pub async fn init(&mut self, twim: &mut Twim<'_>) -> Result<(), CompassError> {
@@ -54,11 +56,7 @@ impl Qmc5883lDriver {
 
         // Reset QMC5883L via Control Register 2 (0x80 = SOFT_RST)
         let reset_cmd = [QMC_REG_CTRL2, 0x80];
-        let _ = with_timeout(
-            Duration::from_millis(50),
-            twim.write(self.addr, &reset_cmd),
-        )
-        .await;
+        let _ = with_timeout(Duration::from_millis(50), twim.write(self.addr, &reset_cmd)).await;
 
         Timer::after(Duration::from_millis(20)).await;
 
@@ -74,15 +72,15 @@ impl Qmc5883lDriver {
 
         // Control Register 1: 50Hz, 8G, continuous
         let ctrl1_cmd = [QMC_REG_CTRL1, 0x15];
-        with_timeout(
-            Duration::from_millis(50),
-            twim.write(self.addr, &ctrl1_cmd),
-        )
-        .await
-        .map_err(|_| CompassError::I2cError)?
-        .map_err(|_| CompassError::I2cError)?;
+        with_timeout(Duration::from_millis(50), twim.write(self.addr, &ctrl1_cmd))
+            .await
+            .map_err(|_| CompassError::I2cError)?
+            .map_err(|_| CompassError::I2cError)?;
 
-        defmt::info!("QMC5883L Magnetometer initialized on external I2C (addr 0x{:02X})", self.addr);
+        defmt::info!(
+            "QMC5883L Magnetometer initialized on external I2C (addr 0x{:02X})",
+            self.addr
+        );
         Ok(())
     }
 
@@ -144,40 +142,36 @@ impl Default for Hmc5883lDriver {
 
 impl Hmc5883lDriver {
     pub fn new() -> Self {
-        Self { addr: HMC5883L_ADDR }
+        Self {
+            addr: HMC5883L_ADDR,
+        }
     }
 
     pub async fn init(&mut self, twim: &mut Twim<'_>) -> Result<(), CompassError> {
         Timer::after(Duration::from_millis(20)).await;
 
         let cra_cmd = [HMC_REG_CRA, 0x78];
-        with_timeout(
-            Duration::from_millis(50),
-            twim.write(self.addr, &cra_cmd),
-        )
-        .await
-        .map_err(|_| CompassError::I2cError)?
-        .map_err(|_| CompassError::I2cError)?;
+        with_timeout(Duration::from_millis(50), twim.write(self.addr, &cra_cmd))
+            .await
+            .map_err(|_| CompassError::I2cError)?
+            .map_err(|_| CompassError::I2cError)?;
 
         let crb_cmd = [HMC_REG_CRB, 0x20];
-        with_timeout(
-            Duration::from_millis(50),
-            twim.write(self.addr, &crb_cmd),
-        )
-        .await
-        .map_err(|_| CompassError::I2cError)?
-        .map_err(|_| CompassError::I2cError)?;
+        with_timeout(Duration::from_millis(50), twim.write(self.addr, &crb_cmd))
+            .await
+            .map_err(|_| CompassError::I2cError)?
+            .map_err(|_| CompassError::I2cError)?;
 
         let mode_cmd = [HMC_REG_MODE, 0x00];
-        with_timeout(
-            Duration::from_millis(50),
-            twim.write(self.addr, &mode_cmd),
-        )
-        .await
-        .map_err(|_| CompassError::I2cError)?
-        .map_err(|_| CompassError::I2cError)?;
+        with_timeout(Duration::from_millis(50), twim.write(self.addr, &mode_cmd))
+            .await
+            .map_err(|_| CompassError::I2cError)?
+            .map_err(|_| CompassError::I2cError)?;
 
-        defmt::info!("HMC5883L Magnetometer initialized on external I2C (addr 0x{:02X})", self.addr);
+        defmt::info!(
+            "HMC5883L Magnetometer initialized on external I2C (addr 0x{:02X})",
+            self.addr
+        );
         Ok(())
     }
 

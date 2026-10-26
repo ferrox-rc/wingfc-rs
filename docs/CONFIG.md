@@ -2,7 +2,7 @@
 
 `wingfc-rs` allows pilots and developers to configure their aircraft hardware, airframe mixers, receiver protocols, loop timing, and PID gains through a single, human-readable YAML configuration file ([`wingfc.yaml`](../wingfc.yaml)), eliminating the need to modify Rust source code or Cargo feature flags.
 
-The build engine (`./scripts/build.sh` or `python3 scripts/builder.py`) automatically parses, validates, and generates zero-cost compile-time Rust parameters in `crates/wingfc-firmware/src/config.rs`.
+The build engine (`./scripts/build.sh`, `scripts\build.bat` on Windows, or `python scripts/builder.py`) automatically parses, validates, and generates zero-cost compile-time Rust parameters in `crates/wingfc-firmware/src/config.rs`.
 
 ---
 

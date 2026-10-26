@@ -1,12 +1,12 @@
 #![no_std]
 
 pub mod ahrs;
-pub mod downsample;
 #[cfg(feature = "baro")]
 pub mod altitude_safety;
 pub mod autolaunch;
 pub mod blackbox;
 pub mod compass;
+pub mod downsample;
 pub mod dshot;
 pub mod filter;
 #[cfg(feature = "gps")]

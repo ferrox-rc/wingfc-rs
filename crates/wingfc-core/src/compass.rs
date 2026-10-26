@@ -18,13 +18,21 @@ pub struct MagCalibration {
 
 impl MagCalibration {
     pub const IDENTITY: Self = Self {
-        hard_iron: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+        hard_iron: Vector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        },
         soft_iron: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
     };
 
     /// Apply the calibration to a raw magnetometer vector.
     pub fn apply(&self, raw: Vector3) -> Vector3 {
-        let v = [raw.x - self.hard_iron.x, raw.y - self.hard_iron.y, raw.z - self.hard_iron.z];
+        let v = [
+            raw.x - self.hard_iron.x,
+            raw.y - self.hard_iron.y,
+            raw.z - self.hard_iron.z,
+        ];
         let s = &self.soft_iron;
         Vector3 {
             x: s[0][0] * v[0] + s[0][1] * v[1] + s[0][2] * v[2],
@@ -57,7 +65,11 @@ impl Default for MagCalibrator {
 
 impl MagCalibrator {
     pub const fn new() -> Self {
-        Self { min: [f32::MAX; 3], max: [f32::MIN; 3], samples: 0 }
+        Self {
+            min: [f32::MAX; 3],
+            max: [f32::MIN; 3],
+            samples: 0,
+        }
     }
 
     pub fn update(&mut self, m: Vector3) {
@@ -92,7 +104,11 @@ impl MagCalibrator {
         let avg = (radius[0] + radius[1] + radius[2]) / 3.0;
         let off = |i: usize| 0.5 * (self.max[i] + self.min[i]);
         Some(MagCalibration {
-            hard_iron: Vector3 { x: off(0), y: off(1), z: off(2) },
+            hard_iron: Vector3 {
+                x: off(0),
+                y: off(1),
+                z: off(2),
+            },
             soft_iron: [
                 [avg / radius[0], 0.0, 0.0],
                 [0.0, avg / radius[1], 0.0],
@@ -162,11 +178,19 @@ mod tests {
     fn tilt_compensation_recovers_yaw() {
         let field = [0.2, 0.0, 0.45]; // typical northern-hemisphere dip
         let deg = PI / 180.0;
-        for &(phi, theta) in &[(0.0, 0.0), (30.0 * deg, 0.0), (0.0, -30.0 * deg), (45.0 * deg, 45.0 * deg)] {
+        for &(phi, theta) in &[
+            (0.0, 0.0),
+            (30.0 * deg, 0.0),
+            (0.0, -30.0 * deg),
+            (45.0 * deg, 45.0 * deg),
+        ] {
             for &psi in &[0.0, 1.0, -2.0, 3.0] {
                 let body = ned_to_body(field, phi, theta, psi);
                 let h = tilt_compensated_heading(body, phi, theta, 0.0);
-                assert!(wrap_pi(h - psi).abs() < 1e-3, "phi={phi} theta={theta} psi={psi} h={h}");
+                assert!(
+                    wrap_pi(h - psi).abs() < 1e-3,
+                    "phi={phi} theta={theta} psi={psi} h={h}"
+                );
             }
         }
     }
@@ -182,7 +206,14 @@ mod tests {
     fn calibrator_finds_offset_and_scale() {
         let mut cal = MagCalibrator::new();
         // Ellipsoid centred at (0.1, -0.2, 0.3) with radii (0.5, 1.0, 0.25).
-        for &(sx, sy, sz) in &[(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, -1.0)] {
+        for &(sx, sy, sz) in &[
+            (1.0, 0.0, 0.0),
+            (-1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, -1.0, 0.0),
+            (0.0, 0.0, 1.0),
+            (0.0, 0.0, -1.0),
+        ] {
             cal.update(v(0.1 + 0.5 * sx, -0.2 + 1.0 * sy, 0.3 + 0.25 * sz));
         }
         let c = cal.finish(0.01).unwrap();

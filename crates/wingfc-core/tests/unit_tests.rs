@@ -441,7 +441,10 @@ fn test_vqf_rest_detection_and_bias_cancellation() {
         ahrs.update_6dof(raw_gyro, accel, dt);
     }
 
-    assert!(ahrs.rest_detected, "Rest should be detected when stationary");
+    assert!(
+        ahrs.rest_detected,
+        "Rest should be detected when stationary"
+    );
     assert!(
         (ahrs.bias.z - bias_rate).abs() < 0.1 * (core::f32::consts::PI / 180.0),
         "Z-bias estimate should converge near actual bias, got {} deg/s",

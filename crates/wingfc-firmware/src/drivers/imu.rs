@@ -172,7 +172,12 @@ impl<'d> Lsm6ds3Driver<'d> {
         let seq = self.raw_seq;
         self.raw_seq = self.raw_seq.wrapping_add(1);
         let dt = crate::config::NOMINAL_DT;
-        Ok(ImuDecimated { accel, gyro, dt, seq })
+        Ok(ImuDecimated {
+            accel,
+            gyro,
+            dt,
+            seq,
+        })
     }
 
     /// Awaits the LSM6DS3 hardware data-ready signal (or 8:1 decimation window) and reads the latest frame.
@@ -227,7 +232,12 @@ impl<'d> Lsm6ds3Driver<'d> {
 #[embassy_executor::task]
 pub async fn imu_worker_task(
     mut imu: Lsm6ds3Driver<'static>,
-    tx: embassy_sync::watch::Sender<'static, embassy_sync::blocking_mutex::raw::ThreadModeRawMutex, ImuDecimated, 2>,
+    tx: embassy_sync::watch::Sender<
+        'static,
+        embassy_sync::blocking_mutex::raw::ThreadModeRawMutex,
+        ImuDecimated,
+        2,
+    >,
 ) {
     defmt::info!("Starting Tier 1 IMU Worker Task (INT1 DRDY @ 1666.6 Hz)...");
     loop {
@@ -242,4 +252,3 @@ pub async fn imu_worker_task(
         }
     }
 }
-

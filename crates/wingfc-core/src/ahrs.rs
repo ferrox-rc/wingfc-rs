@@ -99,7 +99,7 @@ impl VqfAHRS {
             mag_ref_dip: 0.0,
             mag_undisturbed_t: 0.0,
             mag_min_undisturbed_t: 0.5,
-            mag_norm_th: 0.10,          // 10% deviation threshold
+            mag_norm_th: 0.10,               // 10% deviation threshold
             mag_dip_th: 10.0 * (PI / 180.0), // 10 deg threshold
             k_mag_init: 1.0,
             declination: 0.0,

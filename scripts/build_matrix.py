@@ -268,7 +268,7 @@ def build_matrix(permutations, out_dir):
         uf2conv_script = WORKSPACE_ROOT / "scripts" / "uf2conv" / "uf2conv.py"
         dest_uf2 = out_dir / f"{base_name}.uf2"
         if uf2conv_script.exists() and dest_hex.exists():
-            run_cmd(["python3", str(uf2conv_script), "-c", "-f", "0xADA52840", str(dest_hex), "-o", str(dest_uf2)], capture=True)
+            run_cmd([sys.executable, str(uf2conv_script), "-c", "-f", "0xADA52840", str(dest_hex), "-o", str(dest_uf2)], capture=True)
 
         # Compute SHA256 of artifacts
         for p in [dest_elf, dest_bin, dest_hex, dest_uf2]:

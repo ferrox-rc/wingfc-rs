@@ -126,9 +126,7 @@ impl<'d> QspiDriver<'d> {
             defmt::info!("P25Q16H Quad Enable (QE) bit latched");
         }
 
-        defmt::info!(
-            "Puya P25Q16H 2MB QSPI NOR Flash initialized successfully (32 MHz, Quad I/O)"
-        );
+        defmt::info!("Puya P25Q16H 2MB QSPI NOR Flash initialized successfully (32 MHz, Quad I/O)");
         Ok(Self { qspi })
     }
 

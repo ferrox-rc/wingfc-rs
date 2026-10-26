@@ -23,23 +23,43 @@ fn main() {
     println!("cargo:rerun-if-changed={}", script_path.display());
 
     if yaml_path.exists() {
-        let status = Command::new("python3")
-            .arg(&script_path)
-            .arg("generate")
-            .arg("--out-config")
-            .arg(&target_config)
-            .status();
-        match status {
-            Ok(s) if s.success() => {}
-            Ok(s) => panic!(
-                "wingfc.yaml validation or config generation failed with exit code: {:?}",
-                s.code()
-            ),
-            Err(e) => eprintln!(
-                "cargo:warning=Failed to execute python3 {}: {}",
-                script_path.display(),
-                e
-            ),
+        let python_candidates: &[&str] = if cfg!(windows) {
+            &["python", "py", "python3"]
+        } else {
+            &["python3", "python"]
+        };
+
+        let mut executed = false;
+        for &py_bin in python_candidates {
+            match Command::new(py_bin)
+                .arg(&script_path)
+                .arg("generate")
+                .arg("--out-config")
+                .arg(&target_config)
+                .status()
+            {
+                Ok(s) if s.success() => {
+                    executed = true;
+                    break;
+                }
+                Ok(s) => {
+                    panic!(
+                        "wingfc.yaml validation or config generation failed with exit code: {:?}",
+                        s.code()
+                    );
+                }
+                Err(_) => {
+                    // Binary not found, try next candidate
+                    continue;
+                }
+            }
+        }
+
+        if !executed {
+            eprintln!(
+                "cargo:warning=Failed to execute Python to run {}. Please ensure Python 3 is installed in PATH.",
+                script_path.display()
+            );
         }
 
         // Check if active Cargo receiver feature matches wingfc.yaml

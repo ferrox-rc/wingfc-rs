@@ -964,7 +964,7 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     uf2conv_script = WORKSPACE_ROOT / "scripts" / "uf2conv" / "uf2conv.py"
     dest_uf2 = out_dir / f"{base_name}.uf2"
     if uf2conv_script.exists() and dest_hex.exists():
-        run_cmd(["python3", str(uf2conv_script), "-c", "-f", "0xADA52840", str(dest_hex), "-o", str(dest_uf2)], capture=True)
+        run_cmd([sys.executable, str(uf2conv_script), "-c", "-f", "0xADA52840", str(dest_hex), "-o", str(dest_uf2)], capture=True)
 
     # Calculate memory consumption
     text, data, bss = parse_llvm_size(dest_elf)
@@ -1000,8 +1000,13 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     print("FLASHING INSTRUCTIONS:")
     print("  USB Drag-and-Drop (UF2 Bootloader):")
     print("    1. Double-tap reset button to mount XIAO-SENSE drive")
-    print(f"    2. Copy '{dest_uf2.name}' to XIAO-SENSE drive")
-    print(f"    (Manual conversion: python3 scripts/uf2conv/uf2conv.py -c -f 0xADA52840 {dest_hex.name} -o firmware.uf2)")
+    if sys.platform == "win32":
+        print(f"    2. Copy '{dest_uf2.name}' to XIAO-SENSE drive letter (e.g. D:\\)")
+        print(f"       copy \"{dest_uf2}\" D:\\")
+    else:
+        print(f"    2. Copy '{dest_uf2.name}' to XIAO-SENSE drive")
+        print(f"       cp {dest_uf2} /run/media/$USER/XIAO-SENSE/")
+    print(f"    (Manual conversion: {Path(sys.executable).name} scripts/uf2conv/uf2conv.py -c -f 0xADA52840 {dest_hex.name} -o firmware.uf2)")
     print("  SWD / Debug Probe (probe-rs):")
     print(f"    probe-rs run --chip nRF52840_xxAA {dest_elf}")
     print("  Nordic nrfjprog:")
@@ -1074,6 +1079,33 @@ safety:
 
 def find_uf2_mount():
     """Searches common mount locations for a UF2 bootloader drive."""
+    if sys.platform == "win32":
+        import string
+        for letter in string.ascii_uppercase:
+            drive_str = f"{letter}:\\"
+            drive_path = Path(drive_str)
+            if drive_path.exists():
+                try:
+                    if (drive_path / "INFO_UF2.TXT").exists():
+                        return drive_path
+                    try:
+                        import ctypes
+                        vol_name_buf = ctypes.create_unicode_buffer(1024)
+                        if ctypes.windll.kernel32.GetVolumeInformationW(
+                            ctypes.c_wchar_p(drive_str),
+                            vol_name_buf,
+                            ctypes.sizeof(vol_name_buf),
+                            None, None, None, None, 0
+                        ):
+                            label = vol_name_buf.value.upper()
+                            if label in ["XIAO-SENSE", "XIAO-BLE", "NRF52BOOT", "CURRENT"]:
+                                return drive_path
+                    except Exception:
+                        pass
+                except (PermissionError, OSError):
+                    continue
+        return None
+
     user = os.environ.get("USER", "")
     search_dirs = [
         Path("/run/media") / user,
@@ -1096,24 +1128,72 @@ def find_uf2_mount():
 
 def find_serial_port():
     """Finds first available serial port matching CDC ACM / USB for DFU bootloader."""
+    if sys.platform == "win32":
+        try:
+            import serial.tools.list_ports
+            ports = list(serial.tools.list_ports.comports())
+            for p in ports:
+                desc = (p.description or "").lower()
+                if any(x in desc for x in ["xiao", "nrf52", "cdc", "serial", "usb"]):
+                    return p.device
+            if ports:
+                return ports[0].device
+        except ImportError:
+            pass
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DEVICEMAP\SERIALCOMM")
+            ports = []
+            for i in range(winreg.QueryInfoKey(key)[1]):
+                ports.append(winreg.EnumValue(key, i)[1])
+            if ports:
+                return sorted(ports)[0]
+        except Exception:
+            pass
+        return None
+
     candidates = sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*") + glob.glob("/dev/cu.usbmodem*"))
     return candidates[0] if candidates else None
 
 
-def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DIR):
+def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DIR, auto_confirm=False):
     """Flashes firmware using selected method (auto, uf2, nrfjprog, dfu, probe-rs-hex, probe-rs-run)."""
-    base_name = f"wingfc-firmware-{cfg_vals['variant_name']}"
+    # 1. Run full aircraft configuration and compilation check first
+    print("=" * 70)
+    print("WINGFC-RS PRE-FLASH CONFIGURATION VERIFICATION")
+    print("=" * 70)
+    check_ok = cmd_check(cfg_vals)
+    if not check_ok:
+        print("\nERROR: Aircraft configuration validation or compilation check failed.")
+        print("Flashing aborted to prevent deploying an invalid or non-compiling build.")
+        return False
+
+    # 2. Interactive / stdin confirmation prompt
+    if not auto_confirm:
+        print()
+        prompt_str = "Confirm configuration and proceed with build & flash to hardware? [y/N]: " if sys.stdin.isatty() else ""
+        try:
+            ans = input(prompt_str).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nNotice: Flash confirmation required. In non-interactive or automated environments, run with -y / --yes to confirm.")
+            return False
+
+        if ans not in ["y", "yes"]:
+            print("Flashing cancelled.")
+            return False
+
+    # 3. Always compile release firmware with the confirmed configuration
     out_dir = Path(out_dir).resolve()
+    print("\nCompiling release firmware with confirmed configuration...")
+    ok = cmd_build(cfg_vals, out_dir)
+    if not ok:
+        return False
+
+    base_name = f"wingfc-firmware-{cfg_vals['variant_name']}"
     elf_path = out_dir / f"{base_name}.elf"
     hex_path = out_dir / f"{base_name}.hex"
     bin_path = out_dir / f"{base_name}.bin"
     uf2_path = out_dir / f"{base_name}.uf2"
-
-    if not elf_path.exists() or not hex_path.exists():
-        print(f"Target artifacts for '{base_name}' not found. Building now...")
-        ok = cmd_build(cfg_vals, out_dir)
-        if not ok:
-            return False
 
     selected_method = method or cfg_vals.get("flash_method", "auto")
     print("\n" + "=" * 70)
@@ -1146,8 +1226,12 @@ def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DI
             print("\nAvailable Flashing Methods & Manual Commands:")
             print("  1. USB Drag-and-Drop (UF2 Bootloader):")
             print("     - Double-tap the tiny reset button to mount 'XIAO-SENSE'.")
-            print(f"     - Copy '{uf2_path.name}' into the drive:")
-            print(f"       cp {uf2_path} /run/media/$USER/XIAO-SENSE/")
+            if sys.platform == "win32":
+                print(f"     - Copy '{uf2_path.name}' into the mounted drive letter (e.g. D:\\):")
+                print(f"       copy \"{uf2_path}\" D:\\")
+            else:
+                print(f"     - Copy '{uf2_path.name}' into the drive:")
+                print(f"       cp {uf2_path} /run/media/$USER/XIAO-SENSE/")
             print("  2. Nordic nrfjprog (SWD Intel HEX):")
             print(f"     nrfjprog --program {hex_path} --sectorerase --reset")
             print("  3. Serial DFU (adafruit-nrfutil):")
@@ -1182,7 +1266,7 @@ def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DI
         if not uf2_path.exists():
             uf2conv_script = WORKSPACE_ROOT / "scripts" / "uf2conv" / "uf2conv.py"
             if uf2conv_script.exists() and hex_path.exists():
-                run_cmd(["python3", str(uf2conv_script), "-c", "-f", "0xADA52840", str(hex_path), "-o", str(uf2_path)], capture=True)
+                run_cmd([sys.executable, str(uf2conv_script), "-c", "-f", "0xADA52840", str(hex_path), "-o", str(uf2_path)], capture=True)
 
         target_file = dest_mount / uf2_path.name
         print(f"Copying '{uf2_path.name}' -> '{target_file}'...")
@@ -1296,6 +1380,12 @@ def main():
         default=None,
         help="Target path where generated config.rs is written (default: crates/wingfc-firmware/src/config.rs)",
     )
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Automatically confirm prompts without interactive input (e.g. bypass pre-flash confirmation prompt)",
+    )
 
     args, extra = parser.parse_known_args()
 
@@ -1314,7 +1404,7 @@ def main():
 
     if args.action == "matrix":
         matrix_script = WORKSPACE_ROOT / "scripts" / "build_matrix.py"
-        cmd = ["python3", str(matrix_script)] + extra
+        cmd = [sys.executable, str(matrix_script)] + extra
         ok = run_cmd(cmd)
         sys.exit(0 if ok else 1)
 
@@ -1344,6 +1434,7 @@ def main():
             port=args.port,
             mount_path=args.mount,
             out_dir=args.out_dir,
+            auto_confirm=args.yes,
         )
         sys.exit(0 if ok else 1)
 

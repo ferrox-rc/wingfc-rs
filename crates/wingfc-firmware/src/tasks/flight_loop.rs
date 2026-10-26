@@ -1,8 +1,8 @@
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Receiver;
-use embassy_sync::watch::Sender;
 #[cfg(any(feature = "baro", feature = "compass"))]
 use embassy_sync::watch::Receiver as WatchReceiver;
+use embassy_sync::watch::Sender;
 use embassy_time::Instant;
 #[cfg(not(feature = "dshot"))]
 use embassy_time::{Duration, Timer};
@@ -16,26 +16,26 @@ use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::{
-    AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DIFFERENTIAL_THRUST, DT,
-    FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED,
-    MAX_PITCH_ANGLE, MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, MODE_MATRIX,
-    RATE_PID_CONFIG, RC_CH_ARM, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
+    AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DIFFERENTIAL_THRUST, DT, FAILSAFE_TIMEOUT,
+    GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED, MAX_PITCH_ANGLE,
+    MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, MODE_MATRIX, RATE_PID_CONFIG,
+    RC_CH_ARM, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
     THROTTLE_ZERO_THRESHOLD, VQF_TAU_ACC, VQF_TAU_MAG,
 };
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
 use crate::drivers::Lsm6ds3Driver;
+use crate::tasks::telemetry::VisualStatus;
 #[cfg(any(feature = "baro", feature = "compass"))]
 use crate::tasks::ExternalSensorSnapshot;
-use crate::tasks::telemetry::VisualStatus;
 #[cfg(feature = "baro")]
 use wingfc_core::mode::AltHoldController;
-#[cfg(feature = "baro")]
-use wingfc_core::vertical_kf::VerticalKalmanFilter;
 #[cfg(feature = "compass")]
 use wingfc_core::mode::HeadingHoldController;
 #[cfg(any(feature = "baro", feature = "compass"))]
 use wingfc_core::sensor_health::SensorHealth;
+#[cfg(feature = "baro")]
+use wingfc_core::vertical_kf::VerticalKalmanFilter;
 
 /// Runs boot-time ESC calibration check if PWM is used (Universal Rule #3).
 #[cfg(not(feature = "dshot"))]
@@ -214,8 +214,12 @@ impl FlightLoopState {
         &mut self,
         rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
         status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
-        #[cfg(any(feature = "baro", feature = "compass"))]
-        ext_sensor_rx: &mut WatchReceiver<'static, ThreadModeRawMutex, ExternalSensorSnapshot, 2>,
+        #[cfg(any(feature = "baro", feature = "compass"))] ext_sensor_rx: &mut WatchReceiver<
+            'static,
+            ThreadModeRawMutex,
+            ExternalSensorSnapshot,
+            2,
+        >,
         imu_data: Result<wingfc_core::downsample::ImuDecimated, crate::drivers::ImuError>,
         dt: f32,
     ) -> AirframeOutputs {
@@ -393,7 +397,8 @@ impl FlightLoopState {
         let accel = imu_frame.accel;
 
         // 7. Update Attitude Estimation (VQF AHRS at 208.33 Hz with GPS centripetal compensation)
-        self.ahrs.update_6dof_centripetal_aided(gyro, accel, self.gps_groundspeed_mps, dt);
+        self.ahrs
+            .update_6dof_centripetal_aided(gyro, accel, self.gps_groundspeed_mps, dt);
 
         if self.status.requires_attitude() {
             self.cached_euler = self.ahrs.euler_angles();
@@ -458,7 +463,8 @@ impl FlightLoopState {
                 // HEADING HOLD MODE: Cascaded heading controller onto Angle roll
                 // Graceful fallback: If compass is degraded/lost mid-flight, fallback to standard Angle mode
                 let target_roll = if self.mag_health.is_healthy() {
-                    self.heading_hold.update(self.tilt_heading_rad, roll_stick, yaw_stick)
+                    self.heading_hold
+                        .update(self.tilt_heading_rad, roll_stick, yaw_stick)
                 } else {
                     roll_stick * MAX_ROLL_ANGLE
                 };
@@ -466,7 +472,11 @@ impl FlightLoopState {
 
                 let target_pitch_rate = (target_pitch - est_pitch) * ANGLE_P_GAIN;
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
-                let target_yaw_rate = if self.mag_health.is_healthy() { 0.0 } else { yaw_stick * MAX_YAW_RATE };
+                let target_yaw_rate = if self.mag_health.is_healthy() {
+                    0.0
+                } else {
+                    yaw_stick * MAX_YAW_RATE
+                };
 
                 roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
                 pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
