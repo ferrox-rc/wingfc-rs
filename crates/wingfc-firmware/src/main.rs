@@ -381,14 +381,26 @@ async fn main(spawner: Spawner) {
                 let thr = outputs.motor1_throttle;
 
                 let pid_pitch = [
-                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_pitch_terms.p),
-                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_pitch_terms.i),
-                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_pitch_terms.d),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(
+                        flight_loop.cached_pitch_terms.p,
+                    ),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(
+                        flight_loop.cached_pitch_terms.i,
+                    ),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(
+                        flight_loop.cached_pitch_terms.d,
+                    ),
                 ];
                 let pid_roll = [
-                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_roll_terms.p),
-                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_roll_terms.i),
-                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_roll_terms.d),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(
+                        flight_loop.cached_roll_terms.p,
+                    ),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(
+                        flight_loop.cached_roll_terms.i,
+                    ),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(
+                        flight_loop.cached_roll_terms.d,
+                    ),
                 ];
 
                 let frame = wingfc_core::blackbox::BlackboxFrame::new(

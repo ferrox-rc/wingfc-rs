@@ -74,12 +74,12 @@ impl MagCalibrator {
 
     pub fn update(&mut self, m: Vector3) {
         let v = [m.x, m.y, m.z];
-        for i in 0..3 {
-            if v[i] < self.min[i] {
-                self.min[i] = v[i];
+        for (i, &val) in v.iter().enumerate() {
+            if val < self.min[i] {
+                self.min[i] = val;
             }
-            if v[i] > self.max[i] {
-                self.max[i] = v[i];
+            if val > self.max[i] {
+                self.max[i] = val;
             }
         }
         self.samples += 1;
@@ -95,9 +95,9 @@ impl MagCalibrator {
             return None;
         }
         let mut radius = [0.0f32; 3];
-        for i in 0..3 {
-            radius[i] = 0.5 * (self.max[i] - self.min[i]);
-            if radius[i] < min_range {
+        for (i, r) in radius.iter_mut().enumerate() {
+            *r = 0.5 * (self.max[i] - self.min[i]);
+            if *r < min_range {
                 return None;
             }
         }

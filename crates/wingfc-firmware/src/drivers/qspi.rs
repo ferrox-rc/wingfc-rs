@@ -71,6 +71,7 @@ pub struct QspiDriver<'d> {
 #[allow(dead_code)]
 impl<'d> QspiDriver<'d> {
     /// Initializes the QSPI bus at 32 MHz in Mode 0 and verifies the Puya P25Q16H JEDEC ID.
+    #[allow(clippy::too_many_arguments)]
     pub async fn init<T: embassy_nrf::qspi::Instance>(
         peri: Peri<'d, T>,
         irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -158,7 +159,7 @@ impl<'d> QspiDriver<'d> {
 
     /// Erases a 4 KB sector (address must be 4096-byte aligned).
     pub async fn erase_sector(&mut self, address: u32) -> Result<(), QspiError> {
-        if address % (QSPI_SECTOR_SIZE as u32) != 0 {
+        if !address.is_multiple_of(QSPI_SECTOR_SIZE as u32) {
             return Err(QspiError::OutOfBounds);
         }
         self.qspi

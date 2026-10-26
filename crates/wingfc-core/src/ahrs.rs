@@ -271,9 +271,11 @@ impl VqfAHRS {
         // Initialize filters on first valid sample to avoid long settling transient
         if !self.acc_initialized {
             let v = [acc_inertial.x, acc_inertial.y, acc_inertial.z];
-            for i in 0..3 {
-                self.acc_lp_stage1[i].reset(v[i]);
-                self.acc_lp_stage2[i].reset(v[i]);
+            for (lp1, &val) in self.acc_lp_stage1.iter_mut().zip(&v) {
+                lp1.reset(val);
+            }
+            for (lp2, &val) in self.acc_lp_stage2.iter_mut().zip(&v) {
+                lp2.reset(val);
             }
             self.acc_initialized = true;
         }

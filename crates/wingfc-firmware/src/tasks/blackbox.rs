@@ -149,21 +149,21 @@ pub async fn blackbox_task(
     let mut write_ptr = LOG_START_ADDR;
     let mut session_count: u32 = 1;
 
-    if qspi.read_page(0x000000, &mut header_buf).await.is_ok() {
-        if header_buf[0..4] == HEADER_MAGIC {
-            let stored_ptr =
-                u32::from_le_bytes([header_buf[4], header_buf[5], header_buf[6], header_buf[7]]);
-            let stored_sessions =
-                u32::from_le_bytes([header_buf[8], header_buf[9], header_buf[10], header_buf[11]]);
-            if (LOG_START_ADDR..=LOG_END_ADDR).contains(&stored_ptr) {
-                write_ptr = stored_ptr;
-                session_count = stored_sessions.wrapping_add(1);
-                defmt::info!(
-                    "Recovered Blackbox header: write_ptr=0x{:06X}, sessions={}",
-                    write_ptr,
-                    session_count
-                );
-            }
+    if qspi.read_page(0x000000, &mut header_buf).await.is_ok()
+        && header_buf[0..4] == HEADER_MAGIC
+    {
+        let stored_ptr =
+            u32::from_le_bytes([header_buf[4], header_buf[5], header_buf[6], header_buf[7]]);
+        let stored_sessions =
+            u32::from_le_bytes([header_buf[8], header_buf[9], header_buf[10], header_buf[11]]);
+        if (LOG_START_ADDR..=LOG_END_ADDR).contains(&stored_ptr) {
+            write_ptr = stored_ptr;
+            session_count = stored_sessions.wrapping_add(1);
+            defmt::info!(
+                "Recovered Blackbox header: write_ptr=0x{:06X}, sessions={}",
+                write_ptr,
+                session_count
+            );
         }
     }
 
@@ -280,12 +280,12 @@ fn sync_swd_mailbox(write_ptr: u32, session_count: u32) {
 
 /// Ensures the 4 KB sector containing `write_ptr` is erased (`0xFF`) when starting a new sector
 async fn ensure_sector_erased(qspi: &mut QspiDriver<'_>, write_ptr: u32) {
-    if write_ptr % (QSPI_SECTOR_SIZE as u32) == 0 {
+    if write_ptr.is_multiple_of(QSPI_SECTOR_SIZE as u32) {
         let mut check_buf = [0xFFu8; 16];
-        if qspi.read_aligned(write_ptr, &mut check_buf).await.is_ok() {
-            if check_buf.iter().any(|&b| b != 0xFF) {
-                let _ = qspi.erase_sector(write_ptr).await;
-            }
+        if qspi.read_aligned(write_ptr, &mut check_buf).await.is_ok()
+            && check_buf.iter().any(|&b| b != 0xFF)
+        {
+            let _ = qspi.erase_sector(write_ptr).await;
         }
     }
 }
@@ -419,11 +419,7 @@ async fn handle_usb_command(
 ) {
     match cmd {
         UsbCommand::Info => {
-            let used = if *write_ptr >= LOG_START_ADDR {
-                *write_ptr - LOG_START_ADDR
-            } else {
-                0
-            };
+            let used = (*write_ptr).saturating_sub(LOG_START_ADDR);
             let mut resp: String<128> = String::new();
             let _ = write!(
                 resp,
@@ -439,11 +435,7 @@ async fn handle_usb_command(
                 return;
             }
 
-            let total_bytes = if *write_ptr >= LOG_START_ADDR {
-                *write_ptr - LOG_START_ADDR
-            } else {
-                0
-            };
+            let total_bytes = (*write_ptr).saturating_sub(LOG_START_ADDR);
 
             let mut header: String<64> = String::new();
             let _ = write!(header, "START_DUMP SIZE={}\r\n", total_bytes);

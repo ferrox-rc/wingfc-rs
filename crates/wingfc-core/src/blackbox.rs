@@ -20,8 +20,8 @@ pub struct BlackboxFrame {
     pub timestamp_ms: u32,
     pub gyro_xyz_mrad: [i16; 3],
     pub accel_xyz_cms2: [i16; 3],
-    pub pid_pitch: [i8; 3],  // P, I, D terms scaled by 500 (-128..127 => -0.254..+0.254 mix)
-    pub pid_roll: [i8; 3],   // P, I, D terms scaled by 500 (-128..127 => -0.254..+0.254 mix)
+    pub pid_pitch: [i8; 3], // P, I, D terms scaled by 500 (-128..127 => -0.254..+0.254 mix)
+    pub pid_roll: [i8; 3],  // P, I, D terms scaled by 500 (-128..127 => -0.254..+0.254 mix)
     pub packed_actuators: [u8; 4],
     pub aux: u8,
     pub crc8: u8,
@@ -66,6 +66,7 @@ impl BlackboxFrame {
     }
 
     /// Constructs a new BlackboxFrame, automatically computing the CRC8 checksum over bytes 0..31.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         status_flags: u8,
         seq_lo: u8,
