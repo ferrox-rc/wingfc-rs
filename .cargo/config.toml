@@ -1,5 +1,5 @@
 [target.thumbv7em-none-eabihf]
-runner = "probe-rs run --chip nRF52840_xxAA --speed 1000 --scan-region ram"
+runner = "probe-rs run --chip nRF52840_xxAA --speed 400 --scan-region ram"
 rustflags = [
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",
@@ -8,6 +8,9 @@ rustflags = [
 
 [build]
 target = "thumbv7em-none-eabihf"
+
+[env]
+DEFMT_LOG = "info"
 
 [alias]
 fw-check = "check -p wingfc-firmware --target thumbv7em-none-eabihf"

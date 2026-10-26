@@ -38,16 +38,16 @@ use embassy_nrf::usb;
 use drivers::EscPwmDriver;
 use drivers::{imu_worker_task, Lsm6ds3Driver, QspiDriver, RgbLedDriver, ServoPwmDriver};
 use pins::BoardPins;
-#[cfg(feature = "crsf")]
-use tasks::{crsf_telemetry_task, FlightTelemetrySnapshot};
-#[cfg(any(feature = "baro", feature = "compass"))]
-use tasks::{external_sensors_task, ExternalSensorSnapshot};
 #[cfg(not(feature = "dshot"))]
 use tasks::calibrate_esc_if_requested;
 use tasks::{
     actuator_pwm_task, blackbox_task, calibrate_imu_and_gyro, receiver_task, telemetry_led_task,
     usb_task, FlightLoopState, VisualStatus,
 };
+#[cfg(feature = "crsf")]
+use tasks::{crsf_telemetry_task, FlightTelemetrySnapshot};
+#[cfg(any(feature = "baro", feature = "compass"))]
+use tasks::{external_sensors_task, ExternalSensorSnapshot};
 
 bind_interrupts!(struct Irqs {
     TWISPI0 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI0>;
@@ -263,15 +263,8 @@ async fn main(spawner: Spawner) {
     spawner.spawn(usb_task(usb_dev).unwrap());
 
     if let Some(qspi) = qspi_driver {
-        spawner.spawn(
-            blackbox_task(
-                qspi,
-                cdc_tx,
-                cdc_rx,
-                STATUS_WATCH.receiver().unwrap(),
-            )
-            .unwrap(),
-        );
+        spawner
+            .spawn(blackbox_task(qspi, cdc_tx, cdc_rx, STATUS_WATCH.receiver().unwrap()).unwrap());
     }
 
     // 5. Pre-Spawn Boot Calibration Sequence
@@ -289,13 +282,16 @@ async fn main(spawner: Spawner) {
     spawner.spawn(imu_worker_task(imu_driver, crate::bus::IMU_WATCH.sender()).unwrap());
 
     // Spawn Tier 3 Actuator Task (owns PWM peripherals, loads from ACTUATOR_LATCH @ SERVO_PWM_HZ)
-    spawner.spawn(actuator_pwm_task(
-        servo_pwm,
-        #[cfg(feature = "gps")]
-        servo_pwm_ext,
-        #[cfg(not(feature = "dshot"))]
-        esc_pwm,
-    ).unwrap());
+    spawner.spawn(
+        actuator_pwm_task(
+            servo_pwm,
+            #[cfg(feature = "gps")]
+            servo_pwm_ext,
+            #[cfg(not(feature = "dshot"))]
+            esc_pwm,
+        )
+        .unwrap(),
+    );
 
     let mut flight_loop = FlightLoopState::new();
     #[cfg(not(feature = "dshot"))]
@@ -361,7 +357,11 @@ async fn main(spawner: Spawner) {
         );
 
         // Transmit telemetry & blackbox logging at ~50 Hz
-        const LOG_DIVIDER: u32 = if NOMINAL_LOOP_HZ >= 100 { NOMINAL_LOOP_HZ / 50 } else { 1 };
+        const LOG_DIVIDER: u32 = if NOMINAL_LOOP_HZ >= 100 {
+            NOMINAL_LOOP_HZ / 50
+        } else {
+            1
+        };
         if loop_counter.is_multiple_of(LOG_DIVIDER) {
             #[cfg(feature = "crsf")]
             telemetry_sender.send(flight_loop.telemetry_snapshot());
@@ -410,19 +410,5 @@ async fn main(spawner: Spawner) {
 
         // Commit whole-frame atomic outputs into double-buffered ACTUATOR_LATCH
         crate::bus::ACTUATOR_LATCH.publish_outputs(&outputs);
-
-        // Periodic 1 Hz debug heartbeat to RTT
-        if loop_counter.is_multiple_of(NOMINAL_LOOP_HZ) {
-            defmt::info!(
-                "Loop alive: {} Hz | Status: {:?} | RC: {}",
-                NOMINAL_LOOP_HZ,
-                flight_loop.status,
-                if flight_loop.last_rc_connected {
-                    "CONNECTED"
-                } else {
-                    "NO LINK"
-                }
-            );
-        }
     }
 }
