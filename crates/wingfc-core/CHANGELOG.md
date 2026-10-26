@@ -5,6 +5,20 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-26
+
+### 🚀 Features
+
+- **8:1 Boxcar Downsampler (`downsample`):** `BoxcarAccumulator8` and `ImuDecimated` for 1.666 kHz -> 208.33 Hz anti-aliased IMU decimation.
+- **Binary Blackbox Frame (`blackbox`):** 32-byte `BlackboxFrame` with 10-bit actuator bit-packing and ITU CRC-8 (`0x07`) validation.
+- **VQF AHRS (`ahrs`):** `VqfAHRS` attitude estimator with decoupled accelerometer (`tau_acc`) and magnetometer (`tau_mag`) time constants.
+- **Tilt-Compensated Compass (`compass`):** Hard-iron/soft-iron `MagCalibration` and `MagCalibrator`.
+- **Sensor Health State Machine (`sensor_health`):** Tri-state health tracking (`Healthy`, `Degraded`, `Failed`) and safe flight-mode degradation.
+
+### 🐛 Bug Fixes
+
+- **Disarmed Ground Safety (`safety`):** Keep `ArmingStatus::Disarmed` when `signal_lost` occurs while disarmed on the bench, reserving `ArmingStatus::Failsafe` for in-flight link loss.
+
 ## [0.3.1] - 2026-09-11
 
 ### ⚙️ Miscellaneous Tasks

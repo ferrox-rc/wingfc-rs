@@ -11,5 +11,5 @@ skills/
 __pycache__/
 *.pyc
 /dist/
-
-
+*.bbl
+*.csv

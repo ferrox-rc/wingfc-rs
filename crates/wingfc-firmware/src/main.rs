@@ -41,7 +41,7 @@ use pins::BoardPins;
 #[cfg(not(feature = "dshot"))]
 use tasks::calibrate_esc_if_requested;
 use tasks::{
-    actuator_pwm_task, blackbox_task, calibrate_imu_and_gyro, receiver_task, telemetry_led_task,
+    blackbox_task, calibrate_imu_and_gyro, receiver_task, telemetry_led_task, usb_rx_task,
     usb_task, FlightLoopState, VisualStatus,
 };
 #[cfg(feature = "crsf")]
@@ -77,7 +77,9 @@ const BAUD_420K: Baudrate = Baudrate::from_bits(0x06B50000u32);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_nrf::init(Default::default());
+    let mut nrf_config = embassy_nrf::config::Config::default();
+    nrf_config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
+    let p = embassy_nrf::init(nrf_config);
     let pins = BoardPins::from_peripherals(p);
 
     info!("Initializing WingFC-rs bare-metal flight controller...");
@@ -111,7 +113,7 @@ async fn main(spawner: Spawner) {
         pins.pin_servo4,
         &servo_config,
     );
-    let servo_pwm = ServoPwmDriver::new(pwm1_servos_dev);
+    let mut servo_pwm = ServoPwmDriver::new(pwm1_servos_dev);
 
     #[cfg(feature = "gps")]
     let pwm2_servos_dev = SimplePwm::new_4ch(
@@ -123,7 +125,7 @@ async fn main(spawner: Spawner) {
         &servo_config,
     );
     #[cfg(feature = "gps")]
-    let servo_pwm_ext = ServoPwmDriver::new(pwm2_servos_dev);
+    let mut servo_pwm_ext = ServoPwmDriver::new(pwm2_servos_dev);
 
     // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
     let _imu_pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::HighDrive);
@@ -261,10 +263,10 @@ async fn main(spawner: Spawner) {
     let usb_dev = builder.build();
 
     spawner.spawn(usb_task(usb_dev).unwrap());
+    spawner.spawn(usb_rx_task(cdc_rx).unwrap());
 
     if let Some(qspi) = qspi_driver {
-        spawner
-            .spawn(blackbox_task(qspi, cdc_tx, cdc_rx, STATUS_WATCH.receiver().unwrap()).unwrap());
+        spawner.spawn(blackbox_task(qspi, cdc_tx, STATUS_WATCH.receiver().unwrap()).unwrap());
     }
 
     // 5. Pre-Spawn Boot Calibration Sequence
@@ -278,20 +280,8 @@ async fn main(spawner: Spawner) {
         defmt::error!("Boot IMU calibration failed: {:?}", e);
     }
 
-    // Spawn Tier 1 IMU Worker Task (owns LSM6DS3 on TWISPI0, publishes to IMU_WATCH @ 208.33 Hz)
+    // Spawn Tier 1 IMU Worker Task (owns LSM6DS3 on TWISPI0, 1.666 kHz INT1 DRDY -> 8:1 decimated to 208.33 Hz)
     spawner.spawn(imu_worker_task(imu_driver, crate::bus::IMU_WATCH.sender()).unwrap());
-
-    // Spawn Tier 3 Actuator Task (owns PWM peripherals, loads from ACTUATOR_LATCH @ SERVO_PWM_HZ)
-    spawner.spawn(
-        actuator_pwm_task(
-            servo_pwm,
-            #[cfg(feature = "gps")]
-            servo_pwm_ext,
-            #[cfg(not(feature = "dshot"))]
-            esc_pwm,
-        )
-        .unwrap(),
-    );
 
     let mut flight_loop = FlightLoopState::new();
     #[cfg(not(feature = "dshot"))]
@@ -408,7 +398,24 @@ async fn main(spawner: Spawner) {
             }
         }
 
-        // Commit whole-frame atomic outputs into double-buffered ACTUATOR_LATCH
-        crate::bus::ACTUATOR_LATCH.publish_outputs(&outputs);
+        // 3. Update autonomous hardware PWM EasyDMA duty registers directly
+        servo_pwm.set_channel_us(0, outputs.servo1_us);
+        servo_pwm.set_channel_us(1, outputs.servo2_us);
+        servo_pwm.set_channel_us(2, outputs.servo3_us);
+        servo_pwm.set_channel_us(3, outputs.servo4_us);
+
+        #[cfg(feature = "gps")]
+        {
+            servo_pwm_ext.set_channel_us(0, outputs.servo5_us);
+            servo_pwm_ext.set_channel_us(1, outputs.servo6_us);
+            servo_pwm_ext.set_channel_us(2, outputs.servo7_us);
+            servo_pwm_ext.set_channel_us(3, outputs.servo8_us);
+        }
+
+        #[cfg(not(feature = "dshot"))]
+        {
+            esc_pwm.set_throttle_us(0, outputs.motor1_throttle);
+            esc_pwm.set_throttle_us(1, outputs.motor2_throttle);
+        }
     }
 }

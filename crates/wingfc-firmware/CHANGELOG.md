@@ -5,19 +5,22 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-26
 
 ### 🚀 Features
 
-- **Multi-Rate Decoupled Architecture:** LSM6DS3TR-C sampled at 1.66 kHz and downsampled 8:1 to 208.33 Hz (`dt` = 4.8 ms) via boxcar averaging.
-- **Sensor Health State Machine:** Tri-state health checking (`Healthy`, `Degraded`, `Failed`) with automatic flight mode degradation (`HeadingHold`/`AltHold` to `Angle`).
-- **Build Profiles (`ultralight` & `gps`):** Profiles decoupled from granular hardware feature flags (`baro`, `compass`, `gps`), with native blackbox logging enabled.
-- **Inter-Task Mailboxes:** Scaffolding for `IMU_WATCH` and `ACTUATOR_LATCH` lock-free ringbuffers.
+- **3-Tier Multi-Rate Decoupled Architecture:**
+  - Tier 1: `imu_worker_task` sampling LSM6DS3TR-C at 1.666 kHz on `INT1` DRDY with 8:1 boxcar decimation into `IMU_WATCH`.
+  - Tier 2: 208.33 Hz (`dt` = 4.8 ms) flight control loop updating autonomous hardware `PWM0/1/2` EasyDMA registers directly.
+  - Tier 3: 50 Hz external sensors (`TWISPI1`), telemetry, and QSPI NOR flash blackbox logging.
+- **QSPI Blackbox & Dual Offload (`tasks::blackbox`, `drivers::qspi`):** 32 MHz Quad-IO Puya P25Q16H driver, 50 Hz page-buffered flight logging, on-demand sector erase, and disarmed log offload over both XIAO DebugMate SWD (`BBL_SWD_MAILBOX`) and native USB CDC-ACM (`usb_rx_task`).
+- **Build Profiles (`ultralight` & `gps`) & Auto-Config (`build.rs`):** Automatic regeneration of `src/config.rs` from `wingfc.yaml` during `cargo build` / `cargo run`.
 
 ### 🔧 Changes
 
+- Enabled 64 MHz external crystal (`HfclkSource::ExternalXtal`) and `DEFMT_LOG = "info"`.
 - Documented and verified QSPI flash pinout (`P0.20`..`P0.25`), preserving Servo 7 on `P0.19`.
-- External sensor bus polled at 20 Hz.
+- External sensor bus and blackbox tasks unified at 50 Hz (20 ms period).
 
 ## [0.4.0] - 2026-09-25
 
