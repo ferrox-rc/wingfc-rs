@@ -410,5 +410,19 @@ async fn main(spawner: Spawner) {
 
         // Commit whole-frame atomic outputs into double-buffered ACTUATOR_LATCH
         crate::bus::ACTUATOR_LATCH.publish_outputs(&outputs);
+
+        // Periodic 1 Hz debug heartbeat to RTT
+        if loop_counter.is_multiple_of(NOMINAL_LOOP_HZ) {
+            defmt::info!(
+                "Loop alive: {} Hz | Status: {:?} | RC: {}",
+                NOMINAL_LOOP_HZ,
+                flight_loop.status,
+                if flight_loop.last_rc_connected {
+                    "CONNECTED"
+                } else {
+                    "NO LINK"
+                }
+            );
+        }
     }
 }
