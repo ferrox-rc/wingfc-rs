@@ -116,6 +116,27 @@ def encode_signed_vb(val: int) -> bytes:
     return encode_unsigned_vb(zigzag)
 
 
+def decode_unsigned_vb(stream: bytes, idx: int) -> tuple[int, int]:
+    """Decodes a 32-bit unsigned integer from Betaflight variable-byte encoding."""
+    val = 0
+    shift = 0
+    while idx < len(stream):
+        b = stream[idx]
+        idx += 1
+        val |= (b & 0x7F) << shift
+        if (b & 0x80) == 0:
+            break
+        shift += 7
+    return val & 0xFFFFFFFF, idx
+
+
+def decode_signed_vb(stream: bytes, idx: int) -> tuple[int, int]:
+    """Decodes a 32-bit signed integer from ZigZag + Betaflight variable-byte encoding."""
+    u_val, idx = decode_unsigned_vb(stream, idx)
+    val = (u_val >> 1) ^ (-(u_val & 1))
+    return val, idx
+
+
 def decode_frame(data: bytes, strict_crc: bool = True):
     """Decodes a single 32-byte WingFC BlackboxFrame (v1 or v2)."""
     if len(data) != 32:
@@ -139,26 +160,30 @@ def decode_frame(data: bytes, strict_crc: bool = True):
     gx, gy, gz = struct.unpack("<hhh", data[8:14])
     ax, ay, az = struct.unpack("<hhh", data[14:20])
 
+    ax_ms2 = ax / 100.0
+    ay_ms2 = ay / 100.0
+    az_ms2 = az / 100.0
+
     rad_to_deg = 180.0 / math.pi
     if ver == 2:
         # Version 2: bytes 20..25 are [pid_pitch: 3x i8, pid_roll: 3x i8] scaled by 500
         pitch_p_raw, pitch_i_raw, pitch_d_raw = struct.unpack("<bbb", data[20:23])
         roll_p_raw, roll_i_raw, roll_d_raw = struct.unpack("<bbb", data[23:26])
-        roll_deg = 0.0
-        pitch_deg = 0.0
+        roll_deg = round(max(-180.0, min(180.0, math.atan2(ay_ms2, az_ms2) * rad_to_deg)), 2)
+        pitch_deg = round(max(-90.0, min(90.0, math.atan2(-ax_ms2, math.hypot(ay_ms2, az_ms2)) * rad_to_deg)), 2)
         yaw_deg = 0.0
-        pitch_p = pitch_p_raw / 500.0
-        pitch_i = pitch_i_raw / 500.0
-        pitch_d = pitch_d_raw / 500.0
-        roll_p = roll_p_raw / 500.0
-        roll_i = roll_i_raw / 500.0
-        roll_d = roll_d_raw / 500.0
+        pitch_p = round(pitch_p_raw / 500.0, 4)
+        pitch_i = round(pitch_i_raw / 500.0, 4)
+        pitch_d = round(pitch_d_raw / 500.0, 4)
+        roll_p = round(roll_p_raw / 500.0, 4)
+        roll_i = round(roll_i_raw / 500.0, 4)
+        roll_d = round(roll_d_raw / 500.0, 4)
     else:
         # Version 1 legacy: bytes 20..25 are [roll_mrad, pitch_mrad, yaw_mrad: 3x i16]
         roll_mrad, pitch_mrad, yaw_mrad = struct.unpack("<hhh", data[20:26])
-        roll_deg = max(-180.0, min(180.0, (roll_mrad / 1000.0) * rad_to_deg))
-        pitch_deg = max(-90.0, min(90.0, (pitch_mrad / 1000.0) * rad_to_deg))
-        yaw_deg = max(-180.0, min(180.0, (yaw_mrad / 1000.0) * rad_to_deg))
+        roll_deg = round(max(-180.0, min(180.0, (roll_mrad / 1000.0) * rad_to_deg)), 2)
+        pitch_deg = round(max(-90.0, min(90.0, (pitch_mrad / 1000.0) * rad_to_deg)), 2)
+        yaw_deg = round(max(-180.0, min(180.0, (yaw_mrad / 1000.0) * rad_to_deg)), 2)
         pitch_p = pitch_i = pitch_d = 0.0
         roll_p = roll_i = roll_d = 0.0
 
@@ -172,12 +197,12 @@ def decode_frame(data: bytes, strict_crc: bool = True):
         "time_ms": timestamp_ms,
         "seq": seq_lo,
         "status": status_flags,
-        "gx_rads": (gx / 1000.0),
-        "gy_rads": (gy / 1000.0),
-        "gz_rads": (gz / 1000.0),
-        "ax_ms2": (ax / 100.0),
-        "ay_ms2": (ay / 100.0),
-        "az_ms2": (az / 100.0),
+        "gx_rads": round(gx / 1000.0, 4),
+        "gy_rads": round(gy / 1000.0, 4),
+        "gz_rads": round(gz / 1000.0, 4),
+        "ax_ms2": round(ax_ms2, 3),
+        "ay_ms2": round(ay_ms2, 3),
+        "az_ms2": round(az_ms2, 3),
         "roll_deg": roll_deg,
         "pitch_deg": pitch_deg,
         "yaw_deg": yaw_deg,
@@ -193,8 +218,103 @@ def decode_frame(data: bytes, strict_crc: bool = True):
     }
 
 
+def decode_betaflight_bbl(raw: bytes) -> list[dict]:
+    """Decodes a Betaflight Blackbox v2 (.bbl) binary stream back into WingFC frame dictionaries."""
+    marker = b"H debug_mode:0\n"
+    idx_start = raw.find(marker)
+    if idx_start == -1:
+        return []
+    pos = idx_start + len(marker)
+    num_fields = len(BETAFLIGHT_BBL_FIELDS)
+    deg_to_rad = math.pi / 180.0
+    rad_to_deg = 180.0 / math.pi
+
+    rows = []
+    while pos < len(raw):
+        tag = raw[pos : pos + 1]
+        pos += 1
+        if tag == b"I":
+            row = []
+            for f_idx in range(num_fields):
+                i_encoding = BETAFLIGHT_BBL_FIELDS[f_idx][3]
+                if i_encoding == 1:
+                    val, pos = decode_unsigned_vb(raw, pos)
+                else:
+                    val, pos = decode_signed_vb(raw, pos)
+                row.append(val)
+            rows.append(row)
+        elif tag == b"P":
+            if not rows:
+                break
+            row = list(rows[-1])
+            row[0] += 1  # PREDICTOR_INC on loopIteration
+            for f_idx in range(1, num_fields):
+                delta, pos = decode_signed_vb(raw, pos)
+                row[f_idx] += delta
+            rows.append(row)
+        elif tag == b"E":
+            break
+        else:
+            break
+
+    frames = []
+    for r in rows:
+        idx = r[0]
+        time_ms = r[1] // 1000
+        roll_p = round(r[2] / 1000.0, 4)
+        pitch_p = round(r[3] / 1000.0, 4)
+        roll_i = round(r[5] / 1000.0, 4)
+        pitch_i = round(r[6] / 1000.0, 4)
+        roll_d = round(r[8] / 1000.0, 4)
+        pitch_d = round(r[9] / 1000.0, 4)
+        gx_rads = round(r[14] * deg_to_rad, 4)
+        gy_rads = round(r[15] * deg_to_rad, 4)
+        gz_rads = round(r[16] * deg_to_rad, 4)
+        ax_ms2 = round((r[17] / 1000.0) * 9.80665, 3)
+        ay_ms2 = round((r[18] / 1000.0) * 9.80665, 3)
+        az_ms2 = round((r[19] / 1000.0) * 9.80665, 3)
+        thr = r[20]
+        s1 = r[22]
+        s2 = r[23]
+        roll_deg = round(r[24] / 10.0, 2)
+        pitch_deg = round(r[25] / 10.0, 2)
+        yaw_deg = round(r[26] / 10.0, 2)
+        if roll_deg == 0.0 and pitch_deg == 0.0 and (ax_ms2 != 0.0 or ay_ms2 != 0.0 or az_ms2 != 0.0):
+            roll_deg = round(max(-180.0, min(180.0, math.atan2(ay_ms2, az_ms2) * rad_to_deg)), 2)
+            pitch_deg = round(max(-90.0, min(90.0, math.atan2(-ax_ms2, math.hypot(ay_ms2, az_ms2)) * rad_to_deg)), 2)
+        status = r[27]
+
+        frames.append({
+            "time_ms": time_ms,
+            "seq": idx & 0xFF,
+            "status": status,
+            "gx_rads": gx_rads,
+            "gy_rads": gy_rads,
+            "gz_rads": gz_rads,
+            "ax_ms2": ax_ms2,
+            "ay_ms2": ay_ms2,
+            "az_ms2": az_ms2,
+            "roll_deg": roll_deg,
+            "pitch_deg": pitch_deg,
+            "yaw_deg": yaw_deg,
+            "roll_p": roll_p,
+            "roll_i": roll_i,
+            "roll_d": roll_d,
+            "pitch_p": pitch_p,
+            "pitch_i": pitch_i,
+            "pitch_d": pitch_d,
+            "servo1_us": s1,
+            "servo2_us": s2,
+            "throttle_us": thr,
+        })
+    return frames
+
+
 def extract_frames_from_raw(raw: bytes) -> list[dict]:
-    """Extracts decoded frames from raw 32-byte MCU flash blocks."""
+    """Extracts decoded frames from raw 32-byte MCU flash blocks (or a Betaflight .bbl stream)."""
+    if raw.startswith(b"H Product:Blackbox"):
+        return decode_betaflight_bbl(raw)
+
     total_chunks = len(raw) // FRAME_SIZE
     strict_frames = []
     relaxed_frames = []
@@ -502,22 +622,61 @@ def print_status_summary(transport: str, jedec: str, wr_ptr: int, sessions: int,
     print(f"Logged Time    : {mins}m {secs:02d}s (approx. at 50 Hz)")
 
 
+CSV_FIELDNAMES = [
+    "time_ms", "seq", "status",
+    "gx_rads", "gy_rads", "gz_rads",
+    "ax_ms2", "ay_ms2", "az_ms2",
+    "roll_deg", "pitch_deg", "yaw_deg",
+    "roll_p", "roll_i", "roll_d",
+    "pitch_p", "pitch_i", "pitch_d",
+    "servo1_us", "servo2_us", "throttle_us",
+]
+
+
+def resolve_output_paths(output_arg: str) -> tuple[str, str, str]:
+    """Resolves base stem from user output argument into (.bbl, .csv, .bin) paths."""
+    base, ext = os.path.splitext(output_arg)
+    if ext.lower() in (".bbl", ".csv", ".bin", ".raw"):
+        stem = base
+    else:
+        stem = output_arg
+    return f"{stem}.bbl", f"{stem}.csv", f"{stem}.bin"
+
+
+def write_csv_frames(frames: list[dict], csv_path: str):
+    """Writes decoded flight frames to a CSV file."""
+    with open(csv_path, "w", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=CSV_FIELDNAMES)
+        writer.writeheader()
+        for frame in frames:
+            writer.writerow(frame)
+
+
 def save_dumped_data(raw_bytes: bytes, output_path: str, raw_flag: bool = False):
-    """Saves downloaded blackbox data as Betaflight v2 .bbl (default) or raw MCU bytes."""
-    if raw_flag:
-        with open(output_path, "wb") as f:
+    """Simultaneously converts raw QSPI flash data into Betaflight v2 (.bbl) and CSV (.csv) formats."""
+    bbl_path, csv_path, bin_path = resolve_output_paths(output_path)
+
+    if raw_flag or output_path.lower().endswith((".bin", ".raw")):
+        raw_out = output_path if output_path.lower().endswith((".bin", ".raw")) else bin_path
+        with open(raw_out, "wb") as f:
             f.write(raw_bytes)
-        print(f"Saved {len(raw_bytes):,} raw flash bytes to {output_path}")
-        return
+        print(f"Saved raw QSPI flash bytes : {raw_out} ({len(raw_bytes):,} bytes)")
 
     frames = extract_frames_from_raw(raw_bytes)
+    duration_s = len(frames) / 50.0
+
+    # 1. Encode & write Betaflight Blackbox v2 (.bbl)
     bf_bytes = encode_betaflight_bbl(frames)
-    with open(output_path, "wb") as f:
+    with open(bbl_path, "wb") as f:
         f.write(bf_bytes)
-    print(
-        f"Encoded {len(frames):,} flight frames ({len( frames ) / 50.0:.1f}s @ 50 Hz) "
-        f"into Betaflight Blackbox v2 format: {output_path} ({len(bf_bytes):,} bytes)"
-    )
+
+    # 2. Format & write CSV Telemetry Log (.csv)
+    write_csv_frames(frames, csv_path)
+    csv_size = os.path.getsize(csv_path)
+
+    print(f"Decoded {len(frames):,} flight frames ({duration_s:.1f}s @ 50 Hz) from raw QSPI stream:")
+    print(f"  -> Betaflight Blackbox : {bbl_path} ({len(bf_bytes):,} bytes)")
+    print(f"  -> CSV Telemetry Log   : {csv_path} ({csv_size:,} bytes)")
 
 
 def cmd_info(args):
@@ -566,7 +725,7 @@ def cmd_info(args):
 def cmd_dump(args):
     if should_use_swd(args):
         mb_addr = get_swd_mailbox_addr(args)
-        print(f"Initiating SWD binary dump via XIAO DebugMate (Mailbox @ 0x{mb_addr:08X}) to {args.output}...")
+        print(f"Initiating SWD binary dump via XIAO DebugMate (Mailbox @ 0x{mb_addr:08X})...")
         words = swd_read_words(mb_addr, 8)
         magic, write_ptr, capacity, sessions, status, _, _, _ = words
         if magic != SWD_MAILBOX_MAGIC:
@@ -618,7 +777,7 @@ def cmd_dump(args):
         return
 
     port = args.port or find_wingfc_usb_port() or "/dev/ttyACM0"
-    print(f"Initiating binary dump from {port} to {args.output}...")
+    print(f"Initiating binary dump from {port}...")
     ser = open_serial(port, args.baud, timeout=5.0)
 
     ser.write(b"BBL_DUMP\r\n")
@@ -681,39 +840,16 @@ def cmd_convert_bbl(args):
     with open(args.input, "rb") as f:
         raw = f.read()
 
-    if raw.startswith(b"H Product:Blackbox"):
-        print(f"{args.input} is already in Betaflight Blackbox v2 format.")
-        if args.input != args.output:
-            with open(args.output, "wb") as f:
-                f.write(raw)
-        return
-
     save_dumped_data(raw, args.output, raw_flag=False)
 
 
 def cmd_export_csv(args):
-    print(f"Decoding binary log {args.input} to CSV {args.output}...")
+    print(f"Decoding log {args.input} to CSV {args.output}...")
     with open(args.input, "rb") as f:
         raw = f.read()
 
     frames = extract_frames_from_raw(raw)
-
-    fieldnames = [
-        "time_ms", "seq", "status",
-        "gx_rads", "gy_rads", "gz_rads",
-        "ax_ms2", "ay_ms2", "az_ms2",
-        "roll_deg", "pitch_deg", "yaw_deg",
-        "roll_p", "roll_i", "roll_d",
-        "pitch_p", "pitch_i", "pitch_d",
-        "servo1_us", "servo2_us", "throttle_us",
-    ]
-
-    with open(args.output, "w", newline="") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for frame in frames:
-            writer.writerow(frame)
-
+    write_csv_frames(frames, args.output)
     print(f"Export complete: {len(frames):,} valid frames exported to {args.output}")
 
 
@@ -794,22 +930,22 @@ def main():
     p_info.add_argument("--elf", help="Optional path to wingfc-firmware ELF for SWD symbol lookup")
 
     # Dump
-    p_dump = subparsers.add_parser("dump", help="Download blackbox log and format as Betaflight v2 .bbl")
-    p_dump.add_argument("output", help="Output file path (e.g. flight.bbl)")
+    p_dump = subparsers.add_parser("dump", help="Download raw QSPI blackbox log and convert to .bbl and .csv simultaneously")
+    p_dump.add_argument("output", nargs="?", default="flight", help="Output base name or path (default: 'flight' -> generates flight.bbl and flight.csv)")
     p_dump.add_argument("--port", "-p", help="USB serial port (auto-detects USB or DebugMate SWD if omitted)")
     p_dump.add_argument("--baud", "-b", type=int, default=115200, help="Baud rate (default 115200)")
     p_dump.add_argument("--swd", action="store_true", help="Force XIAO DebugMate SWD (probe-rs) transport")
-    p_dump.add_argument("--raw", action="store_true", help="Save raw 32-byte MCU flash frames without Betaflight .bbl encoding")
+    p_dump.add_argument("--raw", action="store_true", help="Also save raw 32-byte MCU flash frames (.bin)")
     p_dump.add_argument("--elf", help="Optional path to wingfc-firmware ELF for SWD symbol lookup")
 
-    # Convert raw dump to Betaflight .bbl
-    p_conv = subparsers.add_parser("convert-bbl", help="Convert raw WingFC binary dump into Betaflight Blackbox v2 .bbl")
+    # Convert raw dump to Betaflight .bbl + .csv
+    p_conv = subparsers.add_parser("convert-bbl", help="Convert raw WingFC binary dump into Betaflight .bbl and .csv")
     p_conv.add_argument("input", help="Input raw dump path")
-    p_conv.add_argument("output", help="Output Betaflight .bbl path")
+    p_conv.add_argument("output", help="Output base path or .bbl path")
 
     # Export CSV
-    p_csv = subparsers.add_parser("export-csv", help="Decode raw binary log into CSV format")
-    p_csv.add_argument("input", help="Input binary log path")
+    p_csv = subparsers.add_parser("export-csv", help="Decode raw binary or .bbl log into CSV format")
+    p_csv.add_argument("input", help="Input log path (.bin or .bbl)")
     p_csv.add_argument("output", help="Output CSV file path (.csv)")
 
     # Erase

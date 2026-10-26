@@ -152,7 +152,9 @@ graph TD
 
 ## 5. QSPI Onboard Blackbox & Betaflight Blackbox Explorer Workflow
 
-On the Seeed Studio XIAO nRF52840 Sense, `wingfc-rs` natively logs armed flight sessions to the onboard **2 MB Puya P25Q16H QSPI NOR Flash** at 50 Hz. Each 32-byte frame records gyro rates, accelerations, servo/motor PWM outputs, and individual PID controller terms (`axisP`, `axisI`, `axisD` for roll and pitch).
+On the Seeed Studio XIAO nRF52840 Sense, `wingfc-rs` natively logs armed flight sessions to the onboard **2 MB Puya P25Q16H QSPI NOR Flash** at 50 Hz using a concise, fixed-size **32-byte binary `BlackboxFrame`**. Each 32-byte frame packs gyro rates, accelerations, servo/motor PWM outputs, and individual PID controller terms (`axisP`, `axisI`, `axisD` for roll and pitch) with a CRC-8 integrity checksum.
+
+When offloading, `scripts/blackbox.py` streams these raw 32-byte binary frames from QSPI flash and **simultaneously formats and outputs both `.bbl` (Betaflight Blackbox v2) and `.csv` (spreadsheet/Pandas telemetry)**.
 
 ### Offloading Blackbox Logs
 Connect your computer either via the USB-C port on the XIAO or via the **Seeed Studio XIAO DebugMate (SWD)** and run:
@@ -161,14 +163,11 @@ Connect your computer either via the USB-C port on the XIAO or via the **Seeed S
 # 1. Inspect flash capacity and recorded sessions (auto-detects USB or DebugMate SWD)
 python3 scripts/blackbox.py info
 
-# 2. Dump and automatically convert to Betaflight Blackbox v2 format (.bbl)
-python3 scripts/blackbox.py dump flight.bbl
+# 2. Dump raw QSPI flash and simultaneously generate both flight.bbl and flight.csv
+python3 scripts/blackbox.py dump flight
 
-# Optional: To dump via XIAO DebugMate SWD explicitly
-python3 scripts/blackbox.py dump flight.bbl --swd
-
-# Optional: To export raw telemetry to CSV for spreadsheet / Python Pandas analysis
-python3 scripts/blackbox.py export-csv flight.bbl flight.csv
+# Optional: Dump via XIAO DebugMate SWD explicitly (also saves raw 32-byte .bin frames if --raw is passed)
+python3 scripts/blackbox.py dump flight --swd --raw
 
 # 3. Erase logged sessions to free flash capacity for your next flight
 python3 scripts/blackbox.py erase
