@@ -137,6 +137,7 @@ pub struct FlightLoopState {
     pub last_packet_time: Instant,
     pub latest_rc: RcChannels,
     pub status: ArmingStatus,
+    pub last_rc_connected: bool,
     pub cached_euler: (f32, f32, f32),
     pub last_imu_seq: u32,
     pub imu_overrun_count: u32,
@@ -200,6 +201,7 @@ impl FlightLoopState {
             last_packet_time: Instant::now(),
             latest_rc: RcChannels::default(),
             status: ArmingStatus::Disarmed,
+            last_rc_connected: false,
             cached_euler: (0.0, 0.0, 0.0),
             last_imu_seq: 0,
             imu_overrun_count: 0,
@@ -270,8 +272,27 @@ impl FlightLoopState {
             visual.gps_has_fix = false;
         }
 
-        if new_status != self.status || rc_packet_received {
+        let rc_conn_changed = visual.rc_connected != self.last_rc_connected;
+        if new_status != self.status || rc_conn_changed || rc_packet_received {
+            if new_status != self.status {
+                defmt::info!(
+                    "Flight status transition: {:?} -> {:?}",
+                    self.status,
+                    new_status
+                );
+            }
+            if rc_conn_changed {
+                defmt::info!(
+                    "RC link status: {}",
+                    if visual.rc_connected {
+                        "CONNECTED"
+                    } else {
+                        "LOST"
+                    }
+                );
+            }
             self.status = new_status;
+            self.last_rc_connected = visual.rc_connected;
             status_tx.send(visual);
         }
 

@@ -10,7 +10,8 @@ pub const DEFAULT_ARM_SWITCH_THRESHOLD: u16 = 1800; // Switch value > 1800 consi
 pub const THROTTLE_ZERO_THRESHOLD: u16 = DEFAULT_THROTTLE_ZERO_THRESHOLD;
 pub const ARM_SWITCH_THRESHOLD: u16 = DEFAULT_ARM_SWITCH_THRESHOLD;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
 pub enum ArmingStatus {
     Disarmed,
     ArmedAcro,
@@ -59,10 +60,12 @@ impl ArmingStatus {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt-03", derive(defmt::Format))]
 pub struct ArmingSafety {
     is_armed: bool,
     saw_disarmed_switch: bool,
+    failsafe_active: bool,
     arm_switch_threshold: u16,
     throttle_zero_threshold: u16,
 }
@@ -90,6 +93,7 @@ impl ArmingSafety {
         Self {
             is_armed: false,
             saw_disarmed_switch: false,
+            failsafe_active: false,
             arm_switch_threshold,
             throttle_zero_threshold,
         }
@@ -98,6 +102,7 @@ impl ArmingSafety {
     pub fn reset(&mut self) {
         self.is_armed = false;
         self.saw_disarmed_switch = false;
+        self.failsafe_active = false;
     }
 
     /// Configured arm switch threshold in microseconds.
@@ -124,9 +129,18 @@ impl ArmingSafety {
         signal_lost: bool,
     ) -> ArmingStatus {
         if signal_lost {
-            self.is_armed = false;
-            return ArmingStatus::Failsafe;
+            if self.is_armed || self.failsafe_active {
+                self.is_armed = false;
+                self.failsafe_active = true;
+                return ArmingStatus::Failsafe;
+            } else {
+                // On the ground while disarmed, loss of RC link simply prevents arming;
+                // it should not trigger an emergency in-flight failsafe.
+                return ArmingStatus::Disarmed;
+            }
         }
+
+        self.failsafe_active = false;
 
         let switch_wants_arm = arm_switch_value > self.arm_switch_threshold;
 

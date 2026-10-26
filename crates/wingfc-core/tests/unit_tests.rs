@@ -248,6 +248,43 @@ fn test_arming_safety_logic() {
 }
 
 #[test]
+fn test_arming_safety_ground_signal_lost() {
+    use wingfc_core::safety::{ArmingSafety, ArmingStatus};
+
+    let mut safety = ArmingSafety::new();
+
+    // 1. Boot on bench with signal lost -> must be Disarmed (NOT Failsafe)
+    let status = safety.update(1000, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 2. Switch flipped to ARM while signal lost -> must stay Disarmed
+    let status = safety.update(1900, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 3. Signal acquired with switch disarmed -> Disarmed and ready
+    let status = safety.update(1000, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 4. Arm safely with zero throttle -> ArmedAngle
+    let status = safety.update(1900, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::ArmedAngle);
+    assert!(safety.is_armed());
+
+    // 5. In-flight signal lost -> enters Failsafe immediately
+    let status = safety.update(1900, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Failsafe);
+    assert!(!safety.is_armed());
+
+    // 6. Subsequent cycles with signal still lost -> latches Failsafe
+    let status = safety.update(1900, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Failsafe);
+    assert!(!safety.is_armed());
+}
+
+#[test]
 fn test_feedforward_response() {
     let cfg = PidConfig {
         kff: 0.10,
