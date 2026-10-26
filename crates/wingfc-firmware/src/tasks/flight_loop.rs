@@ -139,6 +139,8 @@ pub struct FlightLoopState {
     pub status: ArmingStatus,
     pub last_rc_connected: bool,
     pub cached_euler: (f32, f32, f32),
+    pub cached_pitch_terms: wingfc_core::pid::PidTerms,
+    pub cached_roll_terms: wingfc_core::pid::PidTerms,
     pub last_imu_seq: u32,
     pub imu_overrun_count: u32,
     pub gps_groundspeed_mps: f32,
@@ -203,6 +205,8 @@ impl FlightLoopState {
             status: ArmingStatus::Disarmed,
             last_rc_connected: false,
             cached_euler: (0.0, 0.0, 0.0),
+            cached_pitch_terms: wingfc_core::pid::PidTerms::default(),
+            cached_roll_terms: wingfc_core::pid::PidTerms::default(),
             last_imu_seq: 0,
             imu_overrun_count: 0,
             gps_groundspeed_mps: 0.0,
@@ -439,8 +443,12 @@ impl FlightLoopState {
                 let target_pitch_rate = pitch_stick * MAX_PITCH_RATE;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                let r_terms = self.roll_pid.update_ext(target_roll_rate, gyro.x, dt);
+                let p_terms = self.pitch_pid.update_ext(target_pitch_rate, gyro.y, dt);
+                self.cached_roll_terms = r_terms;
+                self.cached_pitch_terms = p_terms;
+                roll_mix = r_terms.total;
+                pitch_mix = p_terms.total;
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = throttle_raw;
             }
@@ -453,8 +461,12 @@ impl FlightLoopState {
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                let r_terms = self.roll_pid.update_ext(target_roll_rate, gyro.x, dt);
+                let p_terms = self.pitch_pid.update_ext(target_pitch_rate, gyro.y, dt);
+                self.cached_roll_terms = r_terms;
+                self.cached_pitch_terms = p_terms;
+                roll_mix = r_terms.total;
+                pitch_mix = p_terms.total;
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = throttle_raw;
             }
@@ -478,8 +490,12 @@ impl FlightLoopState {
                     yaw_stick * MAX_YAW_RATE
                 };
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                let r_terms = self.roll_pid.update_ext(target_roll_rate, gyro.x, dt);
+                let p_terms = self.pitch_pid.update_ext(target_pitch_rate, gyro.y, dt);
+                self.cached_roll_terms = r_terms;
+                self.cached_pitch_terms = p_terms;
+                roll_mix = r_terms.total;
+                pitch_mix = p_terms.total;
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = throttle_raw;
             }
@@ -503,8 +519,12 @@ impl FlightLoopState {
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = yaw_stick * MAX_YAW_RATE;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                let r_terms = self.roll_pid.update_ext(target_roll_rate, gyro.x, dt);
+                let p_terms = self.pitch_pid.update_ext(target_pitch_rate, gyro.y, dt);
+                self.cached_roll_terms = r_terms;
+                self.cached_pitch_terms = p_terms;
+                roll_mix = r_terms.total;
+                pitch_mix = p_terms.total;
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = alt_thr;
             }
@@ -518,13 +538,19 @@ impl FlightLoopState {
                 let target_roll_rate = (target_roll - est_roll) * ANGLE_P_GAIN;
                 let target_yaw_rate = 0.0;
 
-                roll_mix = self.roll_pid.update(target_roll_rate, gyro.x, dt);
-                pitch_mix = self.pitch_pid.update(target_pitch_rate, gyro.y, dt);
+                let r_terms = self.roll_pid.update_ext(target_roll_rate, gyro.x, dt);
+                let p_terms = self.pitch_pid.update_ext(target_pitch_rate, gyro.y, dt);
+                self.cached_roll_terms = r_terms;
+                self.cached_pitch_terms = p_terms;
+                roll_mix = r_terms.total;
+                pitch_mix = p_terms.total;
                 yaw_mix = self.yaw_pid.update(target_yaw_rate, gyro.z, dt);
                 throttle_out = 1500; // Safe cruise throttle
             }
 
             _ => {
+                self.cached_roll_terms = wingfc_core::pid::PidTerms::default();
+                self.cached_pitch_terms = wingfc_core::pid::PidTerms::default();
                 pitch_mix = 0.0;
                 roll_mix = 0.0;
                 yaw_mix = 0.0;

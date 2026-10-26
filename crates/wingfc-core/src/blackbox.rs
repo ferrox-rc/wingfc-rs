@@ -20,7 +20,8 @@ pub struct BlackboxFrame {
     pub timestamp_ms: u32,
     pub gyro_xyz_mrad: [i16; 3],
     pub accel_xyz_cms2: [i16; 3],
-    pub attitude_mrad: [i16; 3],
+    pub pid_pitch: [i8; 3],  // P, I, D terms scaled by 500 (-128..127 => -0.254..+0.254 mix)
+    pub pid_roll: [i8; 3],   // P, I, D terms scaled by 500 (-128..127 => -0.254..+0.254 mix)
     pub packed_actuators: [u8; 4],
     pub aux: u8,
     pub crc8: u8,
@@ -29,7 +30,7 @@ pub struct BlackboxFrame {
 impl BlackboxFrame {
     pub const SIZE: usize = 32;
     pub const MAGIC: u8 = 0xBB;
-    pub const VERSION: u8 = 1;
+    pub const VERSION: u8 = 2;
 
     /// Packs 3 10-bit actuator pulse widths (1000..2023 us) into 4 bytes with 1 us resolution.
     #[inline]
@@ -51,6 +52,19 @@ impl BlackboxFrame {
         (s1, s2, thr)
     }
 
+    /// Scales float PID terms [-0.254, 0.254] into i8 [-128, 127] with factor 500.0.
+    #[inline]
+    pub fn scale_pid_term(term: f32) -> i8 {
+        let scaled = term * 500.0;
+        if scaled > 127.0 {
+            127
+        } else if scaled < -128.0 {
+            -128
+        } else {
+            scaled as i8
+        }
+    }
+
     /// Constructs a new BlackboxFrame, automatically computing the CRC8 checksum over bytes 0..31.
     pub fn new(
         status_flags: u8,
@@ -58,7 +72,8 @@ impl BlackboxFrame {
         timestamp_ms: u32,
         gyro_xyz_mrad: [i16; 3],
         accel_xyz_cms2: [i16; 3],
-        attitude_mrad: [i16; 3],
+        pid_pitch: [i8; 3],
+        pid_roll: [i8; 3],
         servo1_us: u16,
         servo2_us: u16,
         throttle_us: u16,
@@ -73,7 +88,8 @@ impl BlackboxFrame {
             timestamp_ms,
             gyro_xyz_mrad,
             accel_xyz_cms2,
-            attitude_mrad,
+            pid_pitch,
+            pid_roll,
             packed_actuators,
             aux,
             crc8: 0,
@@ -108,9 +124,12 @@ impl BlackboxFrame {
         buf[14..16].copy_from_slice(&self.accel_xyz_cms2[0].to_le_bytes());
         buf[16..18].copy_from_slice(&self.accel_xyz_cms2[1].to_le_bytes());
         buf[18..20].copy_from_slice(&self.accel_xyz_cms2[2].to_le_bytes());
-        buf[20..22].copy_from_slice(&self.attitude_mrad[0].to_le_bytes());
-        buf[22..24].copy_from_slice(&self.attitude_mrad[1].to_le_bytes());
-        buf[24..26].copy_from_slice(&self.attitude_mrad[2].to_le_bytes());
+        buf[20] = self.pid_pitch[0] as u8;
+        buf[21] = self.pid_pitch[1] as u8;
+        buf[22] = self.pid_pitch[2] as u8;
+        buf[23] = self.pid_roll[0] as u8;
+        buf[24] = self.pid_roll[1] as u8;
+        buf[25] = self.pid_roll[2] as u8;
         buf[26..30].copy_from_slice(&self.packed_actuators);
         buf[30] = self.aux;
         buf[31] = self.crc8;
@@ -139,9 +158,8 @@ impl BlackboxFrame {
         let ay = i16::from_le_bytes([bytes[16], bytes[17]]);
         let az = i16::from_le_bytes([bytes[18], bytes[19]]);
 
-        let roll = i16::from_le_bytes([bytes[20], bytes[21]]);
-        let pitch = i16::from_le_bytes([bytes[22], bytes[23]]);
-        let yaw = i16::from_le_bytes([bytes[24], bytes[25]]);
+        let pid_pitch = [bytes[20] as i8, bytes[21] as i8, bytes[22] as i8];
+        let pid_roll = [bytes[23] as i8, bytes[24] as i8, bytes[25] as i8];
 
         let packed_actuators = [bytes[26], bytes[27], bytes[28], bytes[29]];
 
@@ -153,7 +171,8 @@ impl BlackboxFrame {
             timestamp_ms,
             gyro_xyz_mrad: [gx, gy, gz],
             accel_xyz_cms2: [ax, ay, az],
-            attitude_mrad: [roll, pitch, yaw],
+            pid_pitch,
+            pid_roll,
             packed_actuators,
             aux: bytes[30],
             crc8: bytes[31],
@@ -206,7 +225,8 @@ mod tests {
             123456,
             [100, -200, 300],
             [10, 20, 981],
-            [150, -50, 3140],
+            [25, 5, -2],
+            [30, 8, -4],
             1450,
             1550,
             1600,
@@ -225,6 +245,8 @@ mod tests {
         assert_eq!(s1, 1450);
         assert_eq!(s2, 1550);
         assert_eq!(thr, 1600);
+        assert_eq!(decoded.pid_pitch, [25, 5, -2]);
+        assert_eq!(decoded.pid_roll, [30, 8, -4]);
     }
 
     #[test]
@@ -235,6 +257,7 @@ mod tests {
             1000,
             [0, 0, 0],
             [0, 0, 981],
+            [0, 0, 0],
             [0, 0, 0],
             1500,
             1500,

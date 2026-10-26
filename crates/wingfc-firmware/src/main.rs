@@ -374,13 +374,22 @@ async fn main(spawner: Spawner) {
                     ),
                     Err(_) => (0, 0, 0),
                 };
-                let roll_mrad = (euler.1 * 1000.0) as i16;
-                let pitch_mrad = (euler.0 * 1000.0) as i16;
-                let yaw_mrad = (euler.2 * 1000.0) as i16;
+                let _ = euler;
 
                 let s1 = outputs.servo1_us;
                 let s2 = outputs.servo2_us;
                 let thr = outputs.motor1_throttle;
+
+                let pid_pitch = [
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_pitch_terms.p),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_pitch_terms.i),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_pitch_terms.d),
+                ];
+                let pid_roll = [
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_roll_terms.p),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_roll_terms.i),
+                    wingfc_core::blackbox::BlackboxFrame::scale_pid_term(flight_loop.cached_roll_terms.d),
+                ];
 
                 let frame = wingfc_core::blackbox::BlackboxFrame::new(
                     flight_loop.status as u8,
@@ -388,7 +397,8 @@ async fn main(spawner: Spawner) {
                     now.as_millis() as u32,
                     [gx, gy, gz],
                     [ax, ay, az],
-                    [roll_mrad, pitch_mrad, yaw_mrad],
+                    pid_pitch,
+                    pid_roll,
                     s1,
                     s2,
                     thr,

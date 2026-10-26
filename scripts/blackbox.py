@@ -6,6 +6,9 @@ Communicates with WingFC-rs flight controller over either:
   1. XIAO DebugMate SWD (`probe-rs` via in-RAM `BBL_SWD_MAILBOX`), or
   2. Native USB CDC-ACM serial port
 to inspect, download, and decode high-rate 50 Hz binary flight logs from onboard QSPI NOR flash.
+
+Automatically formats `.bbl` / `.bfl` output files into the standard Betaflight Blackbox v2
+container format so they load directly into the online Betaflight Blackbox Explorer.
 """
 
 import argparse
@@ -42,6 +45,41 @@ SWD_STATUS_ERR_IO = 3
 
 SWD_BUF_BYTES = 4096
 
+# Betaflight Blackbox v2 schema definition:
+# (name, signed, I_predictor, I_encoding, P_predictor, P_encoding)
+# Encodings: 0 = SIGNED_VB, 1 = UNSIGNED_VB, 9 = NULL
+# Predictors: 0 = PREDICTOR_0, 1 = PREDICTOR_PREVIOUS, 6 = PREDICTOR_INC
+BETAFLIGHT_BBL_FIELDS = [
+    ("loopIteration", 0, 0, 1, 6, 9),
+    ("time",          0, 0, 1, 1, 0),
+    ("axisP[0]",      1, 0, 0, 1, 0),
+    ("axisP[1]",      1, 0, 0, 1, 0),
+    ("axisP[2]",      1, 0, 0, 1, 0),
+    ("axisI[0]",      1, 0, 0, 1, 0),
+    ("axisI[1]",      1, 0, 0, 1, 0),
+    ("axisI[2]",      1, 0, 0, 1, 0),
+    ("axisD[0]",      1, 0, 0, 1, 0),
+    ("axisD[1]",      1, 0, 0, 1, 0),
+    ("rcCommand[0]",  1, 0, 0, 1, 0),
+    ("rcCommand[1]",  1, 0, 0, 1, 0),
+    ("rcCommand[2]",  1, 0, 0, 1, 0),
+    ("rcCommand[3]",  0, 0, 1, 1, 0),
+    ("gyroADC[0]",    1, 0, 0, 1, 0),
+    ("gyroADC[1]",    1, 0, 0, 1, 0),
+    ("gyroADC[2]",    1, 0, 0, 1, 0),
+    ("accSmooth[0]",  1, 0, 0, 1, 0),
+    ("accSmooth[1]",  1, 0, 0, 1, 0),
+    ("accSmooth[2]",  1, 0, 0, 1, 0),
+    ("motor[0]",      0, 0, 1, 1, 0),
+    ("motor[1]",      0, 0, 1, 1, 0),
+    ("servo[0]",      0, 0, 1, 1, 0),
+    ("servo[1]",      0, 0, 1, 1, 0),
+    ("debug[0]",      1, 0, 0, 1, 0),
+    ("debug[1]",      1, 0, 0, 1, 0),
+    ("debug[2]",      1, 0, 0, 1, 0),
+    ("debug[3]",      1, 0, 0, 1, 0),
+]
+
 
 def crc8_itu(data: bytes) -> int:
     """Computes CRC-8 with polynomial 0x07 (ATM/ITU), matching firmware."""
@@ -56,6 +94,236 @@ def crc8_itu(data: bytes) -> int:
     return crc
 
 
+def encode_unsigned_vb(val: int) -> bytes:
+    """Encodes a 32-bit unsigned integer using Betaflight unsigned variable-byte encoding."""
+    val &= 0xFFFFFFFF
+    out = bytearray()
+    while val > 0x7F:
+        out.append((val & 0x7F) | 0x80)
+        val >>= 7
+    out.append(val & 0x7F)
+    return bytes(out)
+
+
+def encode_signed_vb(val: int) -> bytes:
+    """Encodes a 32-bit signed integer using ZigZag + Betaflight variable-byte encoding."""
+    val = int(val)
+    if val < -0x80000000:
+        val = -0x80000000
+    elif val > 0x7FFFFFFF:
+        val = 0x7FFFFFFF
+    zigzag = ((val << 1) ^ (val >> 31)) & 0xFFFFFFFF
+    return encode_unsigned_vb(zigzag)
+
+
+def decode_frame(data: bytes, strict_crc: bool = True):
+    """Decodes a single 32-byte WingFC BlackboxFrame (v1 or v2)."""
+    if len(data) != 32:
+        return None
+    ver = data[1]
+    if ver not in (1, 2):
+        return None
+
+    if strict_crc:
+        if data[0] != MAGIC_BYTE:
+            return None
+        if crc8_itu(data[:31]) != data[31]:
+            return None
+    else:
+        if data[0] not in (0xBB, 0xB3):
+            return None
+
+    status_flags = data[2] & 0x03
+    seq_lo = data[3]
+    timestamp_ms = struct.unpack("<I", data[4:8])[0] & 0x000FFFFF
+    gx, gy, gz = struct.unpack("<hhh", data[8:14])
+    ax, ay, az = struct.unpack("<hhh", data[14:20])
+
+    rad_to_deg = 180.0 / math.pi
+    if ver == 2:
+        # Version 2: bytes 20..25 are [pid_pitch: 3x i8, pid_roll: 3x i8] scaled by 500
+        pitch_p_raw, pitch_i_raw, pitch_d_raw = struct.unpack("<bbb", data[20:23])
+        roll_p_raw, roll_i_raw, roll_d_raw = struct.unpack("<bbb", data[23:26])
+        roll_deg = 0.0
+        pitch_deg = 0.0
+        yaw_deg = 0.0
+        pitch_p = pitch_p_raw / 500.0
+        pitch_i = pitch_i_raw / 500.0
+        pitch_d = pitch_d_raw / 500.0
+        roll_p = roll_p_raw / 500.0
+        roll_i = roll_i_raw / 500.0
+        roll_d = roll_d_raw / 500.0
+    else:
+        # Version 1 legacy: bytes 20..25 are [roll_mrad, pitch_mrad, yaw_mrad: 3x i16]
+        roll_mrad, pitch_mrad, yaw_mrad = struct.unpack("<hhh", data[20:26])
+        roll_deg = max(-180.0, min(180.0, (roll_mrad / 1000.0) * rad_to_deg))
+        pitch_deg = max(-90.0, min(90.0, (pitch_mrad / 1000.0) * rad_to_deg))
+        yaw_deg = max(-180.0, min(180.0, (yaw_mrad / 1000.0) * rad_to_deg))
+        pitch_p = pitch_i = pitch_d = 0.0
+        roll_p = roll_i = roll_d = 0.0
+
+    # Unpack actuators (3x 10-bit in 32-bit uint)
+    act_packed = struct.unpack("<I", data[26:30])[0]
+    servo1 = max(1000, min(2000, (act_packed & 0x3FF) + 1000))
+    servo2 = max(1000, min(2000, ((act_packed >> 10) & 0x3FF) + 1000))
+    throttle = max(1000, min(2000, ((act_packed >> 20) & 0x3FF) + 1000))
+
+    return {
+        "time_ms": timestamp_ms,
+        "seq": seq_lo,
+        "status": status_flags,
+        "gx_rads": (gx / 1000.0),
+        "gy_rads": (gy / 1000.0),
+        "gz_rads": (gz / 1000.0),
+        "ax_ms2": (ax / 100.0),
+        "ay_ms2": (ay / 100.0),
+        "az_ms2": (az / 100.0),
+        "roll_deg": roll_deg,
+        "pitch_deg": pitch_deg,
+        "yaw_deg": yaw_deg,
+        "roll_p": roll_p,
+        "roll_i": roll_i,
+        "roll_d": roll_d,
+        "pitch_p": pitch_p,
+        "pitch_i": pitch_i,
+        "pitch_d": pitch_d,
+        "servo1_us": servo1,
+        "servo2_us": servo2,
+        "throttle_us": throttle,
+    }
+
+
+def extract_frames_from_raw(raw: bytes) -> list[dict]:
+    """Extracts decoded frames from raw 32-byte MCU flash blocks."""
+    total_chunks = len(raw) // FRAME_SIZE
+    strict_frames = []
+    relaxed_frames = []
+
+    for i in range(total_chunks):
+        chunk = raw[i * FRAME_SIZE : (i + 1) * FRAME_SIZE]
+        if chunk == b"\xFF" * FRAME_SIZE:
+            continue
+        f_strict = decode_frame(chunk, strict_crc=True)
+        if f_strict:
+            strict_frames.append(f_strict)
+        f_relaxed = decode_frame(chunk, strict_crc=False)
+        if f_relaxed:
+            relaxed_frames.append(f_relaxed)
+
+    if len(strict_frames) >= max(1, len(relaxed_frames) // 2):
+        return strict_frames
+    return relaxed_frames
+
+
+def encode_betaflight_bbl(frames: list[dict]) -> bytes:
+    """Encodes decoded WingFC frames into a Betaflight Blackbox v2 (.bbl) binary stream."""
+    names = ",".join(f[0] for f in BETAFLIGHT_BBL_FIELDS)
+    signed = ",".join(str(f[1]) for f in BETAFLIGHT_BBL_FIELDS)
+    i_pred = ",".join(str(f[2]) for f in BETAFLIGHT_BBL_FIELDS)
+    i_enc = ",".join(str(f[3]) for f in BETAFLIGHT_BBL_FIELDS)
+    p_pred = ",".join(str(f[4]) for f in BETAFLIGHT_BBL_FIELDS)
+    p_enc = ",".join(str(f[5]) for f in BETAFLIGHT_BBL_FIELDS)
+
+    headers = [
+        "H Product:Blackbox flight data recorder by Nicholas Sherlock",
+        "H Data version:2",
+        "H Firmware type:Cleanflight",
+        "H Firmware revision:Betaflight 4.4.0",
+        "H Firmware date:Oct 26 2026 12:00:00",
+        "H Board information:WINGFC_XIAO_NRF52840",
+        "H Craft name:WingFC-rs",
+        "H I interval:32",
+        "H P interval:1/1",
+        f"H Field I name:{names}",
+        f"H Field I signed:{signed}",
+        f"H Field I predictor:{i_pred}",
+        f"H Field I encoding:{i_enc}",
+        f"H Field P predictor:{p_pred}",
+        f"H Field P encoding:{p_enc}",
+        "H gyro_scale:0x3f800000",
+        "H acc_1G:1000",
+        "H motorOutput:1000,2000",
+        "H minthrottle:1000",
+        "H maxthrottle:2000",
+        "H looptime:20000",
+        "H debug_mode:0",
+    ]
+
+    out = bytearray(("\n".join(headers) + "\n").encode("ascii"))
+    rad_to_deg = 180.0 / math.pi
+    prev_row = None
+
+    for idx, f in enumerate(frames):
+        time_us = idx * 20000  # 50 Hz = 20,000 us per logged frame
+        gx_dps = int(round(f["gx_rads"] * rad_to_deg))
+        gy_dps = int(round(f["gy_rads"] * rad_to_deg))
+        gz_dps = int(round(f["gz_rads"] * rad_to_deg))
+
+        ax_mg = int(round((f["ax_ms2"] / 9.80665) * 1000.0))
+        ay_mg = int(round((f["ay_ms2"] / 9.80665) * 1000.0))
+        az_mg = int(round((f["az_ms2"] / 9.80665) * 1000.0))
+
+        s1 = int(f["servo1_us"])
+        s2 = int(f["servo2_us"])
+        thr = int(f["throttle_us"])
+
+        rc0 = s1 - 1500
+        rc1 = s2 - 1500
+        rc2 = 0
+        rc3 = thr
+
+        # Scale PID terms to Betaflight mixer effort scale (1.0 full mix = ~1000)
+        roll_p_bf = int(round(f["roll_p"] * 1000.0))
+        pitch_p_bf = int(round(f["pitch_p"] * 1000.0))
+        roll_i_bf = int(round(f["roll_i"] * 1000.0))
+        pitch_i_bf = int(round(f["pitch_i"] * 1000.0))
+        roll_d_bf = int(round(f["roll_d"] * 1000.0))
+        pitch_d_bf = int(round(f["pitch_d"] * 1000.0))
+
+        dbg0 = int(round(f["roll_deg"] * 10.0))
+        dbg1 = int(round(f["pitch_deg"] * 10.0))
+        dbg2 = int(round(f["yaw_deg"] * 10.0))
+        dbg3 = int(f["status"])
+
+        row = [
+            idx,          # loopIteration
+            time_us,      # time (us)
+            roll_p_bf, pitch_p_bf, 0,  # axisP[0..2] (Roll, Pitch, Yaw)
+            roll_i_bf, pitch_i_bf, 0,  # axisI[0..2] (Roll, Pitch, Yaw)
+            roll_d_bf, pitch_d_bf,     # axisD[0..1] (Roll, Pitch)
+            rc0, rc1, rc2, rc3,        # rcCommand[0..3]
+            gx_dps, gy_dps, gz_dps,    # gyroADC[0..2] (deg/s)
+            ax_mg, ay_mg, az_mg,       # accSmooth[0..2] (milli-G, 1G=1000)
+            thr, thr,                  # motor[0..1]
+            s1, s2,                    # servo[0..1]
+            dbg0, dbg1, dbg2, dbg3,    # debug[0..3]
+        ]
+
+        if idx % 32 == 0 or prev_row is None:
+            out.append(ord("I"))
+            for val, field_def in zip(row, BETAFLIGHT_BBL_FIELDS):
+                i_encoding = field_def[3]
+                if i_encoding == 1:
+                    out.extend(encode_unsigned_vb(val))
+                else:
+                    out.extend(encode_signed_vb(val))
+        else:
+            out.append(ord("P"))
+            for val, pval, field_def in zip(row, prev_row, BETAFLIGHT_BBL_FIELDS):
+                p_encoding = field_def[5]
+                if p_encoding == 9:
+                    # ENCODING_NULL (loopIteration increments automatically via PREDICTOR_INC=6)
+                    continue
+                delta = val - pval
+                out.extend(encode_signed_vb(delta))
+
+        prev_row = row
+
+    # Standard Betaflight End-of-Log Event (0x45 = 'E', 0xFF = FLIGHT_LOG_EVENT_LOG_END)
+    out.extend(b"E\xffEnd of log\x00")
+    return bytes(out)
+
+
 def find_wingfc_usb_port():
     """Returns native WingFC USB CDC-ACM port if connected, else None."""
     if not serial:
@@ -63,7 +331,6 @@ def find_wingfc_usb_port():
     for p in serial.tools.list_ports.comports():
         desc = (p.description or "").lower()
         mfg = (p.manufacturer or "").lower()
-        # Exclude CMSIS-DAP / DebugMate UART bridge (0x0d28:0x0204)
         if p.vid == 0x0D28 and p.pid == 0x0204:
             continue
         if "cmsis-dap" in desc:
@@ -99,7 +366,6 @@ def find_elf_path(custom_elf=None) -> str:
             file=sys.stderr,
         )
         sys.exit(1)
-    # Pick most recently modified ELF
     existing.sort(key=lambda p: os.path.getmtime(p), reverse=True)
     return existing[0]
 
@@ -124,7 +390,6 @@ def resolve_symbol_address(elf_path: str, symbol_name: str) -> int:
         sections.append((sh_type, sh_offset, sh_size, sh_link, sh_entsize))
 
     target_bytes = symbol_name.encode("ascii")
-    # SHT_SYMTAB == 2
     for sh_type, sh_offset, sh_size, sh_link, sh_entsize in sections:
         if sh_type == 2 and sh_entsize >= 16:
             strtab_off = sections[sh_link][1]
@@ -237,6 +502,24 @@ def print_status_summary(transport: str, jedec: str, wr_ptr: int, sessions: int,
     print(f"Logged Time    : {mins}m {secs:02d}s (approx. at 50 Hz)")
 
 
+def save_dumped_data(raw_bytes: bytes, output_path: str, raw_flag: bool = False):
+    """Saves downloaded blackbox data as Betaflight v2 .bbl (default) or raw MCU bytes."""
+    if raw_flag:
+        with open(output_path, "wb") as f:
+            f.write(raw_bytes)
+        print(f"Saved {len(raw_bytes):,} raw flash bytes to {output_path}")
+        return
+
+    frames = extract_frames_from_raw(raw_bytes)
+    bf_bytes = encode_betaflight_bbl(frames)
+    with open(output_path, "wb") as f:
+        f.write(bf_bytes)
+    print(
+        f"Encoded {len(frames):,} flight frames ({len( frames ) / 50.0:.1f}s @ 50 Hz) "
+        f"into Betaflight Blackbox v2 format: {output_path} ({len(bf_bytes):,} bytes)"
+    )
+
+
 def cmd_info(args):
     if should_use_swd(args):
         mb_addr = get_swd_mailbox_addr(args)
@@ -298,10 +581,8 @@ def cmd_dump(args):
         addr = LOG_START_ADDR
         while addr < write_ptr:
             chunk_len = min(SWD_BUF_BYTES, write_ptr - addr)
-            # Write status=BUSY(1), cmd=READ_CHUNK(3), cmd_addr=addr, cmd_len=chunk_len at +0x10
             swd_write_words(mb_addr + 0x10, [SWD_STATUS_BUSY, SWD_CMD_READ_CHUNK, addr, chunk_len])
 
-            # Wait for blackbox_task to complete the 4KB QSPI DMA read into RAM
             for _ in range(50):
                 st_words = swd_read_words(mb_addr + 0x10, 2)
                 st_status, st_cmd = st_words[0], st_words[1]
@@ -330,12 +611,10 @@ def cmd_dump(args):
 
         print()
         calc_crc = binascii.crc32(received) & 0xFFFFFFFF
-        with open(args.output, "wb") as f:
-            f.write(received)
-
         elapsed = time.time() - start_time
         rate_kb = (len(received) / 1024.0) / elapsed if elapsed > 0 else 0
-        print(f"Dump complete (CRC-32: 0x{calc_crc:08X}): wrote {len(received):,} bytes in {elapsed:.2f}s ({rate_kb:.1f} KB/s)")
+        print(f"SWD transfer complete (CRC-32: 0x{calc_crc:08X}) in {elapsed:.2f}s ({rate_kb:.1f} KB/s)")
+        save_dumped_data(bytes(received), args.output, getattr(args, "raw", False))
         return
 
     port = args.port or find_wingfc_usb_port() or "/dev/ttyACM0"
@@ -392,54 +671,24 @@ def cmd_dump(args):
         else:
             print(f"CRC-32 Check: MISMATCH (Calculated: 0x{calc_crc:08X}, Expected: 0x{expected_crc:08X})", file=sys.stderr)
 
-    with open(args.output, "wb") as f:
-        f.write(received)
-
     elapsed = time.time() - start_time
     rate_kb = (len(received) / 1024.0) / elapsed if elapsed > 0 else 0
-    print(f"Dump complete: wrote {len(received):,} bytes in {elapsed:.2f}s ({rate_kb:.1f} KB/s)")
+    print(f"USB transfer complete in {elapsed:.2f}s ({rate_kb:.1f} KB/s)")
+    save_dumped_data(bytes(received), args.output, getattr(args, "raw", False))
 
 
-def decode_frame(data: bytes):
-    """Decodes a single 32-byte BlackboxFrame."""
-    if len(data) != 32:
-        return None
-    if data[0] != MAGIC_BYTE or data[1] != VERSION_BYTE:
-        return None
-    if crc8_itu(data[:31]) != data[31]:
-        return None
+def cmd_convert_bbl(args):
+    with open(args.input, "rb") as f:
+        raw = f.read()
 
-    status_flags = data[2]
-    seq_lo = data[3]
-    timestamp_ms = struct.unpack("<I", data[4:8])[0]
-    gx, gy, gz = struct.unpack("<hhh", data[8:14])
-    ax, ay, az = struct.unpack("<hhh", data[14:20])
-    roll_mrad, pitch_mrad, yaw_mrad = struct.unpack("<hhh", data[20:26])
+    if raw.startswith(b"H Product:Blackbox"):
+        print(f"{args.input} is already in Betaflight Blackbox v2 format.")
+        if args.input != args.output:
+            with open(args.output, "wb") as f:
+                f.write(raw)
+        return
 
-    # Unpack actuators (3x 10-bit in 32-bit uint)
-    act_packed = struct.unpack("<I", data[26:30])[0]
-    servo1 = (act_packed & 0x3FF) + 1000
-    servo2 = ((act_packed >> 10) & 0x3FF) + 1000
-    throttle = ((act_packed >> 20) & 0x3FF) + 1000
-
-    rad_to_deg = 180.0 / math.pi
-    return {
-        "time_ms": timestamp_ms,
-        "seq": seq_lo,
-        "status": status_flags,
-        "gx_rads": (gx / 1000.0),
-        "gy_rads": (gy / 1000.0),
-        "gz_rads": (gz / 1000.0),
-        "ax_ms2": (ax / 100.0),
-        "ay_ms2": (ay / 100.0),
-        "az_ms2": (az / 100.0),
-        "roll_deg": (roll_mrad / 1000.0) * rad_to_deg,
-        "pitch_deg": (pitch_mrad / 1000.0) * rad_to_deg,
-        "yaw_deg": (yaw_mrad / 1000.0) * rad_to_deg,
-        "servo1_us": servo1,
-        "servo2_us": servo2,
-        "throttle_us": throttle,
-    }
+    save_dumped_data(raw, args.output, raw_flag=False)
 
 
 def cmd_export_csv(args):
@@ -447,35 +696,25 @@ def cmd_export_csv(args):
     with open(args.input, "rb") as f:
         raw = f.read()
 
-    total_chunks = len(raw) // FRAME_SIZE
-    valid_frames = 0
-    skipped = 0
+    frames = extract_frames_from_raw(raw)
 
     fieldnames = [
         "time_ms", "seq", "status",
         "gx_rads", "gy_rads", "gz_rads",
         "ax_ms2", "ay_ms2", "az_ms2",
         "roll_deg", "pitch_deg", "yaw_deg",
+        "roll_p", "roll_i", "roll_d",
+        "pitch_p", "pitch_i", "pitch_d",
         "servo1_us", "servo2_us", "throttle_us",
     ]
 
     with open(args.output, "w", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
+        for frame in frames:
+            writer.writerow(frame)
 
-        for i in range(total_chunks):
-            chunk = raw[i * FRAME_SIZE:(i + 1) * FRAME_SIZE]
-            if chunk == b"\xFF" * FRAME_SIZE:
-                skipped += 1
-                continue
-            frame = decode_frame(chunk)
-            if frame:
-                writer.writerow(frame)
-                valid_frames += 1
-            else:
-                skipped += 1
-
-    print(f"Export complete: {valid_frames:,} valid frames exported ({skipped:,} empty/invalid skipped)")
+    print(f"Export complete: {len(frames):,} valid frames exported to {args.output}")
 
 
 def cmd_erase(args):
@@ -555,16 +794,22 @@ def main():
     p_info.add_argument("--elf", help="Optional path to wingfc-firmware ELF for SWD symbol lookup")
 
     # Dump
-    p_dump = subparsers.add_parser("dump", help="Download raw binary log stream")
+    p_dump = subparsers.add_parser("dump", help="Download blackbox log and format as Betaflight v2 .bbl")
     p_dump.add_argument("output", help="Output file path (e.g. flight.bbl)")
     p_dump.add_argument("--port", "-p", help="USB serial port (auto-detects USB or DebugMate SWD if omitted)")
     p_dump.add_argument("--baud", "-b", type=int, default=115200, help="Baud rate (default 115200)")
     p_dump.add_argument("--swd", action="store_true", help="Force XIAO DebugMate SWD (probe-rs) transport")
+    p_dump.add_argument("--raw", action="store_true", help="Save raw 32-byte MCU flash frames without Betaflight .bbl encoding")
     p_dump.add_argument("--elf", help="Optional path to wingfc-firmware ELF for SWD symbol lookup")
 
+    # Convert raw dump to Betaflight .bbl
+    p_conv = subparsers.add_parser("convert-bbl", help="Convert raw WingFC binary dump into Betaflight Blackbox v2 .bbl")
+    p_conv.add_argument("input", help="Input raw dump path")
+    p_conv.add_argument("output", help="Output Betaflight .bbl path")
+
     # Export CSV
-    p_csv = subparsers.add_parser("export-csv", help="Decode binary .bbl log into CSV format")
-    p_csv.add_argument("input", help="Input binary log path (.bbl)")
+    p_csv = subparsers.add_parser("export-csv", help="Decode raw binary log into CSV format")
+    p_csv.add_argument("input", help="Input binary log path")
     p_csv.add_argument("output", help="Output CSV file path (.csv)")
 
     # Erase
@@ -582,6 +827,8 @@ def main():
         cmd_info(args)
     elif args.command == "dump":
         cmd_dump(args)
+    elif args.command == "convert-bbl":
+        cmd_convert_bbl(args)
     elif args.command == "export-csv":
         cmd_export_csv(args)
     elif args.command == "erase":
