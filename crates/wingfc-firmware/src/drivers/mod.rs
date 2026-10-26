@@ -10,7 +10,7 @@ pub mod pwm;
 pub use baro::BaroModel;
 #[cfg(feature = "compass")]
 pub use compass::CompassModel;
-pub use imu::Lsm6ds3Driver;
+pub use imu::{imu_worker_task, ImuError, Lsm6ds3Driver};
 pub use led::{LedColor, RgbLedDriver};
 #[cfg(not(feature = "dshot"))]
 pub use pwm::EscPwmDriver;

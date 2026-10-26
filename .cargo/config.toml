@@ -6,6 +6,9 @@ rustflags = [
   "-C", "target-cpu=cortex-m4",
 ]
 
+[build]
+target = "thumbv7em-none-eabihf"
+
 [alias]
 fw-check = "check -p wingfc-firmware --target thumbv7em-none-eabihf"
 fw-build = "build --release -p wingfc-firmware --target thumbv7em-none-eabihf"

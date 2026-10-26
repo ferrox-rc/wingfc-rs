@@ -6,4 +6,10 @@ Cargo.lock
 *.uf2
 .idea/
 .vscode/
+.zed/
+skills/
+__pycache__/
+*.pyc
 /dist/
+
+

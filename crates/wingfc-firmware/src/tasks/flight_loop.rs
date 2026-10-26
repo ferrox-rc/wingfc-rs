@@ -6,7 +6,7 @@ use embassy_sync::watch::Receiver as WatchReceiver;
 use embassy_time::Instant;
 #[cfg(not(feature = "dshot"))]
 use embassy_time::{Duration, Timer};
-use wingfc_core::ahrs::MadgwickAHRS;
+use wingfc_core::ahrs::VqfAHRS;
 use wingfc_core::filter::Pt1Filter;
 use wingfc_core::math::Vector3;
 
@@ -16,11 +16,11 @@ use wingfc_core::protocol::RcChannels;
 use wingfc_core::safety::{ArmingSafety, ArmingStatus};
 
 use crate::config::{
-    AHRS_BETA, AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DIFFERENTIAL_THRUST, DT,
+    AIRFRAME_TYPE, ANGLE_P_GAIN, ARM_SWITCH_THRESHOLD, DIFFERENTIAL_THRUST, DT,
     FAILSAFE_TIMEOUT, GYRO_LPF_CUTOFF_HZ, IN_FLIGHT_TUNING, IN_FLIGHT_TUNING_ENABLED,
     MAX_PITCH_ANGLE, MAX_PITCH_RATE, MAX_ROLL_ANGLE, MAX_ROLL_RATE, MAX_YAW_RATE, MODE_MATRIX,
     RATE_PID_CONFIG, RC_CH_ARM, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
-    THROTTLE_ZERO_THRESHOLD,
+    THROTTLE_ZERO_THRESHOLD, VQF_TAU_ACC, VQF_TAU_MAG,
 };
 #[cfg(not(feature = "dshot"))]
 use crate::drivers::EscPwmDriver;
@@ -33,16 +33,85 @@ use wingfc_core::mode::AltHoldController;
 #[cfg(feature = "baro")]
 use wingfc_core::vertical_kf::VerticalKalmanFilter;
 #[cfg(feature = "compass")]
-use crate::config::MAG_DECLINATION_RAD;
-#[cfg(feature = "compass")]
-use wingfc_core::compass::tilt_compensated_heading;
-#[cfg(feature = "compass")]
 use wingfc_core::mode::HeadingHoldController;
+#[cfg(any(feature = "baro", feature = "compass"))]
 use wingfc_core::sensor_health::SensorHealth;
 
-pub struct FlightLoopState<'d> {
-    pub imu: Lsm6ds3Driver<'d>,
-    pub ahrs: MadgwickAHRS,
+/// Runs boot-time ESC calibration check if PWM is used (Universal Rule #3).
+#[cfg(not(feature = "dshot"))]
+pub async fn calibrate_esc_if_requested(
+    rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
+    status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
+    esc_pwm: &mut EscPwmDriver<'_>,
+) -> Option<RcChannels> {
+    let start = Instant::now();
+    let mut in_esc_calib = false;
+    let mut latest_rc = None;
+
+    while start.elapsed() < Duration::from_millis(600) {
+        if let Ok(rc) = rc_rx.try_receive() {
+            latest_rc = Some(rc);
+            if rc.channels[RC_CH_THROTTLE] > 1900 {
+                in_esc_calib = true;
+                break;
+            }
+        }
+        Timer::after(Duration::from_millis(20)).await;
+    }
+
+    if in_esc_calib {
+        defmt::warn!(">>> ESC Throttle Calibration Mode Requested! Pass-through active <<<");
+        status_tx.send(VisualStatus::esc_calibrating());
+
+        loop {
+            if let Ok(rc) = rc_rx.try_receive() {
+                latest_rc = Some(rc);
+                let throttle = rc.channels[RC_CH_THROTTLE].clamp(1000, 2000);
+                esc_pwm.set_throttle_us(0, throttle);
+                esc_pwm.set_throttle_us(1, throttle);
+
+                // Pilot lowered stick to zero: exit calibration
+                if throttle <= 1050 {
+                    defmt::info!("ESC Throttle Minimum reached. Finalizing ESC calibration.");
+                    esc_pwm.set_throttle_us(0, 1000);
+                    esc_pwm.set_throttle_us(1, 1000);
+                    Timer::after(Duration::from_millis(500)).await;
+                    break;
+                }
+            }
+            Timer::after(Duration::from_millis(10)).await;
+        }
+    }
+
+    latest_rc
+}
+
+/// Initializes IMU hardware and runs gyro stationary bias calibration.
+pub async fn calibrate_imu_and_gyro(
+    imu: &mut Lsm6ds3Driver<'_>,
+    status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
+) -> Result<(), crate::drivers::ImuError> {
+    status_tx.send(VisualStatus::calibrating());
+
+    if let Err(e) = imu.init().await {
+        defmt::error!("IMU init failed: {:?}", e);
+        status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
+        return Err(e);
+    }
+
+    if let Err(e) = imu.calibrate_gyro(250).await {
+        defmt::error!("Gyro calib failed: {:?}", e);
+        status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
+        return Err(e);
+    }
+
+    status_tx.send(VisualStatus::status(ArmingStatus::Disarmed));
+    defmt::info!("Flight controller IMU calibrated and ready!");
+    Ok(())
+}
+
+pub struct FlightLoopState {
+    pub ahrs: VqfAHRS,
     pub gyro_lpf_x: Pt1Filter,
     pub gyro_lpf_y: Pt1Filter,
     pub gyro_lpf_z: Pt1Filter,
@@ -69,10 +138,19 @@ pub struct FlightLoopState<'d> {
     pub latest_rc: RcChannels,
     pub status: ArmingStatus,
     pub cached_euler: (f32, f32, f32),
+    pub last_imu_seq: u32,
+    pub imu_overrun_count: u32,
+    pub gps_groundspeed_mps: f32,
 }
 
-impl<'d> FlightLoopState<'d> {
-    pub fn new(imu: Lsm6ds3Driver<'d>) -> Self {
+impl Default for FlightLoopState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FlightLoopState {
+    pub fn new() -> Self {
         let mut gyro_lpf_x = Pt1Filter::new();
         let mut gyro_lpf_y = Pt1Filter::new();
         let mut gyro_lpf_z = Pt1Filter::new();
@@ -80,9 +158,13 @@ impl<'d> FlightLoopState<'d> {
         gyro_lpf_y.init(GYRO_LPF_CUTOFF_HZ, DT);
         gyro_lpf_z.init(GYRO_LPF_CUTOFF_HZ, DT);
 
+        #[allow(unused_mut)]
+        let mut ahrs = VqfAHRS::new(VQF_TAU_ACC, VQF_TAU_MAG, DT);
+        #[cfg(feature = "compass")]
+        ahrs.set_declination(crate::config::MAG_DECLINATION_RAD);
+
         Self {
-            imu,
-            ahrs: MadgwickAHRS::new(AHRS_BETA),
+            ahrs,
             gyro_lpf_x,
             gyro_lpf_y,
             gyro_lpf_z,
@@ -119,100 +201,20 @@ impl<'d> FlightLoopState<'d> {
             latest_rc: RcChannels::default(),
             status: ArmingStatus::Disarmed,
             cached_euler: (0.0, 0.0, 0.0),
+            last_imu_seq: 0,
+            imu_overrun_count: 0,
+            gps_groundspeed_mps: 0.0,
         }
-    }
-
-    /// Initializes hardware, checks for ESC Throttle Calibration, and runs Gyro Calibration (Analog PWM)
-    #[cfg(not(feature = "dshot"))]
-    pub async fn init(
-        &mut self,
-        rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
-        status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
-        esc_pwm: &mut EscPwmDriver<'_>,
-    ) {
-        // Step 1: Wait briefly (~500ms) to check if pilot powered on with Throttle HIGH for ESC Calibration
-        let start = Instant::now();
-        let mut in_esc_calib = false;
-
-        while start.elapsed() < Duration::from_millis(600) {
-            if let Ok(rc) = rc_rx.try_receive() {
-                self.latest_rc = rc;
-                self.last_packet_time = Instant::now();
-                if rc.channels[RC_CH_THROTTLE] > 1900 {
-                    in_esc_calib = true;
-                    break;
-                }
-            }
-            Timer::after(Duration::from_millis(20)).await;
-        }
-
-        // ESC Throttle Range Calibration Mode (Universal Rule #3)
-        if in_esc_calib {
-            defmt::warn!(">>> ESC Throttle Calibration Mode Requested! Pass-through active <<<");
-            status_tx.send(VisualStatus::esc_calibrating());
-
-            loop {
-                if let Ok(rc) = rc_rx.try_receive() {
-                    self.latest_rc = rc;
-                    let throttle = rc.channels[RC_CH_THROTTLE].clamp(1000, 2000);
-                    esc_pwm.set_throttle_us(0, throttle);
-                    esc_pwm.set_throttle_us(1, throttle);
-
-                    // Pilot lowered stick to zero: exit calibration
-                    if throttle <= 1050 {
-                        defmt::info!("ESC Throttle Minimum reached. Finalizing ESC calibration.");
-                        esc_pwm.set_throttle_us(0, 1000);
-                        esc_pwm.set_throttle_us(1, 1000);
-                        Timer::after(Duration::from_millis(500)).await;
-                        break;
-                    }
-                }
-                Timer::after(Duration::from_millis(10)).await;
-            }
-        }
-
-        self.init_common(status_tx).await;
-    }
-
-    /// Initializes hardware and runs Gyro Calibration (Digital DShot)
-    #[cfg(feature = "dshot")]
-    pub async fn init(
-        &mut self,
-        status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
-    ) {
-        self.init_common(status_tx).await;
-    }
-
-    async fn init_common(
-        &mut self,
-        status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
-    ) {
-        status_tx.send(VisualStatus::calibrating());
-
-        if let Err(e) = self.imu.init().await {
-            defmt::error!("IMU init failed: {:?}", e);
-            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
-            return;
-        }
-
-        if let Err(e) = self.imu.calibrate_gyro(250).await {
-            defmt::error!("Gyro calib failed: {:?}", e);
-            status_tx.send(VisualStatus::status(ArmingStatus::Failsafe));
-            return;
-        }
-
-        self.status = ArmingStatus::Disarmed;
-        status_tx.send(VisualStatus::status(ArmingStatus::Disarmed));
-        defmt::info!("Flight controller initialized and ready!");
     }
 
     /// Execute one flight control cycle with dynamically measured delta time (dt)
-    pub async fn step(
+    pub fn step(
         &mut self,
         rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
         status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
         #[cfg(any(feature = "baro", feature = "compass"))]
         ext_sensor_rx: &mut WatchReceiver<'static, ThreadModeRawMutex, ExternalSensorSnapshot, 2>,
+        imu_data: Result<wingfc_core::downsample::ImuDecimated, crate::drivers::ImuError>,
         dt: f32,
     ) -> AirframeOutputs {
         // 1. Drain latest RC packet
@@ -282,6 +284,7 @@ impl<'d> FlightLoopState<'d> {
                     self.mag_health = snapshot.mag_health;
                     if snapshot.mag_updated && snapshot.mag_health.is_healthy() {
                         self.latest_mag = snapshot.mag;
+                        self.ahrs.update_mag(snapshot.mag, 0.05);
                     }
                 }
                 #[cfg(feature = "baro")]
@@ -294,8 +297,23 @@ impl<'d> FlightLoopState<'d> {
             }
         }
 
-        // 6. Read IMU
-        let imu_data = self.imu.read().await;
+        // 6. Check IMU sequence and overruns
+        if let Ok(ref frame) = imu_data {
+            if self.last_imu_seq != 0 {
+                let expected = self.last_imu_seq.wrapping_add(1);
+                if frame.seq != expected {
+                    let missed = frame.seq.wrapping_sub(expected);
+                    self.imu_overrun_count = self.imu_overrun_count.saturating_add(missed);
+                    defmt::warn!(
+                        "IMU frame overrun: missed {} frames (seq: {}, expected: {})",
+                        missed,
+                        frame.seq,
+                        expected
+                    );
+                }
+            }
+            self.last_imu_seq = frame.seq;
+        }
 
         match self.status {
             ArmingStatus::Disarmed
@@ -311,16 +329,18 @@ impl<'d> FlightLoopState<'d> {
                 self.heading_hold.reset();
 
                 // If IMU read succeeded, update AHRS so attitude is initialized before takeoff
-                if let Ok((raw_gyro, accel)) = imu_data {
+                if let Ok(ref frame) = imu_data {
                     let gyro = Vector3::new(
-                        self.gyro_lpf_x.update(raw_gyro.x),
-                        self.gyro_lpf_y.update(raw_gyro.y),
-                        self.gyro_lpf_z.update(raw_gyro.z),
+                        self.gyro_lpf_x.update(frame.gyro.x),
+                        self.gyro_lpf_y.update(frame.gyro.y),
+                        self.gyro_lpf_z.update(frame.gyro.z),
                     );
-                    #[cfg(feature = "compass")]
-                    self.ahrs.update_9dof(gyro, accel, self.latest_mag, dt);
-                    #[cfg(not(feature = "compass"))]
-                    self.ahrs.update_6dof(gyro, accel, dt);
+                    self.ahrs.update_6dof_centripetal_aided(
+                        gyro,
+                        frame.accel,
+                        self.gps_groundspeed_mps,
+                        dt,
+                    );
                 }
 
                 return self.mixer.mix(pitch_stick, roll_stick, yaw_stick, 1000);
@@ -333,7 +353,7 @@ impl<'d> FlightLoopState<'d> {
         }
 
         // Armed flight modes: IMU is required for rate/angle stabilization
-        let (raw_gyro, accel) = match imu_data {
+        let imu_frame = match imu_data {
             Ok(data) => data,
             Err(_) => {
                 // Failsafe fallback: retain manual stick authority so pilot does not lose aircraft control
@@ -345,38 +365,27 @@ impl<'d> FlightLoopState<'d> {
 
         // Filter high-frequency motor vibration from gyroscope
         let gyro = Vector3::new(
-            self.gyro_lpf_x.update(raw_gyro.x),
-            self.gyro_lpf_y.update(raw_gyro.y),
-            self.gyro_lpf_z.update(raw_gyro.z),
+            self.gyro_lpf_x.update(imu_frame.gyro.x),
+            self.gyro_lpf_y.update(imu_frame.gyro.y),
+            self.gyro_lpf_z.update(imu_frame.gyro.z),
         );
+        let accel = imu_frame.accel;
 
-        // 7. Update Attitude Estimation (Madgwick AHRS)
-        #[cfg(feature = "compass")]
-        {
-            if self.mag_health.is_healthy() {
-                self.ahrs.update_9dof(gyro, accel, self.latest_mag, dt);
-            } else {
-                self.ahrs.update_6dof(gyro, accel, dt);
-            }
-        }
-        #[cfg(not(feature = "compass"))]
-        self.ahrs.update_6dof(gyro, accel, dt);
+        // 7. Update Attitude Estimation (VQF AHRS at 208.33 Hz with GPS centripetal compensation)
+        self.ahrs.update_6dof_centripetal_aided(gyro, accel, self.gps_groundspeed_mps, dt);
 
         if self.status.requires_attitude() {
-            self.cached_euler = self.ahrs.get_euler_angles();
+            self.cached_euler = self.ahrs.euler_angles();
         }
-        let (est_pitch, est_roll, _est_yaw) = self.cached_euler;
+        let (est_pitch, est_roll, est_yaw) = self.cached_euler;
 
         #[cfg(feature = "compass")]
-        if self.mag_health.is_healthy() {
-            self.tilt_heading_rad = tilt_compensated_heading(
-                self.latest_mag,
-                est_roll,
-                est_pitch,
-                MAG_DECLINATION_RAD,
-            );
-        } else {
-            self.tilt_heading_rad = _est_yaw;
+        {
+            self.tilt_heading_rad = est_yaw;
+        }
+        #[cfg(not(feature = "compass"))]
+        {
+            let _ = est_yaw;
         }
 
         // 8. Vertical Kalman Filter High-Rate Prediction Step
@@ -500,7 +509,7 @@ impl<'d> FlightLoopState<'d> {
     pub fn telemetry_snapshot(&mut self) -> crate::tasks::FlightTelemetrySnapshot {
         // If the active mode did not require attitude estimation, compute angles now for telemetry
         if !self.status.requires_attitude() {
-            self.cached_euler = self.ahrs.get_euler_angles();
+            self.cached_euler = self.ahrs.euler_angles();
         }
         let (pitch, roll, yaw) = self.cached_euler;
         crate::tasks::FlightTelemetrySnapshot {

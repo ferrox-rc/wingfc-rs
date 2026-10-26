@@ -33,13 +33,18 @@ use config::{NOMINAL_DT, NOMINAL_LOOP_HZ, SERVO_PWM_HZ};
 
 #[cfg(not(feature = "dshot"))]
 use drivers::EscPwmDriver;
-use drivers::{Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
+use drivers::{imu_worker_task, Lsm6ds3Driver, RgbLedDriver, ServoPwmDriver};
 use pins::BoardPins;
 #[cfg(feature = "crsf")]
 use tasks::{crsf_telemetry_task, FlightTelemetrySnapshot};
 #[cfg(any(feature = "baro", feature = "compass"))]
 use tasks::{external_sensors_task, ExternalSensorSnapshot};
-use tasks::{receiver_task, telemetry_led_task, FlightLoopState, VisualStatus};
+#[cfg(not(feature = "dshot"))]
+use tasks::calibrate_esc_if_requested;
+use tasks::{
+    actuator_pwm_task, calibrate_imu_and_gyro, receiver_task, telemetry_led_task,
+    FlightLoopState, VisualStatus,
+};
 
 bind_interrupts!(struct Irqs {
     TWISPI0 => twim::InterruptHandler<embassy_nrf::peripherals::TWISPI0>;
@@ -100,7 +105,7 @@ async fn main(spawner: Spawner) {
         pins.pin_servo4,
         &servo_config,
     );
-    let mut servo_pwm = ServoPwmDriver::new(pwm1_servos_dev);
+    let servo_pwm = ServoPwmDriver::new(pwm1_servos_dev);
 
     #[cfg(feature = "gps")]
     let pwm2_servos_dev = SimplePwm::new_4ch(
@@ -112,7 +117,7 @@ async fn main(spawner: Spawner) {
         &servo_config,
     );
     #[cfg(feature = "gps")]
-    let mut servo_pwm_ext = ServoPwmDriver::new(pwm2_servos_dev);
+    let servo_pwm_ext = ServoPwmDriver::new(pwm2_servos_dev);
 
     // 3. Power on and initialize internal IMU (LSM6DS3TR on TWISPI0)
     let _imu_pwr = Output::new(pins.pin_imu_pwr, Level::High, OutputDrive::HighDrive);
@@ -129,7 +134,7 @@ async fn main(spawner: Spawner) {
         TWIM_TX_BUF.take(),
     );
     let imu_int1 = Input::new(pins.pin_imu_int1, Pull::Down);
-    let imu_driver = Lsm6ds3Driver::new(twim, imu_int1);
+    let mut imu_driver = Lsm6ds3Driver::new(twim, imu_int1);
 
     // 3b. Optional External I2C Sensor Bus (TWISPI1 for Baro & Compass)
     #[cfg(any(feature = "baro", feature = "compass"))]
@@ -195,24 +200,41 @@ async fn main(spawner: Spawner) {
         let _ = tx;
     }
 
-    // 5. Initialize Flight Loop and calibrate Gyro
-    // (ESC throttle range calibration is only checked if PWM is used; unnecessary if DShot is active)
+    // 5. Pre-Spawn Boot Calibration Sequence
     let status_sender = STATUS_WATCH.sender();
     let rc_receiver = RC_CHANNEL.receiver();
-    let mut flight_loop = FlightLoopState::new(imu_driver);
+
     #[cfg(not(feature = "dshot"))]
-    flight_loop
-        .init(&rc_receiver, &status_sender, &mut esc_pwm)
-        .await;
-    #[cfg(feature = "dshot")]
-    flight_loop.init(&status_sender).await;
+    let initial_rc = calibrate_esc_if_requested(&rc_receiver, &status_sender, &mut esc_pwm).await;
+
+    if let Err(e) = calibrate_imu_and_gyro(&mut imu_driver, &status_sender).await {
+        defmt::error!("Boot IMU calibration failed: {:?}", e);
+    }
+
+    // Spawn Tier 1 IMU Worker Task (owns LSM6DS3 on TWISPI0, publishes to IMU_WATCH @ 208.33 Hz)
+    spawner.spawn(imu_worker_task(imu_driver, crate::bus::IMU_WATCH.sender()).unwrap());
+
+    // Spawn Tier 3 Actuator Task (owns PWM peripherals, loads from ACTUATOR_LATCH @ SERVO_PWM_HZ)
+    spawner.spawn(actuator_pwm_task(
+        servo_pwm,
+        #[cfg(feature = "gps")]
+        servo_pwm_ext,
+        #[cfg(not(feature = "dshot"))]
+        esc_pwm,
+    ).unwrap());
+
+    let mut flight_loop = FlightLoopState::new();
+    #[cfg(not(feature = "dshot"))]
+    if let Some(rc) = initial_rc {
+        flight_loop.latest_rc = rc;
+    }
 
     #[cfg(feature = "crsf")]
     let telemetry_sender = TELEMETRY_WATCH.sender();
     #[cfg(any(feature = "baro", feature = "compass"))]
     let mut ext_sensor_receiver = EXT_SENSORS_WATCH.receiver().unwrap();
 
-    // 6. Initialize 2000ms Hardware Watchdog Timer to guard 500Hz loop
+    // 6. Initialize 2000ms Hardware Watchdog Timer to guard flight loop
     let mut wdt_config = wdt::Config::default();
     wdt_config.timeout_ticks = 2 * 32768; // 2000ms (32768 Hz LFCLK)
     wdt_config.action_during_debug_halt = wdt::HaltConfig::Pause;
@@ -231,11 +253,21 @@ async fn main(spawner: Spawner) {
         NOMINAL_LOOP_HZ
     );
 
+    let mut imu_rx = crate::bus::IMU_WATCH.receiver().unwrap();
+
     loop {
-        // 1. Await LSM6DS3 hardware data-ready signal on INT1 (P0.11) via GPIOTE.
+        // 1. Await decimated IMU frame from Tier 1 imu_worker_task via IMU_WATCH.
         // If the sensor stalls or communication is lost, timeout ensures watchdog and failsafe continue.
-        let _ = with_timeout(max_wait, flight_loop.imu.wait_data_ready()).await;
-        wdt_handle.pet();
+        let imu_data = match with_timeout(max_wait, imu_rx.changed()).await {
+            Ok(frame) => {
+                wdt_handle.pet();
+                Ok(frame)
+            }
+            Err(_) => {
+                defmt::warn!("IMU frame timeout (stalled sensor bus)");
+                Err(drivers::ImuError::I2cError)
+            }
+        };
         loop_counter = loop_counter.wrapping_add(1);
 
         // 2. Measure actual elapsed delta time between samples
@@ -245,15 +277,14 @@ async fn main(spawner: Spawner) {
         // Bound dt within [0.5 * NOMINAL_DT, 2.0 * NOMINAL_DT] for numerical safety
         let dt = measured_dt.clamp(NOMINAL_DT * 0.5, NOMINAL_DT * 2.0);
 
-        let outputs = flight_loop
-            .step(
-                &rc_receiver,
-                &status_sender,
-                #[cfg(any(feature = "baro", feature = "compass"))]
-                &mut ext_sensor_receiver,
-                dt,
-            )
-            .await;
+        let outputs = flight_loop.step(
+            &rc_receiver,
+            &status_sender,
+            #[cfg(any(feature = "baro", feature = "compass"))]
+            &mut ext_sensor_receiver,
+            imu_data,
+            dt,
+        );
 
         #[cfg(feature = "crsf")]
         {
@@ -264,22 +295,7 @@ async fn main(spawner: Spawner) {
             }
         }
 
-        // Apply physical PWM output updates
-        servo_pwm.set_channel_us(0, outputs.servo1_us);
-        servo_pwm.set_channel_us(1, outputs.servo2_us);
-        servo_pwm.set_channel_us(2, outputs.servo3_us);
-        servo_pwm.set_channel_us(3, outputs.servo4_us);
-        #[cfg(feature = "gps")]
-        {
-            servo_pwm_ext.set_channel_us(0, outputs.servo5_us);
-            servo_pwm_ext.set_channel_us(1, outputs.servo6_us);
-            servo_pwm_ext.set_channel_us(2, outputs.servo7_us);
-            servo_pwm_ext.set_channel_us(3, outputs.servo8_us);
-        }
-        #[cfg(not(feature = "dshot"))]
-        {
-            esc_pwm.set_throttle_us(0, outputs.motor1_throttle);
-            esc_pwm.set_throttle_us(1, outputs.motor2_throttle);
-        }
+        // Commit whole-frame atomic outputs into double-buffered ACTUATOR_LATCH
+        crate::bus::ACTUATOR_LATCH.publish_outputs(&outputs);
     }
 }

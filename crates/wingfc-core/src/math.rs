@@ -173,6 +173,21 @@ impl Quaternion {
         }
     }
 
+    /// Rotates a 3D vector by this quaternion: v' = q * [0, v] * q*
+    #[inline(always)]
+    pub fn rotate_vector(self, v: Vector3) -> Vector3 {
+        let x = (1.0 - 2.0 * self.y * self.y - 2.0 * self.z * self.z) * v.x
+            + 2.0 * v.y * (self.y * self.x - self.w * self.z)
+            + 2.0 * v.z * (self.w * self.y + self.z * self.x);
+        let y = 2.0 * v.x * (self.w * self.z + self.y * self.x)
+            + (1.0 - 2.0 * self.x * self.x - 2.0 * self.z * self.z) * v.y
+            + 2.0 * v.z * (self.y * self.z - self.x * self.w);
+        let z = 2.0 * v.x * (self.z * self.x - self.w * self.y)
+            + 2.0 * v.y * (self.w * self.x + self.z * self.y)
+            + (1.0 - 2.0 * self.x * self.x - 2.0 * self.y * self.y) * v.z;
+        Vector3::new(x, y, z)
+    }
+
     /// Converts quaternion to Euler Angles: (pitch, roll, yaw) in Radians.
     /// Euler sequence: Z-Y-X (Yaw-Pitch-Roll)
     pub fn to_euler_angles(self) -> (f32, f32, f32) {

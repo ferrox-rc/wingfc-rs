@@ -21,7 +21,7 @@ pub mod tuning;
 #[cfg(feature = "baro")]
 pub mod vertical_kf;
 
-pub use ahrs::MadgwickAHRS;
+pub use ahrs::VqfAHRS;
 #[cfg(feature = "baro")]
 pub use altitude_safety::{AltitudeIntervention, AltitudeSafetyConfig, AltitudeSafetyController};
 pub use autolaunch::{AutolaunchConfig, AutolaunchController, AutolaunchState};

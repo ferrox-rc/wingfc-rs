@@ -108,10 +108,20 @@ def run_cmd(cmd, cwd=WORKSPACE_ROOT, capture=False):
         return res.returncode == 0
 
 
+def get_host_target():
+    """Detects host compiler target triple."""
+    res = subprocess.run(["rustc", "-vV"], capture_output=True, text=True)
+    for line in res.stdout.splitlines():
+        if line.startswith("host: "):
+            return line.split(": ")[1].strip()
+    return "x86_64-unknown-linux-gnu"
+
+
 def run_host_core_tests():
     """Runs wingfc-core tests across feature configurations on the host."""
+    host = get_host_target()
     print("=" * 70)
-    print("STEP 1: HOST CORE UNIT TESTS (wingfc-core)")
+    print(f"STEP 1: HOST CORE UNIT TESTS (wingfc-core on {host})")
     print("=" * 70)
 
     configs = [
@@ -124,7 +134,7 @@ def run_host_core_tests():
 
     all_passed = True
     for desc, features in configs:
-        cmd = ["cargo", "test", "-p", "wingfc-core"]
+        cmd = ["cargo", "test", "--target", host, "-p", "wingfc-core"]
         if features:
             cmd.extend(["--features", ",".join(features)])
         print(f"-> Testing: {desc} (features: {features if features else 'default'})... ", end="", flush=True)
