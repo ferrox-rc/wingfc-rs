@@ -149,9 +149,7 @@ pub async fn blackbox_task(
     let mut write_ptr = LOG_START_ADDR;
     let mut session_count: u32 = 1;
 
-    if qspi.read_page(0x000000, &mut header_buf).await.is_ok()
-        && header_buf[0..4] == HEADER_MAGIC
-    {
+    if qspi.read_page(0x000000, &mut header_buf).await.is_ok() && header_buf[0..4] == HEADER_MAGIC {
         let stored_ptr =
             u32::from_le_bytes([header_buf[4], header_buf[5], header_buf[6], header_buf[7]]);
         let stored_sessions =
