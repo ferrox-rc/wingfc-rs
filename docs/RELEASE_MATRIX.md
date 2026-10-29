@@ -80,7 +80,7 @@ Host unit tests achieve **88.4% Line Coverage**, **89.6% Region Coverage**, and 
 | **In-Flight Tuning Potentiometers** | `tuning.rs` | **82.0%** | **100.0%** | **80.9%** |
 | **FlySky iBus Protocol** | `protocol/ibus.rs` | **82.3%** | **71.4%** | **85.7%** |
 | **GPS & NMEA Navigation** | `gps.rs` | **79.6%** | **85.7%** | **84.8%** |
-| **Madgwick 9-DoF AHRS** | `ahrs.rs` | **79.5%** | **100.0%** | **84.3%** |
+| **VQF 9-DoF AHRS** | `ahrs.rs` | **79.5%** | **100.0%** | **84.3%** |
 | **DShot Motor Protocol** | `dshot.rs` | **76.9%** | **66.7%** | **82.9%** |
 | **Total `wingfc-core` Suite** | **All Modules (28 Tests)** | **88.4%** | **87.8%** | **89.6%** |
 

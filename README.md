@@ -6,7 +6,7 @@ High-performance, zero-latency, bare-metal Rust flight controller firmware for s
 - **YAML Aircraft Configuration & Build Profiles:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](wingfc.yaml). Supports high-level build profiles (`ultralight` sub-250g default, `gps` full navigation) with granular hardware feature flags.
 - **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and hardware DRDY interrupt-paced control loop. Supports multi-rate sinc decimation (1.66 kHz IMU ODR downsampled 8:1 to 208.33 Hz) and legacy direct modes (416 Hz / 833 Hz).
 - **Acrobatic & Rates Mode:** Direct angular velocity tracking with PT1 vibration filtering and FeedForward.
-- **Madgwick Quaternion AHRS:** 6-DoF and 9-DoF attitude estimation without gimbal lock and with dynamic G-rejection.
+- **VQF Quaternion AHRS:** Versatile Quaternion-based Filter (Laidig & Seel) with strict decoupling of inclination (roll/pitch) from heading, inertial acceleration low-pass filtering, online gyro bias estimation, and magnetic disturbance rejection.
 - **Sensor Health Supervision:** Tri-state state machine (`Healthy`, `Degraded`, `Failed`) with timeout fault detection and automatic graceful fallback (e.g. `HeadingHold`/`AltHold` to `Angle`).
 - **Autonomous Navigation Suite:** Barometric Vertical Kalman Filter (altitude hold, stall prevention, hard-deck floor, statutory 120m ceiling limiter), tilt-compensated magnetic compass with 3x3 soft/hard iron calibration, and GPS Return-to-Home (RTH).
 - **Zero-Allocation NMEA GPS Engine:** High-speed streaming parser with automatic launch point latching and equirectangular flat-Earth coordinate projection.
@@ -124,7 +124,7 @@ The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 31 host 
 | **In-Flight Pot & Bank Tuning** | [`tuning.rs`](crates/wingfc-core/src/tuning.rs) | **85.0%** | **100.0%** | **84.0%** | Potentiometer channel deadbands, bank switching, gain persistence |
 | **FlySky iBus Protocol** | [`protocol/ibus.rs`](crates/wingfc-core/src/protocol/ibus.rs) | **82.3%** | **71.4%** | **85.7%** | 16-bit inverse checksum, 14-channel unpacking, failsafe bits |
 | **GPS & NMEA Navigation** | [`gps.rs`](crates/wingfc-core/src/gps.rs) | **79.6%** | **85.7%** | **84.8%** | NMEA GGA/RMC parsing, home latching, RTH bearing & error |
-| **Madgwick 9-DoF AHRS** | [`ahrs.rs`](crates/wingfc-core/src/ahrs.rs) | **79.5%** | **100.0%** | **84.3%** | 6-DoF gravity alignment, 9-DoF mag fusion, zero-mag fallback |
+| **VQF AHRS** | [`ahrs.rs`](crates/wingfc-core/src/ahrs.rs) | **79.5%** | **100.0%** | **84.3%** | 6-DoF inclination filtering, 9-DoF mag fusion, rest detection |
 | **DShot Motor Protocol** | [`dshot.rs`](crates/wingfc-core/src/dshot.rs) | **76.9%** | **66.7%** | **82.9%** | 16-bit packet encoding, nibble checksum, SPI MOSI bitstream |
 | **Total `wingfc-core`** | **All Modules** | **88.6%** | **88.2%** | **89.9%** | **31 unit tests, 100% passing** |
 

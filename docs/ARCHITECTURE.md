@@ -72,7 +72,7 @@ Execution runs on Embassy's cooperative async executor with hardware DRDY interr
                             [PT1 Gyro Harmonic Vibration Filter]
                                             |
                                             v
-                        [Madgwick AHRS Orientation Estimation (dt)]
+                        [VQF AHRS Orientation Estimation (dt)]
                                             |
                                             v
                         [Inner/Outer PID Loop (Rate / Angle / FF) (dt)]
@@ -98,7 +98,7 @@ Execution runs on Embassy's cooperative async executor with hardware DRDY interr
 5. **Arming Safety State Machine:** Enforces arm-switch thresholds, zero-throttle interlocks, and boot-time switch positions.
 6. **In-Flight Dynamic Tuning:** Real-time adjustment of selected PID gains via designated transmitter sliders or pots.
 7. **IMU Sampling & Transformation:** Accel and gyro vectors are burst-read over 400 kHz Fast-Mode EasyDMA I2C. Gyro bias is subtracted in the raw sensor frame before the 8-way mounting orientation matrix is applied.
-8. **Attitude Estimation & Control Loop:** The Madgwick AHRS and rate PIDs integrate with the measured dynamic `dt`. Transcendentals (`atan2f`/`asinf`) are evaluated lazily only when attitude stabilization or telemetry transmission requires them.
+8. **Attitude Estimation & Control Loop:** The VQF AHRS and rate PIDs integrate with the measured dynamic `dt`. Transcendentals (`atan2f`/`asinf`) are evaluated lazily only when attitude stabilization or telemetry transmission requires them.
 9. **Airframe Mixing & Output Dispatch:** Mixer evaluates only active servo channels and precomputed neutrals. `PWM0` updates ESC pulses; `PWM1` and `PWM2` update servo pulses.
 
 ---

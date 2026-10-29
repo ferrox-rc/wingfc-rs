@@ -55,7 +55,7 @@ flowchart TD
     CheckArmStatus -- Disarmed --> Passthrough[Zero PIDs<br/>Direct Stick Passthrough to Servos<br/>Throttle Locked to 1000us<br/>Solid Green LED]
     CheckArmStatus -- Failsafe --> Neutralize[Motor Cut to 1000us<br/>Flight Surfaces Neutralized to 1500us]
     CheckArmStatus -- ArmedAcro --> AcroLoop[PT1 Gyro Filter -> Angular Rate PID + Feedforward with Fixed dt]
-    CheckArmStatus -- ArmedAngle --> AngleLoop[PT1 Gyro Filter -> Madgwick AHRS -> Cascaded Angle P + Rate PID with Fixed dt]
+    CheckArmStatus -- ArmedAngle --> AngleLoop[PT1 Gyro Filter -> VQF AHRS -> Cascaded Angle P + Rate PID with Fixed dt]
     CheckArmStatus -- ArmedHeadingHold --> HeadingLoop[Tilt-Compensated Heading -> Bank Angle Cascaded Controller]
     CheckArmStatus -- ArmedAltHold --> AltLoop[Vertical Kalman Filter -> Cascaded Altitude / Pitch Controller]
     
@@ -95,9 +95,9 @@ flowchart TD
     end
 
     subgraph Outer_Loop["3. Outer Attitude Loop (Self-Leveling)"]
-        ORIENT -->|Accel| MADG[Madgwick AHRS Quaternion Fusion]
-        LPF -->|Filtered Gyro| MADG
-        MADG --> EULER[Extract Euler Angles: est_pitch, est_roll]
+        ORIENT -->|Accel| VQF[VQF AHRS Quaternion Fusion]
+        LPF -->|Filtered Gyro| VQF
+        VQF --> EULER[Extract Euler Angles: est_pitch, est_roll]
         
         MAP -->|pitch_stick, roll_stick| TARGET[target_pitch = pitch_stick * MAX_PITCH_ANGLE<br/>target_roll = roll_stick * MAX_ROLL_ANGLE]
         
