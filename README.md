@@ -38,37 +38,6 @@ Operating on the **Seeed Studio XIAO nRF52840** (ARM Cortex-M4F @ 64 MHz with si
 
 ---
 
-## 🛰️ Ecosystem Architecture
-
-`wingfc-rs` is engineered as the airborne counterpart to [`flysky-i6x-rs`](https://github.com/ferrox-rc/flysky-i6x-rs), establishing an end-to-end bare-metal Rust control link:
-
-```
-┌────────────────────────────────┐       AFHDS 2A / CRSF / ELRS       ┌────────────────────────────────┐
-│   Ground Transmitter Station   │ ◄────────────────────────────────► │     Airborne Receiver          │
-│   (flysky-i6x-rs / EdgeTX)     │        Bidirectional RF            │     (CRSF / ELRS / iBus)       │
-└────────────────────────────────┘                                    └───────────────┬────────────────┘
-                                                                                      │ UARTE0 (420k / 115.2k)
-                                                                                      ▼
-                                                                      ┌────────────────────────────────┐
-                                                                      │           wingfc-rs            │
-                                                                      │   Seeed XIAO nRF52840 (64MHz)  │
-                                                                      │   • 3-Tier Multi-Rate Loop     │
-                                                                      │   • 1666 Hz IMU & Decimation   │
-                                                                      │   • 208.33 Hz Flight Core      │
-                                                                      │   • VQF AHRS Attitude Engine   │
-                                                                      │   • 50 Hz Nav & QSPI Blackbox  │
-                                                                      └───────────────┬────────────────┘
-                                                                                      │ PWM0 / PWM1
-                                                                                      ▼
-                                                                      ┌────────────────────────────────┐
-                                                                      │     Actuators & Propulsion     │
-                                                                      │   • Left & Right Elevon Servos │
-                                                                      │   • Brushless Motor ESC        │
-                                                                      └────────────────────────────────┘
-```
-
----
-
 ## 📅 Release Roadmap & Status
 
 `wingfc-rs` has completed active bench validation and hardware-in-the-loop testing on physical silicon. The full repository source code and pre-built UF2 drag-and-drop binaries will be published here upon completion of final outdoor flight trials.
