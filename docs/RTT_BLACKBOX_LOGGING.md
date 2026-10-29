@@ -38,16 +38,67 @@ graph LR
     D --> G
 ```
 
-### Bench Setup Workflow with `probe-rs`
-During bench testing, motor vibration testing, and sensor calibration:
+### Using the Seeed Studio XIAO DebugMate
 
-1. **Connect Debug Probe:** Connect your SWD probe (CMSIS-DAP, J-Link, or Raspberry Pi Debug Probe) to the XIAO's underside `SWDIO`, `SWDCLK`, `3V3`, and `GND` pads.
-2. **Launch Live RTT Stream:**
+The recommended bench interface for `wingfc-rs` is the **Seeed Studio XIAO DebugMate**. It combines an RP2040-based CMSIS-DAP debugger and a USB-to-UART bridge in a cradle form factor:
+
+* **Solderless Pogo-Pin Connection:** The XIAO module snaps into the cradle without soldering header wires. Spring-loaded pogo pins establish contact with the underside test pads: `SWDIO`, `SWDCLK`, `3V3`, and `GND`.
+* **Single-Cable Workstation Link:** A single USB-C cable to the DebugMate supplies 3.3V target power, flashes firmware over SWD, decodes live RTT telemetry, and dumps QSPI flash logs.
+* **Clock Rate Configuration:** In `.cargo/config.toml`, the SWD speed is set to `--speed 1000` (1000 kHz) to ensure noise-free transfers across the pogo-pin interface.
+
+```
++--------------------------------------------------------------+
+| Host PC (Linux / macOS / Windows)                            |
+| Running cargo run, probe-rs, or scripts/blackbox.py          |
++--------------------------------------------------------------+
+                               |
+                        [USB-C Cable]
+                               |
+                               v
++--------------------------------------------------------------+
+| Seeed Studio XIAO DebugMate                                  |
+|   Onboard RP2040 CMSIS-DAP v2 Debugger (USB VID 0x0D28)      |
++--------------------------------------------------------------+
+                               |
+                [Spring-Loaded Pogo Pins]
+               (SWDIO, SWDCLK, 3V3, GND)
+                               |
+                               v
++--------------------------------------------------------------+
+| Seeed Studio XIAO nRF52840 Sense                             |
+|   ARM Cortex-M4F Running WingFC-rs Firmware                  |
+|   - defmt telemetry via RTT Channel 0                        |
+|   - In-RAM BBL_SWD_MAILBOX for offloading QSPI NOR flash     |
++--------------------------------------------------------------+
+```
+
+### Bench Setup Workflow with `probe-rs`
+
+During bench testing, motor vibration audits, and sensor calibration:
+
+1. **Mount to DebugMate:** Snap the XIAO nRF52840 into the DebugMate cradle and plug the USB-C cable into your workstation.
+2. **Launch Live RTT Telemetry Stream:**
    ```bash
-   probe-rs run --chip nRF52840_xxAA target/thumbv7em-none-eabihf/release/wingfc-firmware
+   # Flashes target and opens live defmt RTT terminal (configured in .cargo/config.toml)
+   cargo run --release
+
+   # Or invoke probe-rs directly
+   probe-rs run --chip nRF52840_xxAA --speed 1000 target/thumbv7em-none-eabihf/release/wingfc-firmware
    ```
 3. **Deferred Formatting (`defmt`):**
    `wingfc-rs` uses `defmt` with `defmt-rtt`. Strings are interned at compile time: only 1-to-2 byte token IDs and raw binary values are transmitted over SWD. The host `probe-rs` utility decodes the stream using the local `.elf` symbol table, providing high-bandwidth logging with minimal binary footprint.
+4. **Offload QSPI Blackbox Logs over SWD:**
+   When testing on the bench, flight logs stored in the onboard Puya P25Q16H flash can be downloaded through the DebugMate without switching USB cables or opening a COM port:
+   ```bash
+   # Read flash status and session counts via DebugMate SWD
+   python3 scripts/blackbox.py info --swd
+
+   # Download flash and convert to flight.bbl and flight.csv over SWD
+   python3 scripts/blackbox.py dump flight --swd
+
+   # Erase logged sectors over SWD before the next test run
+   python3 scripts/blackbox.py erase --swd
+   ```
 
 ---
 
@@ -58,11 +109,11 @@ The RTT control block supports up to 16 independent bidirectional channels. In `
 | Channel | Direction | Name | Buffer Size | Format | Purpose |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **0** | Target &rarr; Host | `defmt` | 1024 B | Defmt Tokenized Binary | System status, arming alerts, and boot diagnostics |
-| **1** | Target &rarr; Host | `blackbox` | 2048 B | Packed Binary Struct | 500Hz full-rate state snapshots for PID & vibration analysis |
+| **1** | Target &rarr; Host | `blackbox` | 2048 B | Packed Binary Struct | Real-time state snapshots for high-rate vibration and PID analysis |
 | **2** | Host &rarr; Target | `tuning_cli`| 256 B | Compact ASCII / Bytecode | Live PID and filter tuning commands from the bench |
 
-### Blackbox Packed Binary Frame (Channel 1)
-Every 2ms flight loop cycle (500 Hz), a compact 28-byte binary frame is written into RTT Channel 1:
+### High-Rate Streaming Frame (Channel 1)
+During bench testing, a compact 28-byte binary frame can be streamed over RTT Channel 1:
 
 ```rust
 #[repr(C, packed)]
@@ -73,10 +124,10 @@ pub struct RttBlackboxFrame {
     pub rc_setpoint: [i16; 3], // 6 bytes: Commanded Roll, Pitch, Throttle
     pub servo_out: [i16; 2],   // 4 bytes: Elevon 1 & 2 microsecond outputs
     pub state_flags: u16,      // 2 bytes: Arming state, flight mode, failsafe flag
-} // Total: 28 bytes per 2ms cycle = 14.0 KB/s bandwidth
+} // Total: 28 bytes per cycle
 ```
 
-At 500 Hz, this binary frame generates **14.0 KB/s** of stream data. Because the SWD link sustains 800 KB/s to 2.5 MB/s, logging at full flight-loop speed consumes less than **2% of available link bandwidth**.
+Because the SWD link sustains 800 KB/s to 2.5 MB/s, streaming at loop speed consumes less than 2% of available debug link bandwidth. For autonomous in-flight recording away from the bench probe, see [Onboard QSPI Blackbox Flight Data Recorder](BLACKBOX.md).
 
 ---
 
