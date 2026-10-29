@@ -65,8 +65,8 @@ pub const MAG_MAX_PLAUSIBLE_UT: f32 = 90.0;
 #[inline]
 pub fn is_mag_magnitude_plausible(mag: crate::math::Vector3) -> bool {
     let mag_sq = mag.x * mag.x + mag.y * mag.y + mag.z * mag.z;
-    mag_sq >= (MAG_MIN_PLAUSIBLE_UT * MAG_MIN_PLAUSIBLE_UT)
-        && mag_sq <= (MAG_MAX_PLAUSIBLE_UT * MAG_MAX_PLAUSIBLE_UT)
+    ((MAG_MIN_PLAUSIBLE_UT * MAG_MIN_PLAUSIBLE_UT)..=(MAG_MAX_PLAUSIBLE_UT * MAG_MAX_PLAUSIBLE_UT))
+        .contains(&mag_sq)
 }
 
 #[cfg(test)]
@@ -110,6 +110,8 @@ mod tests {
         // Zero / dead sensor
         assert!(!is_mag_magnitude_plausible(Vector3::ZERO));
         // Extreme saturation near motor/ESC magnets (e.g. 150 uT)
-        assert!(!is_mag_magnitude_plausible(Vector3::new(100.0, 100.0, 50.0)));
+        assert!(!is_mag_magnitude_plausible(Vector3::new(
+            100.0, 100.0, 50.0
+        )));
     }
 }

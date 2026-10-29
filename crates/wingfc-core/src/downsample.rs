@@ -20,6 +20,8 @@ pub struct ImuDecimated {
     pub gyro: Vector3,
     /// Fixed loop period in seconds.
     pub dt: f32,
+    /// Monotonically increasing frame sequence counter for overrun detection.
+    pub seq: u32,
 }
 
 /// Accumulates `DECIMATION` samples and emits their mean.
@@ -28,6 +30,7 @@ pub struct BoxcarAccumulator8 {
     accel: Vector3,
     gyro: Vector3,
     count: u8,
+    seq: u32,
 }
 
 impl Default for BoxcarAccumulator8 {
@@ -39,9 +42,18 @@ impl Default for BoxcarAccumulator8 {
 impl BoxcarAccumulator8 {
     pub const fn new() -> Self {
         Self {
-            accel: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
-            gyro: Vector3 { x: 0.0, y: 0.0, z: 0.0 },
+            accel: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            gyro: Vector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
             count: 0,
+            seq: 0,
         }
     }
 
@@ -58,18 +70,34 @@ impl BoxcarAccumulator8 {
         if self.count < DECIMATION {
             return None;
         }
+
         let k = 1.0 / DECIMATION as f32;
+        self.seq = self.seq.wrapping_add(1);
         let out = ImuDecimated {
-            accel: Vector3 { x: self.accel.x * k, y: self.accel.y * k, z: self.accel.z * k },
-            gyro: Vector3 { x: self.gyro.x * k, y: self.gyro.y * k, z: self.gyro.z * k },
+            accel: Vector3 {
+                x: self.accel.x * k,
+                y: self.accel.y * k,
+                z: self.accel.z * k,
+            },
+            gyro: Vector3 {
+                x: self.gyro.x * k,
+                y: self.gyro.y * k,
+                z: self.gyro.z * k,
+            },
             dt: DECIMATED_DT_S,
+            seq: self.seq,
         };
-        self.reset();
+        self.accel = Vector3::ZERO;
+        self.gyro = Vector3::ZERO;
+        self.count = 0;
         Some(out)
     }
 
+    /// Resets accumulator sums and count, preserving sequence count.
     pub fn reset(&mut self) {
-        *self = Self::new();
+        self.accel = Vector3::ZERO;
+        self.gyro = Vector3::ZERO;
+        self.count = 0;
     }
 }
 
@@ -116,5 +144,20 @@ mod tests {
             out = acc.push(v(s, 0.0, 0.0), v(s, 0.0, 0.0));
         }
         assert!(out.unwrap().gyro.x.abs() < 1e-6);
+    }
+
+    #[test]
+    fn seq_increments_monotonically() {
+        let mut acc = BoxcarAccumulator8::new();
+        let mut out = None;
+        for _ in 0..8 {
+            out = acc.push(v(0.0, 0.0, 1.0), v(0.0, 0.0, 0.0));
+        }
+        assert_eq!(out.unwrap().seq, 1);
+
+        for _ in 0..8 {
+            out = acc.push(v(0.0, 0.0, 1.0), v(0.0, 0.0, 0.0));
+        }
+        assert_eq!(out.unwrap().seq, 2);
     }
 }

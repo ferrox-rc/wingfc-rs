@@ -39,19 +39,21 @@ Just like Betaflight, INAV, or EdgeTX, all aircraft settings are controlled via 
 nano wingfc.yaml
 
 # 2. Check configuration syntax and validity (< 0.5s)
-./scripts/build.sh check
+./scripts/build.sh check               # Windows: scripts\build.bat check
 
 # 3. Build optimized release firmware (.elf, .bin, .hex in dist/)
-./scripts/build.sh
+./scripts/build.sh                     # Windows: scripts\build.bat
 
 # 4. Flash to Seeed Studio XIAO (see docs/FLASHING.md):
+# Automatically checks configuration and prompts for confirmation before building & flashing:
 # Option A: Auto-detect connected programmer or mounted drive (Recommended)
-./scripts/build.sh flash
+./scripts/build.sh flash               # Windows: scripts\build.bat flash
+# (Add -y / --yes to bypass interactive confirmation: ./scripts/build.sh flash -y)
 
 # Option B: USB Drag-and-Drop (UF2 Bootloader - No probe needed)
 # Double-tap reset button to mount XIAO-SENSE drive, then run:
-./scripts/build.sh flash --method uf2
-# (Or manual copy: cp dist/wingfc-firmware-*.uf2 /run/media/$USER/XIAO-SENSE/)
+./scripts/build.sh flash --method uf2  # Windows: scripts\build.bat flash --method uf2
+# (Or manual copy: cp dist/wingfc-firmware-*.uf2 /run/media/$USER/XIAO-SENSE/ or copy on Windows: copy dist\wingfc-firmware-*.uf2 D:\)
 
 # Option C: Nordic J-Link SWD via self-addressing Intel HEX
 ./scripts/build.sh flash --method nrfjprog
@@ -93,7 +95,7 @@ For complete cadence details and wiring specifications, see the [Pin Configurati
 ### Run Core Unit Tests on Host:
 ```bash
 # Via build utility
-./scripts/build.sh test
+./scripts/build.sh test                # Windows: scripts\build.bat test
 
 # Or directly via cargo
 cargo test -p wingfc-core --all-features

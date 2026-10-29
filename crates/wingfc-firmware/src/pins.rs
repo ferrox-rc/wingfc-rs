@@ -145,6 +145,30 @@ pub struct BoardPins {
     #[cfg(feature = "gps")]
     /// Physical Pin: P0.10 (Silkscreen: D15 / TX1) - GPS UART TX
     pub pin_gps_tx: Peri<'static, peripherals::P0_10>,
+
+    // ==========================================
+    // On-Board QSPI NOR Flash (Puya P25Q16H 2MB)
+    // ==========================================
+    /// Hardware QSPI peripheral for high-speed DMA flash logging
+    pub qspi: Peri<'static, peripherals::QSPI>,
+    /// Physical Pin: P0.21 (Internal) - QSPI SCK
+    pub pin_qspi_sck: Peri<'static, peripherals::P0_21>,
+    /// Physical Pin: P0.25 (Internal) - QSPI CSN
+    pub pin_qspi_csn: Peri<'static, peripherals::P0_25>,
+    /// Physical Pin: P0.20 (Internal) - QSPI IO0 (MOSI)
+    pub pin_qspi_io0: Peri<'static, peripherals::P0_20>,
+    /// Physical Pin: P0.24 (Internal) - QSPI IO1 (MISO)
+    pub pin_qspi_io1: Peri<'static, peripherals::P0_24>,
+    /// Physical Pin: P0.22 (Internal) - QSPI IO2 (WP)
+    pub pin_qspi_io2: Peri<'static, peripherals::P0_22>,
+    /// Physical Pin: P0.23 (Internal) - QSPI IO3 (HOLD)
+    pub pin_qspi_io3: Peri<'static, peripherals::P0_23>,
+
+    // ==========================================
+    // USB Device (CDC-ACM Log Offload)
+    // ==========================================
+    /// Hardware USBD peripheral for disarmed blackbox log extraction
+    pub usbd: Peri<'static, peripherals::USBD>,
 }
 
 impl BoardPins {
@@ -195,6 +219,14 @@ impl BoardPins {
             pin_gps_rx: p.P0_09,
             #[cfg(feature = "gps")]
             pin_gps_tx: p.P0_10,
+            qspi: p.QSPI,
+            pin_qspi_sck: p.P0_21,
+            pin_qspi_csn: p.P0_25,
+            pin_qspi_io0: p.P0_20,
+            pin_qspi_io1: p.P0_24,
+            pin_qspi_io2: p.P0_22,
+            pin_qspi_io3: p.P0_23,
+            usbd: p.USBD,
         }
     }
 }

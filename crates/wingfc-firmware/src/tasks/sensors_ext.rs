@@ -21,8 +21,8 @@ use crate::config::{COMPASS_ENABLED, COMPASS_MODEL, MAG_CALIBRATION};
 use crate::drivers::compass::{CompassModel, Hmc5883lDriver, Qmc5883lDriver};
 use wingfc_core::sensor_health::{is_mag_magnitude_plausible, SensorHealth};
 
-/// External (slow) sensor poll period: 20 Hz navigation tier.
-const EXT_SENSOR_PERIOD_MS: u64 = 50;
+/// External (slow) sensor poll period: 50 Hz navigation tier (20 ms).
+const EXT_SENSOR_PERIOD_MS: u64 = 20;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ExternalSensorSnapshot {
@@ -41,7 +41,7 @@ pub async fn external_sensors_task(
     mut twim: Twim<'static>,
     sender: Sender<'static, ThreadModeRawMutex, ExternalSensorSnapshot, 2>,
 ) {
-    defmt::info!("Starting External I2C Sensors Task on TWISPI1 (20 Hz)...");
+    defmt::info!("Starting External I2C Sensors Task on TWISPI1 (50 Hz)...");
 
     // 1. Initialize Barometer if enabled
     #[cfg(feature = "baro")]
@@ -118,7 +118,10 @@ pub async fn external_sensors_task(
 
             if samples > 0 {
                 ground_pressure_pa = sum_p / (samples as f32);
-                defmt::info!("Barometer calibrated: Ground Tare Pressure = {} Pa", ground_pressure_pa);
+                defmt::info!(
+                    "Barometer calibrated: Ground Tare Pressure = {} Pa",
+                    ground_pressure_pa
+                );
             }
         }
     }

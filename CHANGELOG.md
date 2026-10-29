@@ -5,24 +5,28 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-26
 
 ### 🚀 Features
 
-- **Multi-Rate Loop Profile (`loop_rate: multirate`):** LSM6DS3TR-C sampled at 1.66 kHz and boxcar-averaged 8:1 into a fixed 208.33 Hz (`dt` = 4.8 ms) flight loop with sinc decimation anti-aliasing.
-- **8:1 Boxcar Downsampler:** Host-tested `wingfc_core::downsample::BoxcarAccumulator8` with zero heap allocation.
+- **3-Tier Multi-Rate Decoupled Architecture (`loop_rate: multirate`):**
+  - **Tier 1 (1.666 kHz IMU Worker):** Dedicated `imu_worker_task` on `TWISPI0` with `INT1` DRDY pacing and 8:1 boxcar decimation (`wingfc_core::downsample::BoxcarAccumulator8`) publishing to `IMU_WATCH`.
+  - **Tier 2 (208.33 Hz Flight Loop):** Event-driven flight loop (`dt` = 4.8 ms) running VQF AHRS, PID, and airframe mixing, updating autonomous hardware `PWM0/1/2` EasyDMA registers directly.
+  - **Tier 3 (50 Hz Slow Sensors, Telemetry & QSPI Blackbox):** Background navigation sensors (`baro`/`compass` on `TWISPI1`), CRSF telemetry, and 50 Hz QSPI NOR flash blackbox logging.
+- **Native QSPI Blackbox Logger & Dual USB/SWD Offload:** 32-byte `BlackboxFrame` (`wingfc_core::blackbox`) with CRC-8, 256-byte EasyDMA page buffering to Puya P25Q16H 2 MB NOR flash, automatic on-demand 4 KB sector erase, and `scripts/blackbox.py` companion tool supporting both XIAO DebugMate SWD (`BBL_SWD_MAILBOX` via `probe-rs`) and native USB CDC-ACM (`BBL_INFO`, `BBL_DUMP`, `BBL_ERASE`).
+- **VQF AHRS Attitude Estimator:** Replaced Madgwick with `VqfAHRS` (`tau_acc`, `tau_mag`) for decoupled roll/pitch vs. heading estimation.
 - **Sensor Health State Machine:** Tri-state `SensorHealth` tracking (`Healthy`, `Degraded`, `Failed`) with timeout-based fault detection, consecutive sample recovery, and automatic safe mode fallback (`HeadingHold`/`AltHold` to `Angle`).
-- **Granular Build Profiles (`ultralight` & `gps`):** High-level profiles (`ultralight` as sub-250g default, `gps` for autonomous navigation) decoupling granular feature flags (`baro`, `compass`, `gps`) while standardizing blackbox logging.
+- **Granular Build Profiles (`ultralight` & `gps`):** High-level profiles (`ultralight` as sub-250g default, `gps` for autonomous navigation) decoupling granular feature flags (`baro`, `compass`, `gps`).
 - **Tilt-Compensated Compass:** `wingfc_core::compass` with hard-iron/soft-iron calibration (`MagCalibration`, `MagCalibrator`) and tilt-compensated heading estimation.
-- **Inter-Task Mailboxes:** `IMU_WATCH` and lock-free `ACTUATOR_LATCH` scaffolding in the firmware `bus` module for future decoupled flight loop workers.
-- **External Sensors:** DPS310/BMP280 barometer drivers and a `TWISPI1` external-sensor task feeding the Vertical Kalman Filter.
+- **External Sensors:** DPS310/BMP280 barometer drivers and a 50 Hz `TWISPI1` external-sensor task feeding the Vertical Kalman Filter.
 - **In-Flight PID Tuning Banks:** Multi-bank, switch-selected potentiometer tuning.
 
-### 🔧 Changes
+### 🔧 Changes & Fixes
 
-- External sensor task now polls at 20 Hz (previously 50 Hz) on the navigation bus.
-- CRSF telemetry divider now scales dynamically to ~50 Hz across all loop rates.
-- QSPI flash pinout verified and documented on `P0.20`..`P0.25`, preserving Servo 7 on `P0.19`.
+- Auto-regenerate `crates/wingfc-firmware/src/config.rs` from `wingfc.yaml` inside `build.rs` during `cargo build` / `cargo run`.
+- Distinguish bench disarmed ground state (`ArmingStatus::Disarmed`) from in-flight `ArmingStatus::Failsafe` when RC transmitter is off before arming.
+- Enable 64 MHz external crystal (`HfclkSource::ExternalXtal`) and set `DEFMT_LOG = "info"` by default in `.cargo/config.toml`.
+- Documented and verified QSPI flash pinout on `P0.20`..`P0.25`, preserving Servo 7 on `P0.19`.
 
 ## [0.3.0] - 2026-09-10
 

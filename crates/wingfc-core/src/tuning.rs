@@ -44,6 +44,8 @@ impl TuneSlot {
         max_val: 0.0,
     };
 
+    pub const DISABLED: Self = Self::DEFAULT;
+
     pub const fn empty() -> Self {
         Self::DEFAULT
     }

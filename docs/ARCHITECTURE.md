@@ -109,9 +109,8 @@ Fixed-wing airframes have 10–25 Hz control bandwidth, so a monolithic loop syn
 | Tier | Rate | Bus / Peripheral | Role |
 | :--- | :--- | :--- | :--- |
 | **1. IMU acquisition** | 1666.6 Hz | `TWISPI0` (dedicated) | LSM6DS3TR-C ODR; each DRDY burst-read is accumulated |
-| **2. Flight loop** | 208.33 Hz (`dt` = 4.8 ms) | CPU | 8:1 boxcar average → AHRS → PID → mixer |
-| **3. Actuation** | Servo/ESC PWM rate | `PWM0/1/2` | Hardware timers hold the latest pulse widths |
-| **4. Slow navigation** | 20 Hz | `TWISPI1` (external) | Barometer + compass → Vertical Kalman Filter / heading |
+| **2. Flight loop** | 208.33 Hz (`dt` = 4.8 ms) | CPU / `PWM0/1/2` | 8:1 boxcar average → VQF AHRS → PID → mixer → direct hardware PWM EasyDMA updates |
+| **3. Slow sensors & logging** | 50 Hz | `TWISPI1` / `QSPI` / `UARTE0` | Barometer + compass → Vertical Kalman Filter / heading, telemetry & QSPI blackbox logging |
 
 **Why 8:1 at 1666 Hz → 208.33 Hz?**
 * An 8-sample boxcar average is a sinc low-pass with nulls at multiples of 208.33 Hz, attenuating motor/prop harmonics before they reach the PID derivative term.
@@ -120,8 +119,9 @@ Fixed-wing airframes have 10–25 Hz control bandwidth, so a monolithic loop syn
 
 ### Implementation
 * [`wingfc_core::downsample::BoxcarAccumulator8`](../crates/wingfc-core/src/downsample.rs) performs the decimation (host-tested).
-* The IMU driver ([`drivers/imu.rs`](../crates/wingfc-firmware/src/drivers/imu.rs)) waits for 8 DRDY interrupts per `wait_data_ready()` call and `read()` returns the averaged frame. Bias subtraction and the mounting matrix are applied per raw sample, before averaging.
-* The external sensor task polls the barometer and compass at 20 Hz on `TWISPI1`, keeping the IMU bus free of contention.
+* The IMU driver ([`drivers/imu.rs`](../crates/wingfc-firmware/src/drivers/imu.rs)) runs in `imu_worker_task`, waiting for 8 DRDY interrupts and publishing the averaged frame via [`bus::IMU_WATCH`](../crates/wingfc-firmware/src/bus.rs). Bias subtraction and the mounting matrix are applied per raw sample, before averaging.
+* Hardware `PWM0/1/2` EasyDMA duty registers are updated directly at the end of the 208.33 Hz flight control loop while the hardware timers autonomously generate the 50–400 Hz carrier.
+* The external sensor task polls the barometer and compass at 50 Hz on `TWISPI1`, keeping the IMU bus free of contention, alongside 50 Hz QSPI blackbox logging.
 * [`wingfc_core::compass`](../crates/wingfc-core/src/compass.rs) provides hard-iron/soft-iron calibration (`MagCalibration`, `MagCalibrator`) and tilt-compensated heading:
 
   ```
@@ -129,5 +129,3 @@ Fixed-wing airframes have 10–25 Hz control bandwidth, so a monolithic loop syn
   Yh = my*cos(phi) - mz*sin(phi)
   heading = atan2(-Yh, Xh) + declination
   ```
-
-* [`bus.rs`](../crates/wingfc-firmware/src/bus.rs) defines the `IMU_WATCH` and lock-free `ACTUATOR_LATCH` mailboxes reserved for the planned split of the IMU worker from the flight loop.

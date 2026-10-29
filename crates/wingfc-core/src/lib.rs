@@ -1,11 +1,12 @@
 #![no_std]
 
 pub mod ahrs;
-pub mod downsample;
 #[cfg(feature = "baro")]
 pub mod altitude_safety;
 pub mod autolaunch;
+pub mod blackbox;
 pub mod compass;
+pub mod downsample;
 pub mod dshot;
 pub mod filter;
 #[cfg(feature = "gps")]
@@ -21,10 +22,11 @@ pub mod tuning;
 #[cfg(feature = "baro")]
 pub mod vertical_kf;
 
-pub use ahrs::MadgwickAHRS;
+pub use ahrs::VqfAHRS;
 #[cfg(feature = "baro")]
 pub use altitude_safety::{AltitudeIntervention, AltitudeSafetyConfig, AltitudeSafetyController};
 pub use autolaunch::{AutolaunchConfig, AutolaunchController, AutolaunchState};
+pub use blackbox::{BlackboxError, BlackboxFrame};
 pub use filter::{BiquadFilter, Pt1Filter};
 #[cfg(feature = "gps")]
 pub use gps::{GpsData, GpsFixType, GpsNavigation, NmeaParser, RthGuidance};

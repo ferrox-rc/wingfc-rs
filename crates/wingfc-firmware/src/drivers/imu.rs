@@ -4,7 +4,7 @@ use crate::config::{
 use embassy_nrf::gpio::Input;
 use embassy_nrf::twim::Twim;
 use embassy_time::{with_timeout, Duration, Timer};
-use wingfc_core::downsample::BoxcarAccumulator8;
+use wingfc_core::downsample::{BoxcarAccumulator8, ImuDecimated};
 use wingfc_core::math::Vector3;
 
 pub const LSM6DS3_ADDR: u8 = 0x6A;
@@ -35,8 +35,9 @@ pub struct Lsm6ds3Driver<'d> {
     gyro_bias: Vector3,
     /// 8:1 boxcar accumulator (used only when `IMU_DECIMATION > 1`)
     accumulator: BoxcarAccumulator8,
-    /// Latest decimated (gyro, accel) frame, or `None` if a sample read failed
-    frame: Option<(Vector3, Vector3)>,
+    /// Latest decimated frame, or `None` if a sample read failed
+    frame: Option<ImuDecimated>,
+    raw_seq: u32,
 }
 
 impl<'d> Lsm6ds3Driver<'d> {
@@ -47,6 +48,7 @@ impl<'d> Lsm6ds3Driver<'d> {
             gyro_bias: Vector3::ZERO,
             accumulator: BoxcarAccumulator8::new(),
             frame: None,
+            raw_seq: 1,
         }
     }
 
@@ -119,7 +121,7 @@ impl<'d> Lsm6ds3Driver<'d> {
             match self.read_sample().await {
                 Ok((gyro, accel)) => {
                     if let Some(f) = self.accumulator.push(accel, gyro) {
-                        self.frame = Some((f.gyro, f.accel));
+                        self.frame = Some(f);
                         return;
                     }
                 }
@@ -157,16 +159,31 @@ impl<'d> Lsm6ds3Driver<'d> {
         Ok(())
     }
 
-    /// Returns the latest `(gyro, accel)` sample.
+    /// Returns the latest `ImuDecimated` sample frame containing `(accel, gyro, seq)`.
     ///
     /// Without decimation this burst-reads 12 bytes over 400kHz Fast-Mode EasyDMA I2C. With
     /// decimation it returns the boxcar-averaged frame produced by [`Self::wait_data_ready`]
     /// instead of touching the bus.
-    pub async fn read(&mut self) -> Result<(Vector3, Vector3), ImuError> {
+    pub async fn read(&mut self) -> Result<ImuDecimated, ImuError> {
         if IMU_DECIMATION > 1 {
             return self.frame.take().ok_or(ImuError::I2cError);
         }
-        self.read_sample().await
+        let (gyro, accel) = self.read_sample().await?;
+        let seq = self.raw_seq;
+        self.raw_seq = self.raw_seq.wrapping_add(1);
+        let dt = crate::config::NOMINAL_DT;
+        Ok(ImuDecimated {
+            accel,
+            gyro,
+            dt,
+            seq,
+        })
+    }
+
+    /// Awaits the LSM6DS3 hardware data-ready signal (or 8:1 decimation window) and reads the latest frame.
+    pub async fn next_frame(&mut self) -> Result<ImuDecimated, ImuError> {
+        self.wait_data_ready().await;
+        self.read().await
     }
 
     /// Reads one raw sample (bias-corrected, body-frame) as `(gyro, accel)`.
@@ -205,5 +222,33 @@ impl<'d> Lsm6ds3Driver<'d> {
         let az = (buf[10] as i16 | ((buf[11] as i16) << 8)) as f32 * ACCEL_SCALE_16G_TO_MS2;
 
         Ok((Vector3::new(gx, gy, gz), Vector3::new(ax, ay, az)))
+    }
+}
+
+/// Dedicated high-rate IMU worker task (Tier 1: Fast Sensor Bus).
+///
+/// Suspends in low-power WFE awaiting INT1 hardware data-ready interrupts @ 1666.6 Hz.
+/// Performs 8:1 sinc boxcar decimation and publishes coherent 208.33 Hz frames to `IMU_WATCH`.
+#[embassy_executor::task]
+pub async fn imu_worker_task(
+    mut imu: Lsm6ds3Driver<'static>,
+    tx: embassy_sync::watch::Sender<
+        'static,
+        embassy_sync::blocking_mutex::raw::ThreadModeRawMutex,
+        ImuDecimated,
+        2,
+    >,
+) {
+    defmt::info!("Starting Tier 1 IMU Worker Task (INT1 DRDY @ 1666.6 Hz)...");
+    loop {
+        match imu.next_frame().await {
+            Ok(frame) => {
+                tx.send(frame);
+            }
+            Err(e) => {
+                defmt::error!("IMU read error in worker task: {:?}", e);
+                Timer::after(Duration::from_millis(5)).await;
+            }
+        }
     }
 }

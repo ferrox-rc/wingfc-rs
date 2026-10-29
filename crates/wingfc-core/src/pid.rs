@@ -36,6 +36,16 @@ pub struct PidController {
     ff_filter: Pt1Filter,
 }
 
+/// Detailed breakdown of individual PID and FeedForward terms for telemetry and blackbox logging.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PidTerms {
+    pub p: f32,
+    pub i: f32,
+    pub d: f32,
+    pub ff: f32,
+    pub total: f32,
+}
+
 impl PidController {
     pub fn new(config: PidConfig, dt: f32) -> Self {
         let mut dterm_filter = Pt1Filter::new();
@@ -68,14 +78,9 @@ impl PidController {
         self.integral
     }
 
-    /// Update PID loop using Setpoint and Process Measurement.
-    ///
-    /// - **Proportional (P):** Corrects current tracking error.
-    /// - **Integral (I):** Corrects steady-state bias with anti-windup clamp.
-    /// - **Derivative (D):** Derivative-on-Measurement damping to eliminate stick derivative kick.
-    /// - **FeedForward (FF):** Derivative-on-Setpoint to overcome servo mechanical latency.
+    /// Update PID loop using Setpoint and Process Measurement, returning individual PID terms.
     #[inline(always)]
-    pub fn update(&mut self, setpoint: f32, measurement: f32, dt: f32) -> f32 {
+    pub fn update_ext(&mut self, setpoint: f32, measurement: f32, dt: f32) -> PidTerms {
         let error = setpoint - measurement;
 
         // Proportional term
@@ -109,6 +114,24 @@ impl PidController {
         let filtered_ff = self.ff_filter.update(raw_d_setpoint);
         let ff_term = self.config.kff * filtered_ff;
 
-        p_term + self.integral + d_term + ff_term
+        let total = p_term + self.integral + d_term + ff_term;
+        PidTerms {
+            p: p_term,
+            i: self.integral,
+            d: d_term,
+            ff: ff_term,
+            total,
+        }
+    }
+
+    /// Update PID loop using Setpoint and Process Measurement.
+    ///
+    /// - **Proportional (P):** Corrects current tracking error.
+    /// - **Integral (I):** Corrects steady-state bias with anti-windup clamp.
+    /// - **Derivative (D):** Derivative-on-Measurement damping to eliminate stick derivative kick.
+    /// - **FeedForward (FF):** Derivative-on-Setpoint to overcome servo mechanical latency.
+    #[inline(always)]
+    pub fn update(&mut self, setpoint: f32, measurement: f32, dt: f32) -> f32 {
+        self.update_ext(setpoint, measurement, dt).total
     }
 }
