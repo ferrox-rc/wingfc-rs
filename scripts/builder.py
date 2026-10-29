@@ -74,8 +74,8 @@ def validate_config(cfg):
     errors = []
     advisories = []
 
-    # 1. Board Target
-    board = str(cfg.get("board", "xiao-sense")).strip().lower()
+    # 1. Target Board Hardware
+    board = str(cfg.get("board", "xiao-sense-plus")).strip().lower()
     valid_boards = ["xiao-sense", "xiao-sense-plus"]
     if board not in valid_boards:
         errors.append(f"Invalid board '{board}'. Must be one of: {valid_boards}")
@@ -108,32 +108,18 @@ def validate_config(cfg):
         errors.append(f"Invalid airframe '{raw_airframe}'. Supported: {list(valid_airframes.keys())}")
     airframe_rust = valid_airframes.get(raw_airframe, "AirframeType::Elevon")
 
-    # Loop Rate & IMU ODR Profile
-    valid_loop_rates = {
-        "standard": {
-            "profile": "LoopRateProfile::Standard416Hz",
-            "hz": 416,
-            "nominal_dt": 1.0 / 416.0,
-            "xl_reg": 0x64,  # 416 Hz ODR, +/-16g (0x60 | 0x04)
-            "g_reg": 0x6C,   # 416 Hz ODR, +/-2000 dps (0x60 | 0x0C)
-            "name": "Standard (416 Hz)",
-        },
-        "high": {
-            "profile": "LoopRateProfile::High833Hz",
-            "hz": 833,
-            "nominal_dt": 1.0 / 833.0,
-            "xl_reg": 0x74,  # 833 Hz ODR, +/-16g (0x70 | 0x04)
-            "g_reg": 0x7C,   # 833 Hz ODR, +/-2000 dps (0x70 | 0x0C)
-            "name": "High-Speed (833 Hz)",
-        },
+    # 2. Fixed Multi-Rate Architecture (1666 Hz IMU boxcar 8:1 -> 208.33 Hz Flight Loop)
+    loop_rate_info = {
+        "name": "Multi-Rate (1666 Hz -> 208.33 Hz, 8:1 boxcar)",
+        "profile": "LoopRateProfile::MultiRate208Hz",
+        "hz": 208,
+        "nominal_dt": 0.0048,
+        "xl_reg": 0x84,
+        "g_reg": 0x8C,
+        "decimation": 8,
     }
-    raw_loop_rate = str(cfg.get("loop_rate", "standard")).strip().lower()
-    if raw_loop_rate not in valid_loop_rates:
-        errors.append(f"Invalid loop_rate '{raw_loop_rate}'. Supported: {list(valid_loop_rates.keys())}")
-    loop_rate_info = valid_loop_rates.get(raw_loop_rate, valid_loop_rates["standard"])
 
-    # 2. Receiver Protocol
-
+    # 3. Receiver Protocol & Channel Mapping
     rc_cfg = cfg.get("receiver", {})
     proto = str(rc_cfg.get("protocol", "crsf")).strip().lower()
     if proto not in ["crsf", "ibus"]:
@@ -143,23 +129,35 @@ def validate_config(cfg):
     if not isinstance(failsafe_ms, (int, float)) or failsafe_ms < 50 or failsafe_ms > 5000:
         errors.append(f"receiver.failsafe_timeout_ms ({failsafe_ms}) must be between 50 and 5000 ms.")
 
-
-    # Receiver Channel Mapping
+    ch_order = str(rc_cfg.get("channel_order", "AETR")).strip().upper()
+    order_map = {
+        "AETR": {"roll": 0, "pitch": 1, "throttle": 2, "yaw": 3},
+        "TAER": {"throttle": 0, "roll": 1, "pitch": 2, "yaw": 3},
+        "RETA": {"roll": 0, "pitch": 1, "throttle": 3, "yaw": 2},
+    }
+    default_ch_map = order_map.get(ch_order, order_map["AETR"])
     ch_cfg = rc_cfg.get("channels", {})
-    def parse_rc_channel(name, default_ch):
-        val = int(ch_cfg.get(name, default_ch))
-        if val < 1 or val > 16:
-            errors.append(f"receiver.channels.{name} ({val}) out of bounds [1, 16]")
-        return val - 1 # 0-indexed for Rust arrays
 
-    ch_roll_idx = parse_rc_channel("roll", 1)
-    ch_pitch_idx = parse_rc_channel("pitch", 2)
-    ch_throttle_idx = parse_rc_channel("throttle", 3)
-    ch_yaw_idx = parse_rc_channel("yaw", 4)
-    ch_arm_idx = parse_rc_channel("arm", 5)
-    ch_mode_idx = parse_rc_channel("mode", 6)
+    def parse_rc_ch(name, default_idx):
+        if name in ch_cfg:
+            val = int(ch_cfg[name])
+            if val < 1 or val > 16:
+                errors.append(f"receiver.channels.{name} ({val}) out of bounds [1, 16]")
+            return max(0, min(15, val - 1))
+        return default_idx
 
-    # Safety Interlocks & Thresholds
+    ch_roll_idx = parse_rc_ch("roll", default_ch_map["roll"])
+    ch_pitch_idx = parse_rc_ch("pitch", default_ch_map["pitch"])
+    ch_throttle_idx = parse_rc_ch("throttle", default_ch_map["throttle"])
+    ch_yaw_idx = parse_rc_ch("yaw", default_ch_map["yaw"])
+
+    arm_ch = rc_cfg.get("arm_channel", ch_cfg.get("arm", 5))
+    ch_arm_idx = max(0, min(15, int(arm_ch) - 1))
+
+    mode_ch = rc_cfg.get("mode_channel", ch_cfg.get("mode", 6))
+    ch_mode_idx = max(0, min(15, int(mode_ch) - 1))
+
+    # 4. Safety Interlocks & Thresholds
     safety_cfg = cfg.get("safety", {})
     arm_switch_threshold_us = int(safety_cfg.get("arm_switch_threshold_us", 1800))
     throttle_zero_threshold_us = int(safety_cfg.get("throttle_zero_threshold_us", 1050))
@@ -178,36 +176,37 @@ def validate_config(cfg):
     elif throttle_zero_threshold_us > 1080:
         advisories.append(
             f"CRITICAL SAFETY WARNING: throttle_zero_threshold_us ({throttle_zero_threshold_us} us) is set above 1080 us!\n"
-            f"    * Permitting arming at elevated throttle stick positions poses extreme risk of violent propeller spin-up upon arming!\n"
-            f"    * High throttle arming causes instant motor engagement, leading to catastrophic laceration injuries or runaway aircraft.\n"
+            f"    * High throttle arming causes instant motor engagement, leading to catastrophic laceration injuries.\n"
             f"    * Keep strictly at 1050 us unless your transmitter idle trim requires small adjustments."
         )
 
-    # 3. Servo Actuator Configuration
-    servos_cfg = cfg.get("servos", {})
-    servo_pwm_hz = int(servos_cfg.get("pwm_frequency_hz", 50))
+    # 5. Actuators (Servos & Motor)
+    actuators_cfg = cfg.get("actuators", {})
+    servos_cfg = cfg.get("servos", actuators_cfg.get("servos", {}))
+    if not isinstance(servos_cfg, dict):
+        servos_cfg = {}
+    motor_cfg = cfg.get("motor", actuators_cfg)
+    if not isinstance(motor_cfg, dict):
+        motor_cfg = {}
+
+    servo_pwm_hz = int(actuators_cfg.get("servo_pwm_hz", servos_cfg.get("pwm_frequency_hz", 50)))
     if servo_pwm_hz < MIN_PWM_HZ or servo_pwm_hz > MAX_PWM_HZ:
-        errors.append(
-            f"servos.pwm_frequency_hz ({servo_pwm_hz} Hz) out of bounds! "
-            f"Hardware supported range is {MIN_PWM_HZ} Hz to {MAX_PWM_HZ} Hz. "
-            f"(Frequencies >400 Hz do not allow enough low off-time for standard 1000..2000 us servo pulses)."
-        )
+        errors.append(f"servo_pwm_hz ({servo_pwm_hz} Hz) out of bounds [{MIN_PWM_HZ}, {MAX_PWM_HZ}].")
     elif servo_pwm_hz > 60:
         advisories.append(
             f"HARDWARE WARNING: Servo refresh frequency is set to {servo_pwm_hz} Hz!\n"
-            f"    * Standard analog servos (e.g., SG90, MG90S, 9g micro servos) CANNOT exceed 50-60 Hz.\n"
-            f"      Driving analog servos above 60 Hz causes excessive heating, chattering, and rapid motor burnout.\n"
-            f"    * Ensure your elevon servos are DIGITAL models that explicitly support {servo_pwm_hz} Hz refresh."
+            f"    * Standard analog servos (e.g., SG90, MG90S) CANNOT exceed 50-60 Hz.\n"
+            f"    * Ensure your servos are digital models that support {servo_pwm_hz} Hz refresh."
         )
 
-
-    # Per-servo channel configurations (servo1, servo2, servo4, servo5, servo6)
-    def parse_servo(s_name, def_min=1000, def_max=2000, def_subtrim=0, def_rev=False):
-        sc = servos_cfg.get(s_name, {})
-        s_min = int(sc.get("min_us", def_min))
-        s_max = int(sc.get("max_us", def_max))
-        s_subtrim = int(sc.get("subtrim_us", def_subtrim))
-        s_rev = bool(sc.get("reversed", def_rev))
+    def parse_servo(s_name):
+        sc = servos_cfg.get(s_name, {}) if isinstance(servos_cfg, dict) else {}
+        if not isinstance(sc, dict):
+            sc = {}
+        s_min = int(sc.get("min_us", 1000))
+        s_max = int(sc.get("max_us", 2000))
+        s_subtrim = int(sc.get("subtrim_us", 0))
+        s_rev = bool(sc.get("reversed", False))
         if s_min < 750 or s_min > 1500:
             errors.append(f"servos.{s_name}.min_us ({s_min}) out of bounds [750, 1500]")
         if s_max < 1500 or s_max > 2250:
@@ -225,129 +224,117 @@ def validate_config(cfg):
     servo7_rust = parse_servo("servo7")
     servo8_rust = parse_servo("servo8")
 
-    # In-Flight Dynamic PID Tuning (Slots A & B)
-    param_map = {
-        "none": "TuneParameter::None",
-        "pitch_kp": "TuneParameter::PitchKp",
-        "roll_kp": "TuneParameter::RollKp",
-        "pitch_ki": "TuneParameter::PitchKi",
-        "roll_ki": "TuneParameter::RollKi",
-        "pitch_kd": "TuneParameter::PitchKd",
-        "roll_kd": "TuneParameter::RollKd",
-        "pitch_kff": "TuneParameter::PitchKff",
-        "roll_kff": "TuneParameter::RollKff",
-    }
-    ift_cfg = cfg.get("in_flight_tuning", {})
-    ift_enabled = bool(ift_cfg.get("enabled", False))
-
-    def parse_slot(slot_name, def_ch):
-        sc = ift_cfg.get(slot_name, {})
-        param = str(sc.get("parameter", "none")).strip().lower()
-        if param not in param_map:
-            errors.append(f"in_flight_tuning.{slot_name}.parameter '{param}' invalid. Valid: {list(param_map.keys())}")
-        param_rust = param_map.get(param, "TuneParameter::None")
-        ch = int(sc.get("channel", def_ch))
-        if ch < 1 or ch > 16:
-            errors.append(f"in_flight_tuning.{slot_name}.channel ({ch}) out of bounds [1, 16]")
-        min_v = float(sc.get("min_val", 0.0))
-        max_v = float(sc.get("max_val", 1.0))
-        ch_idx = max(0, ch - 1)
-        return f"TuneSlot {{ parameter: {param_rust}, channel_idx: {ch_idx}, min_val: {min_v:.4f}, max_val: {max_v:.4f} }}"
-
-    slot_a_rust = parse_slot("slot_a", 6)
-    slot_b_rust = parse_slot("slot_b", 7)
-    # 4. Motor ESC Protocol & PWM Frequency
-    motor_cfg = cfg.get("motor", {})
-    motor_proto = str(motor_cfg.get("protocol", "pwm")).strip().lower()
+    motor_proto = str(actuators_cfg.get("motor_protocol", motor_cfg.get("protocol", "pwm"))).strip().lower()
     if motor_proto not in ["pwm", "dshot"]:
-        errors.append(f"Invalid motor.protocol '{motor_proto}'. Must be 'pwm' or 'dshot'.")
+        errors.append(f"Invalid motor protocol '{motor_proto}'. Must be 'pwm' or 'dshot'.")
 
-    diff_thrust = float(motor_cfg.get("differential_thrust", 0.15))
+    diff_thrust = float(actuators_cfg.get("differential_thrust", motor_cfg.get("differential_thrust", 0.15)))
     if diff_thrust < 0.0 or diff_thrust > 1.0:
-        errors.append(f"motor.differential_thrust ({diff_thrust}) out of bounds! Must be between 0.0 and 1.0.")
+        errors.append(f"differential_thrust ({diff_thrust}) out of bounds [0.0, 1.0]")
 
-    motor_pwm_hz = int(motor_cfg.get("pwm_frequency_hz", 400))
+    motor_pwm_hz = int(actuators_cfg.get("motor_pwm_hz", motor_cfg.get("pwm_frequency_hz", 400)))
     if motor_proto == "pwm":
         if motor_pwm_hz < MIN_PWM_HZ or motor_pwm_hz > MAX_PWM_HZ:
-            errors.append(
-                f"motor.pwm_frequency_hz ({motor_pwm_hz} Hz) out of bounds! "
-                f"Hardware supported range is {MIN_PWM_HZ} Hz to {MAX_PWM_HZ} Hz. "
-                f"(Frequencies >400 Hz do not allow enough low off-time for standard 1000..2000 us throttle pulses)."
-            )
-        elif motor_pwm_hz > 100:
-            advisories.append(
-                f"HARDWARE NOTICE: Analog ESC PWM is configured at {motor_pwm_hz} Hz.\n"
-                f"    * High-speed multirotor ESCs (BLHeli_S/32, AM32) support 400 Hz natively.\n"
-                f"    * Legacy or basic fixed-wing airplane ESCs may only accept 50 Hz or 60 Hz.\n"
-                f"      If your ESC fails to arm, beeps continually, or stutters, reduce motor.pwm_frequency_hz to 50 Hz."
-            )
+            errors.append(f"motor_pwm_hz ({motor_pwm_hz} Hz) out of bounds [{MIN_PWM_HZ}, {MAX_PWM_HZ}]")
 
-    # 5. Navigation & Altitude Limits
+    # 6. Sensors & Navigation
+    sensors_cfg = cfg.get("sensors", {})
+    if not isinstance(sensors_cfg, dict):
+        sensors_cfg = {}
     nav_cfg = cfg.get("navigation", {})
-    nav_enabled = bool(nav_cfg.get("enabled", False))
-    baro_enabled = bool(nav_cfg.get("barometer", False)) or nav_enabled
-    compass_raw = nav_cfg.get("compass", False)
-    if isinstance(compass_raw, dict):
-        compass_enabled = bool(compass_raw.get("enabled", False)) or nav_enabled
-        compass_model = str(compass_raw.get("model", "qmc5883l")).lower().strip()
+    if not isinstance(nav_cfg, dict):
+        nav_cfg = {}
+
+    baro_spec = sensors_cfg.get("barometer", nav_cfg.get("barometer", False))
+    if isinstance(baro_spec, dict):
+        baro_enabled = bool(baro_spec.get("enabled", True))
+        baro_model = str(baro_spec.get("model", "dps310")).lower().strip()
+        default_addr = 0x76 if baro_model == "bmp280" else 0x77
+        baro_i2c_addr = int(baro_spec.get("i2c_address", default_addr))
+    elif isinstance(baro_spec, str):
+        baro_model = baro_spec.lower().strip()
+        baro_enabled = baro_model in ["dps310", "bmp280"]
+        baro_i2c_addr = 0x76 if baro_model == "bmp280" else 0x77
     else:
-        compass_enabled = bool(compass_raw) or nav_enabled
+        baro_enabled = bool(baro_spec)
+        baro_model = str(nav_cfg.get("barometer_model", "dps310")).lower().strip()
+        baro_i2c_addr = 0x76 if baro_model == "bmp280" else 0x77
+
+    if baro_enabled and baro_model not in ["dps310", "bmp280"]:
+        errors.append(f"Invalid barometer model '{baro_model}'. Supported: 'dps310', 'bmp280'.")
+
+    compass_spec = sensors_cfg.get("compass", nav_cfg.get("compass", False))
+    compass_declination_deg = float(sensors_cfg.get("declination_deg", 0.0))
+    compass_hard_iron = [0.0, 0.0, 0.0]
+    compass_soft_iron = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+
+    if isinstance(compass_spec, dict):
+        compass_enabled = bool(compass_spec.get("enabled", True))
+        compass_model = str(compass_spec.get("model", "qmc5883l")).lower().strip()
+        compass_declination_deg = float(compass_spec.get("declination_deg", compass_declination_deg))
+        hi = compass_spec.get("hard_iron", [0.0, 0.0, 0.0])
+        if isinstance(hi, list) and len(hi) == 3:
+            compass_hard_iron = [float(x) for x in hi]
+        si = compass_spec.get("soft_iron", [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        if isinstance(si, list) and len(si) == 3 and all(isinstance(r, list) and len(r) == 3 for r in si):
+            compass_soft_iron = [[float(val) for val in row] for row in si]
+    elif isinstance(compass_spec, str):
+        compass_model = compass_spec.lower().strip()
+        compass_enabled = compass_model in ["qmc5883l", "hmc5883l"]
+    else:
+        compass_enabled = bool(compass_spec)
         compass_model = str(nav_cfg.get("compass_model", "qmc5883l")).lower().strip()
 
     if compass_enabled and compass_model not in ["qmc5883l", "hmc5883l"]:
-        errors.append(f"Invalid compass model '{compass_model}'. Supported models: 'qmc5883l', 'hmc5883l'.")
-    gps_enabled = bool(nav_cfg.get("gps", False)) or nav_enabled
+        errors.append(f"Invalid compass model '{compass_model}'. Supported: 'qmc5883l', 'hmc5883l'.")
 
-    rth_cfg = nav_cfg.get("rth", {})
+    gps_spec = sensors_cfg.get("gps", nav_cfg.get("gps", False))
+    gps_enabled = bool(gps_spec)
+    if gps_enabled and board != "xiao-sense-plus":
+        errors.append(f"GPS navigation requires board: 'xiao-sense-plus'. The standard '{board}' lacks the secondary UART (UARTE1).")
+
+    nav_enabled = bool(nav_cfg.get("enabled", False)) or baro_enabled or compass_enabled or gps_enabled
+    profile = str(cfg.get("profile", "gps" if gps_enabled else "ultralight")).strip().lower()
+
+    rth_cfg = sensors_cfg.get("rth", nav_cfg.get("rth", {}))
+    if not isinstance(rth_cfg, dict):
+        rth_cfg = {}
     rth_min_sats = int(rth_cfg.get("min_satellites", 6))
     rth_max_hdop = float(rth_cfg.get("max_hdop", 2.5))
     rth_safe_alt = float(rth_cfg.get("safe_altitude_agl_m", 30.0))
 
-    if gps_enabled and board != "xiao-sense-plus":
-        errors.append(
-            f"GPS navigation (navigation.gps: true or navigation.enabled: true) requires board: 'xiao-sense-plus'. "
-            f"The standard '{board}' board lacks the secondary UART (UARTE1) broken out on pins D9/D10."
-        )
-
-    hard_deck_m = float(nav_cfg.get("hard_deck_agl_m", 15.0))
-    max_ceiling_m = float(nav_cfg.get("max_ceiling_agl_m", 120.0))
+    hard_deck_m = float(safety_cfg.get("hard_deck_agl_m", nav_cfg.get("hard_deck_agl_m", 15.0)))
+    max_ceiling_m = float(safety_cfg.get("max_ceiling_agl_m", nav_cfg.get("max_ceiling_agl_m", 120.0)))
 
     if hard_deck_m < 0.0 or hard_deck_m > 300.0:
-        errors.append("navigation.hard_deck_agl_m must be between 0.0 and 300.0 meters AGL.")
+        errors.append("hard_deck_agl_m must be between 0.0 and 300.0 meters AGL.")
     if max_ceiling_m <= hard_deck_m:
-        errors.append(f"navigation.max_ceiling_agl_m ({max_ceiling_m}m) must be strictly greater than hard_deck_agl_m ({hard_deck_m}m).")
-
-    # Legality warning check on maximum ceiling
+        errors.append(f"max_ceiling_agl_m ({max_ceiling_m}m) must be strictly greater than hard_deck_agl_m ({hard_deck_m}m).")
     if max_ceiling_m > LEGAL_MAX_CEILING_AGL_M:
         diff_m = max_ceiling_m - LEGAL_MAX_CEILING_AGL_M
         diff_ft = diff_m * 3.28084
         advisories.append(
-            f"LEGALITY WARNING: Configured altitude ceiling ({max_ceiling_m:.1f} m / {max_ceiling_m * 3.28084:.0f} ft AGL) EXCEEDS the standard "
-            f"statutory limit of {LEGAL_MAX_CEILING_AGL_M:.1f} m (400 ft) AGL by +{diff_m:.1f} m (+{diff_ft:.0f} ft)!\n"
-            f"    * FAA 14 CFR § 107.51(b) / 49 U.S.C. § 44809 (United States): Maximum sUAS altitude is 400 ft AGL without an approved Part 107.200 certificate/waiver.\n"
-            f"    * EASA Regulation (EU) 2019/947 UAS.OPEN.010 (European Union): Flight height is strictly limited to 120 m AGL in Open category.\n"
-            f"    * UK CAA CAP 722 / Air Navigation Order (United Kingdom): Maximum flight height is 120 m (400 ft) AGL.\n"
-            f"    * CASA (Australia) / Transport Canada (CARs Part IX): 400 ft (120 m) AGL maximum ceiling.\n"
-            f"    --> Operating above 120 m (400 ft) AGL without formal civil aviation authorization is ILLEGAL, creates extreme collision hazards for manned aviation, and exposes the operator to civil fines and criminal prosecution."
+            f"LEGALITY WARNING: Configured altitude ceiling ({max_ceiling_m:.1f} m AGL) EXCEEDS statutory limit of {LEGAL_MAX_CEILING_AGL_M:.1f} m (400 ft) AGL by +{diff_m:.1f} m (+{diff_ft:.0f} ft)!\n"
+            f"    --> Operating above 120 m (400 ft) AGL without formal civil aviation authorization is ILLEGAL."
         )
 
-    # INAV-style Flight Mode Matrix
+    # 7. INAV-Style Flight Mode Matrix
     raw_modes = cfg.get("modes", [])
     mode_ranges = []
     if raw_modes and isinstance(raw_modes, list):
         for entry in raw_modes:
             m_name = str(entry.get("mode", "angle")).lower().replace("-", "_").replace(" ", "_")
             if m_name in ("heading_hold", "headinghold"):
-                if not (nav_enabled or compass_enabled):
-                    errors.append("Mode 'heading_hold' configured in modes matrix, but navigation.compass.enabled is false.")
+                if not compass_enabled:
+                    errors.append("Mode 'heading_hold' configured in modes matrix, but compass is disabled.")
                 variant = "FlightMode::HeadingHold"
             elif m_name in ("alt_hold", "althold"):
-                if not (nav_enabled or baro_enabled):
-                    errors.append("Mode 'alt_hold' configured in modes matrix, but navigation.barometer.enabled is false.")
+                if not baro_enabled:
+                    errors.append("Mode 'alt_hold' configured in modes matrix, but barometer is disabled.")
                 variant = "FlightMode::AltHold"
             elif m_name == "rth":
-                if not (nav_enabled or gps_enabled):
-                    errors.append("Mode 'rth' configured in modes matrix, but navigation.gps.enabled is false.")
+                if not gps_enabled:
+                    errors.append("Mode 'rth' configured in modes matrix, but gps is disabled.")
                 variant = "FlightMode::Rth"
             elif m_name == "acro":
                 variant = "FlightMode::Acro"
@@ -355,11 +342,15 @@ def validate_config(cfg):
                 variant = "FlightMode::Angle"
 
             c_idx = max(0, min(15, int(entry.get("channel", 6)) - 1))
-            mn_us = int(entry.get("min_us", 1300))
-            mx_us = int(entry.get("max_us", 1700))
+            if "range" in entry and isinstance(entry["range"], (list, tuple)) and len(entry["range"]) == 2:
+                mn_us = int(entry["range"][0])
+                mx_us = int(entry["range"][1])
+            else:
+                mn_us = int(entry.get("min_us", 1300))
+                mx_us = int(entry.get("max_us", 1700))
             mode_ranges.append(f"ModeRange::new({variant}, {c_idx}, {mn_us}, {mx_us})")
+
     if not mode_ranges:
-        # Default fallback: 2-position switch on CH6: Angle in [1000, 1500], Acro in [1501, 2000]
         mode_ranges = [
             f"ModeRange::new(FlightMode::Angle, {ch_mode_idx}, 1000, 1500)",
             f"ModeRange::new(FlightMode::Acro, {ch_mode_idx}, 1501, 2000)",
@@ -368,7 +359,7 @@ def validate_config(cfg):
     mode_matrix_rust = f"ModeMatrix::new([{ranges_joined}])"
     mode_count = len(mode_ranges)
 
-    # 6. Tuning & Rates
+    # 8. Tuning & Rates
     tuning_cfg = cfg.get("tuning", {})
     acro = tuning_cfg.get("acro_rates", {})
     roll_dps = float(acro.get("roll_dps", 600.0))
@@ -389,7 +380,7 @@ def validate_config(cfg):
         errors.append("tuning.angle_limits.max_roll_deg must be between 10.0 and 85.0 deg.")
     if max_pitch_deg < 10.0 or max_pitch_deg > 85.0:
         errors.append("tuning.angle_limits.max_pitch_deg must be between 10.0 and 85.0 deg.")
-    angle_p_gain = float(angle_lim.get("angle_p_gain", 4.0))
+    angle_p_gain = float(angle_lim.get("p_gain", angle_lim.get("angle_p_gain", 4.0)))
     if angle_p_gain < 0.5 or angle_p_gain > 20.0:
         errors.append("tuning.angle_limits.angle_p_gain must be between 0.5 and 20.0 s^-1.")
 
@@ -400,65 +391,134 @@ def validate_config(cfg):
     if gyro_lpf < 10.0 or gyro_lpf > 250.0:
         errors.append("tuning.filters.gyro_lpf_hz must be between 10.0 and 250.0 Hz.")
 
-    # 7. Flashing Configuration
-    flash_cfg = cfg.get("flashing", {})
-    flash_method = str(flash_cfg.get("method", "auto")).lower()
-    valid_methods = ["auto", "nrfjprog", "uf2", "dfu", "probe-rs", "probe-rs-hex", "probe-rs-run"]
-    if flash_method not in valid_methods:
-        errors.append(
-            f"flashing.method '{flash_method}' is invalid. Supported methods: {', '.join(valid_methods)}"
-        )
-    flash_port = flash_cfg.get("port", "auto")
-    flash_mount = flash_cfg.get("mount", "auto")
-
     pid_cfg = tuning_cfg.get("rate_pid", {})
-    kp = float(pid_cfg.get("kp", 0.15))
-    ki = float(pid_cfg.get("ki", 0.05))
-    kd = float(pid_cfg.get("kd", 0.008))
+    kp = float(pid_cfg.get("kp", 1.0))
+    ki = float(pid_cfg.get("ki", 0.1))
+    kd = float(pid_cfg.get("kd", 0.01))
     kff = float(pid_cfg.get("kff", 0.04))
     max_integral = float(pid_cfg.get("max_integral", 0.40))
-    ahrs_beta = float(tuning_cfg.get("ahrs_beta", 0.04))
 
-    if errors:
-        print("=" * 70)
-        print("CONFIGURATION VALIDATION ERRORS IN wingfc.yaml:")
-        print("=" * 70)
-        for err in errors:
-            print(f" - {err}")
-        print("=" * 70)
-        sys.exit(1)
+    vqf_cfg = tuning_cfg.get("vqf", {})
+    tau_acc = float(vqf_cfg.get("tau_acc", tuning_cfg.get("tau_acc", 3.5)))
+    tau_mag = float(vqf_cfg.get("tau_mag", tuning_cfg.get("tau_mag", 9.0)))
 
-    # Determine required cargo features
+    # In-Flight Dynamic PID Tuning (Banks & Slots)
+    param_map = {
+        "none": "TuneParameter::None",
+        "pitch_kp": "TuneParameter::PitchKp",
+        "roll_kp": "TuneParameter::RollKp",
+        "pitch_ki": "TuneParameter::PitchKi",
+        "roll_ki": "TuneParameter::RollKi",
+        "pitch_kd": "TuneParameter::PitchKd",
+        "roll_kd": "TuneParameter::RollKd",
+        "pitch_kff": "TuneParameter::PitchKff",
+        "roll_kff": "TuneParameter::RollKff",
+        "yaw_kp": "TuneParameter::YawKp",
+        "yaw_ki": "TuneParameter::YawKi",
+        "yaw_kd": "TuneParameter::YawKd",
+        "yaw_kff": "TuneParameter::YawKff",
+    }
+    ift_cfg = cfg.get("in_flight_tuning")
+    if ift_cfg is None and isinstance(cfg.get("tuning"), dict):
+        ift_cfg = cfg.get("tuning", {}).get("in_flight", {})
+    if not isinstance(ift_cfg, dict):
+        ift_cfg = {}
+    ift_enabled = bool(ift_cfg.get("enabled", False))
+
+    def parse_slot_dict(sc, prefix, def_ch=6):
+        param = str(sc.get("parameter", "none")).strip().lower()
+        if param not in param_map:
+            errors.append(f"{prefix}.parameter '{param}' invalid. Valid: {list(param_map.keys())}")
+        param_rust = param_map.get(param, "TuneParameter::None")
+        ch = int(sc.get("channel", def_ch))
+        if ch < 1 or ch > 16:
+            errors.append(f"{prefix}.channel ({ch}) out of bounds [1, 16]")
+        min_v = float(sc.get("min_val", 0.0))
+        max_v = float(sc.get("max_val", 1.0))
+        ch_idx = max(0, ch - 1)
+        return f"TuneSlot {{ parameter: {param_rust}, channel_idx: {ch_idx}, min_val: {min_v:.4f}, max_val: {max_v:.4f} }}"
+
+    raw_banks = ift_cfg.get("banks", []) if ift_enabled else []
+    selector_ch = ift_cfg.get("selector_channel", None) if ift_enabled else None
+    if selector_ch is not None:
+        try:
+            sel_ch_int = int(selector_ch)
+            if sel_ch_int < 1 or sel_ch_int > 16:
+                errors.append(f"in_flight_tuning.selector_channel ({sel_ch_int}) out of bounds [1, 16]")
+                selector_ch_idx = 0xFF
+            else:
+                selector_ch_idx = sel_ch_int - 1
+        except (ValueError, TypeError):
+            errors.append(f"in_flight_tuning.selector_channel '{selector_ch}' must be an integer between 1 and 16")
+            selector_ch_idx = 0xFF
+    else:
+        selector_ch_idx = 0xFF
+
+    parsed_banks = []
+    if raw_banks:
+        if len(raw_banks) > 6:
+            errors.append(f"in_flight_tuning: maximum 6 banks supported, found {len(raw_banks)}")
+        for idx, b in enumerate(raw_banks[:6]):
+            prefix = f"in_flight_tuning.banks[{idx}]"
+            sw_range = b.get("switch_range", [800, 2200])
+            if not isinstance(sw_range, (list, tuple)) or len(sw_range) != 2:
+                errors.append(f"{prefix}.switch_range must be a [min_us, max_us] pair, got {sw_range}")
+                r_min, r_max = 800, 2200
+            else:
+                r_min = int(sw_range[0])
+                r_max = int(sw_range[1])
+                if r_min < 800 or r_max > 2200 or r_min > r_max:
+                    errors.append(f"{prefix}.switch_range [{r_min}, {r_max}] invalid. Must satisfy 800 <= min <= max <= 2200.")
+            slot_a_rust = parse_slot_dict(b.get("slot_a", {}), f"{prefix}.slot_a", def_ch=6)
+            slot_b_rust = parse_slot_dict(b.get("slot_b", {}), f"{prefix}.slot_b", def_ch=7)
+            parsed_banks.append(f"TuneBank {{\n            range_min_us: {r_min},\n            range_max_us: {r_max},\n            slot_a: {slot_a_rust},\n            slot_b: {slot_b_rust},\n        }}")
+    else:
+        slot_a_rust = "TuneSlot::DEFAULT"
+        slot_b_rust = "TuneSlot::DEFAULT"
+        parsed_banks.append(f"TuneBank {{\n            range_min_us: 800,\n            range_max_us: 2200,\n            slot_a: {slot_a_rust},\n            slot_b: {slot_b_rust},\n        }}")
+
+    num_banks = len(parsed_banks)
+    while len(parsed_banks) < 6:
+        parsed_banks.append("TuneBank::DEFAULT")
+
+    banks_rust = "[\n        " + ",\n        ".join(parsed_banks) + ",\n    ]"
+
+    # 9. Flashing Configuration (optional in YAML)
+    flash_cfg = cfg.get("flashing", {})
+    flash_method = str(flash_cfg.get("method", "uf2")).lower()
+    valid_methods = ["auto", "nrfjprog", "uf2", "dfu", "probe-rs", "probe-rs-hex", "probe-rs-run"]
+    if flash_method not in valid_methods:
+        flash_method = "uf2"
+    flash_port = flash_cfg.get("port", "auto")
+    flash_mount = flash_cfg.get("mount", "auto")
+    # 10. Required Cargo Features & Build Variant
     features = [proto]
     if motor_proto == "dshot":
         features.append("dshot")
+    if baro_enabled:
+        features.append("baro")
+    if compass_enabled:
+        features.append("compass")
+    if gps_enabled:
+        features.append("gps")
 
-    if nav_enabled:
-        features.append("nav")
-    else:
-        if baro_enabled:
-            features.append("baro")
-        if compass_enabled:
-            features.append("compass")
-        if gps_enabled:
-            features.append("gps")
-
-    variant_name = f"{proto}-{motor_proto}"
-    if nav_enabled or baro_enabled or compass_enabled:
-        variant_name += "-nav"
+    variant_parts = [proto, motor_proto]
+    if profile == "gps" or gps_enabled:
+        variant_parts.append("gps")
+    elif baro_enabled and compass_enabled:
+        variant_parts.append("nav")
     elif baro_enabled:
-        variant_name += "-baro"
+        variant_parts.append("baro")
     elif compass_enabled:
-        variant_name += "-compass"
+        variant_parts.append("compass")
+    else:
+        variant_parts.append("ultralight")
 
-    if raw_loop_rate == "high":
-        if nav_enabled or gps_enabled:
-            advisories.append("HIGH-SPEED LOOP (833 Hz) WITH NAVIGATION: Autonomous waypoint math and Kalman filters will share a tighter 1.2ms cycle. Ensure CPU load remains within bounds.")
-        if servo_pwm_hz <= 60:
-            advisories.append("HIGH-SPEED LOOP (833 Hz) WITH STANDARD SERVOS (50-60 Hz): Actuator update latency is limited by physical servo PWM frequency. Consider digital servos (200-400 Hz) or DShot ESCs to fully leverage 833 Hz gyro feedback.")
+    variant_name = "-".join(variant_parts)
 
     return {
         "board": board,
+        "profile": profile,
         "orientation_rust": orientation_rust,
         "airframe_rust": airframe_rust,
         "loop_rate_name": loop_rate_info["name"],
@@ -467,6 +527,7 @@ def validate_config(cfg):
         "nominal_dt": loop_rate_info["nominal_dt"],
         "imu_xl_reg": loop_rate_info["xl_reg"],
         "imu_g_reg": loop_rate_info["g_reg"],
+        "imu_decimation": loop_rate_info["decimation"],
         "protocol": proto,
 
         "failsafe_ms": int(failsafe_ms),
@@ -490,15 +551,25 @@ def validate_config(cfg):
         "servo7_rust": servo7_rust,
         "servo8_rust": servo8_rust,
         "ift_enabled": "true" if ift_enabled else "false",
+        "ift_selector_idx": f"0x{selector_ch_idx:02X}" if selector_ch_idx == 0xFF else str(selector_ch_idx),
+        "ift_num_banks": str(num_banks),
+        "ift_banks_rust": banks_rust,
         "slot_a_rust": slot_a_rust,
         "slot_b_rust": slot_b_rust,
         "motor_proto": motor_proto,
         "motor_pwm_hz": motor_pwm_hz,
         "diff_thrust": diff_thrust,
         "nav_enabled": nav_enabled,
+        "baro_enabled": baro_enabled,
+        "baro_model": baro_model,
+        "baro_model_rust": "BaroModel::" + ("Dps310" if baro_model == "dps310" else "Bmp280"),
+        "baro_i2c_addr": f"0x{baro_i2c_addr:02X}",
         "compass_enabled": compass_enabled,
         "compass_model": compass_model,
         "compass_model_rust": "CompassModel::" + ("Qmc5883l" if compass_model == "qmc5883l" else "Hmc5883l"),
+        "compass_declination_rad": f"{(compass_declination_deg * 3.141592653589793 / 180.0):.6f}",
+        "compass_hard_iron_rust": f"Vector3::new({compass_hard_iron[0]:.4f}, {compass_hard_iron[1]:.4f}, {compass_hard_iron[2]:.4f})",
+        "compass_soft_iron_rust": f"[\n    [{compass_soft_iron[0][0]:.4f}, {compass_soft_iron[0][1]:.4f}, {compass_soft_iron[0][2]:.4f}],\n    [{compass_soft_iron[1][0]:.4f}, {compass_soft_iron[1][1]:.4f}, {compass_soft_iron[1][2]:.4f}],\n    [{compass_soft_iron[2][0]:.4f}, {compass_soft_iron[2][1]:.4f}, {compass_soft_iron[2][2]:.4f}],\n]",
         "gps_enabled": gps_enabled,
         "rth_min_sats": rth_min_sats,
         "rth_max_hdop": rth_max_hdop,
@@ -523,25 +594,31 @@ def validate_config(cfg):
         "kd": kd,
         "kff": kff,
         "max_integral": max_integral,
-        "ahrs_beta": ahrs_beta,
+        "tau_acc": tau_acc,
+        "tau_mag": tau_mag,
         "flash_method": flash_method,
         "flash_port": flash_port,
         "flash_mount": flash_mount,
     }
 
 
-def generate_rust_config(cfg_vals):
-    """Generates crates/wingfc-firmware/src/config.rs from validated parameters."""
-    code = f"""//! User aircraft configuration parameters for `wingfc-firmware`.
-//!
-//! Generated automatically from `wingfc.yaml` by the build system.
-//! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
+def generate_rust_config(cfg_vals, out_path=None):
+    """Generates Rust aircraft configuration code from validated parameters."""
+    code = f"""// User aircraft configuration parameters for `wingfc-firmware`.
+// Generated automatically from `wingfc.yaml` by the build system.
+// Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
+#[allow(unused_imports)]
 use embassy_time::Duration;
-use wingfc_core::math::{{BoardOrientation, DEG_TO_RAD}};
+#[allow(unused_imports)]
+use wingfc_core::math::{{BoardOrientation, Vector3, DEG_TO_RAD}};
+#[allow(unused_imports)]
 use wingfc_core::mixer::{{AirframeType, ServoConfig}};
-use wingfc_core::tuning::{{InFlightTuning, TuneParameter, TuneSlot}};
+#[allow(unused_imports)]
+use wingfc_core::tuning::{{InFlightTuning, TuneBank, TuneParameter, TuneSlot}};
+#[allow(unused_imports)]
 use wingfc_core::pid::PidConfig;
+#[allow(unused_imports)]
 use wingfc_core::mode::{{FlightMode, ModeMatrix, ModeRange}};
 
 /// Board mounting orientation
@@ -555,6 +632,7 @@ pub const AIRFRAME_TYPE: AirframeType = {cfg_vals['airframe_rust']};
 pub enum LoopRateProfile {{
     Standard416Hz,
     High833Hz,
+    MultiRate208Hz,
 }}
 
 /// Configured flight loop rate profile
@@ -574,6 +652,9 @@ pub const IMU_ODR_XL_REG_VAL: u8 = {hex(cfg_vals['imu_xl_reg'])};
 
 /// LSM6DS3 register value for Gyro (CTRL2_G): configured ODR + +/-2000 dps range
 pub const IMU_ODR_G_REG_VAL: u8 = {hex(cfg_vals['imu_g_reg'])};
+
+/// Number of raw IMU samples boxcar-averaged per flight loop iteration (1 = no decimation)
+pub const IMU_DECIMATION: u8 = {cfg_vals['imu_decimation']};
 
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis({cfg_vals['failsafe_ms']});
@@ -640,21 +721,38 @@ pub const ANGLE_P_GAIN: f32 = {cfg_vals['angle_p_gain']:.2f};
 /// In-flight real-time PID potentiometer tuning configuration
 pub const IN_FLIGHT_TUNING_ENABLED: bool = {cfg_vals['ift_enabled']};
 pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {{
-    slot_a: {cfg_vals['slot_a_rust']},
-    slot_b: {cfg_vals['slot_b_rust']},
+    selector_channel_idx: {cfg_vals['ift_selector_idx']},
+    num_banks: {cfg_vals['ift_num_banks']},
+    banks: {cfg_vals['ift_banks_rust']},
 }};
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = {cfg_vals['hard_deck_m']:.1f};
 
-/// GPS autonomous navigation and Return-to-Home parameters
+/// Barometer configuration
+#[cfg(feature = "baro")]
+pub use crate::drivers::BaroModel;
+
+pub const BARO_ENABLED: bool = {str(cfg_vals['baro_enabled']).lower()};
+#[cfg(feature = "baro")]
+pub const BARO_MODEL: BaroModel = {cfg_vals['baro_model_rust']};
+#[cfg(feature = "baro")]
+pub const BARO_I2C_ADDR: u8 = {cfg_vals['baro_i2c_addr']};
+
+/// External Compass / Magnetometer configuration
 #[cfg(feature = "compass")]
 pub use crate::drivers::CompassModel;
 
-/// External Compass / Magnetometer configuration
 pub const COMPASS_ENABLED: bool = {str(cfg_vals['compass_enabled']).lower()};
 #[cfg(feature = "compass")]
 pub const COMPASS_MODEL: CompassModel = {cfg_vals['compass_model_rust']};
+#[cfg(feature = "compass")]
+pub const MAG_DECLINATION_RAD: f32 = {cfg_vals['compass_declination_rad']};
+#[cfg(feature = "compass")]
+pub const MAG_CALIBRATION: wingfc_core::compass::MagCalibration = wingfc_core::compass::MagCalibration {{
+    hard_iron: {cfg_vals['compass_hard_iron_rust']},
+    soft_iron: {cfg_vals['compass_soft_iron_rust']},
+}};
 
 /// GPS autonomous navigation and Return-to-Home parameters
 pub const GPS_ENABLED: bool = {str(cfg_vals['gps_enabled']).lower()};
@@ -669,8 +767,11 @@ pub const MAX_CEILING_AGL_M: f32 = {cfg_vals['max_ceiling_m']:.1f};
 /// PT1 low-pass filter cutoff frequency for gyro harmonic vibration rejection (Hz)
 pub const GYRO_LPF_CUTOFF_HZ: f32 = {cfg_vals['gyro_lpf']:.1f};
 
-/// Madgwick AHRS filter convergence gain beta
-pub const AHRS_BETA: f32 = {cfg_vals['ahrs_beta']:.4f};
+/// VQF AHRS accelerometer low-pass filtering time constant in seconds (Laidig & Seel 2023)
+pub const VQF_TAU_ACC: f32 = {cfg_vals['tau_acc']:.2f};
+
+/// VQF AHRS magnetometer heading correction time constant in seconds
+pub const VQF_TAU_MAG: f32 = {cfg_vals['tau_mag']:.2f};
 
 /// Inner rate loop PID + FeedForward configuration
 pub const RATE_PID_CONFIG: PidConfig = PidConfig {{
@@ -683,13 +784,24 @@ pub const RATE_PID_CONFIG: PidConfig = PidConfig {{
     ff_lpf_hz: {cfg_vals['ff_lpf']:.1f},
 }};
 """
-    GENERATED_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(GENERATED_CONFIG_PATH, "w") as f:
-        f.write(code)
+    target_path = Path(out_path) if out_path else GENERATED_CONFIG_PATH
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if target_path.exists():
+        try:
+            with open(target_path, "r") as f:
+                if f.read() == code:
+                    return
+        except Exception:
+            pass
 
     try:
-        subprocess.run(["rustfmt", str(GENERATED_CONFIG_PATH)], capture_output=True, check=False)
-    except Exception:
+        with open(target_path, "w") as f:
+            f.write(code)
+        try:
+            subprocess.run(["rustfmt", str(target_path)], capture_output=True, check=False)
+        except Exception:
+            pass
+    except OSError:
         pass
 
 
@@ -742,18 +854,19 @@ def cmd_check(cfg_vals):
     print("WINGFC-RS CONFIGURATION CHECK")
     print("=" * 70)
     print(f"Target Board     : {cfg_vals['board']}")
+    print(f"Airframe         : {cfg_vals['airframe_rust']}")
     print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
     print(f"Arm Thresholds   : Arm Switch > {cfg_vals['arm_switch_threshold_us']} μs, Throttle <= {cfg_vals['throttle_zero_threshold_us']} μs")
     print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
-    print(f"Loop Timing      : {cfg_vals['nominal_loop_hz']} Hz ({cfg_vals['loop_rate_name']}) - Hardware DRDY Event Paced")
+    print(f"Loop Timing      : {cfg_vals['nominal_loop_hz']} Hz (1666 Hz IMU boxcar 8:1) - Hardware DRDY")
     if cfg_vals["motor_proto"] == "dshot":
-
         print(f"Motor Protocol   : DSHOT (Digital)")
     else:
         print(f"Motor Protocol   : PWM ({cfg_vals['motor_pwm_hz']} Hz)")
-    print(f"Navigation       : {'ENABLED' if cfg_vals['nav_enabled'] else 'DISABLED'}")
+    print(f"Barometer        : {cfg_vals['baro_model'].upper() if cfg_vals['baro_enabled'] else 'DISABLED'}")
+    print(f"Compass          : {cfg_vals['compass_model'].upper() if cfg_vals['compass_enabled'] else 'DISABLED'}")
     print(f"GPS Navigation   : {'ENABLED (Sense Plus UARTE1 @ 115.2k)' if cfg_vals['gps_enabled'] else 'DISABLED'}")
-    print(f"Altitude Ceiling : {cfg_vals['max_ceiling_m']:.1f} m AGL (Hard deck: {cfg_vals['hard_deck_m']:.1f} m AGL)")
+    print(f"Altitude Limits  : Hard deck: {cfg_vals['hard_deck_m']:.1f}m AGL, Max ceiling: {cfg_vals['max_ceiling_m']:.1f}m AGL")
     print(f"Cargo Features   : --features {cfg_vals['features_str']}")
     print("-" * 70)
 
@@ -792,16 +905,19 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     print("WINGFC-RS FIRMWARE RELEASE BUILDER")
     print("=" * 70)
     print(f"Target Board     : {cfg_vals['board']}")
+    print(f"Airframe         : {cfg_vals['airframe_rust']}")
     print(f"Receiver         : {cfg_vals['protocol'].upper()} (failsafe: {cfg_vals['failsafe_ms']}ms)")
     print(f"Arm Thresholds   : Arm Switch > {cfg_vals['arm_switch_threshold_us']} μs, Throttle <= {cfg_vals['throttle_zero_threshold_us']} μs")
     print(f"Servo Output     : {cfg_vals['servo_pwm_hz']} Hz PWM")
+    print(f"Loop Timing      : {cfg_vals['nominal_loop_hz']} Hz (1666 Hz IMU boxcar 8:1) - Hardware DRDY")
     if cfg_vals["motor_proto"] == "dshot":
         print(f"Motor Protocol   : DSHOT (Digital)")
     else:
         print(f"Motor Protocol   : PWM ({cfg_vals['motor_pwm_hz']} Hz)")
-    print(f"Navigation       : {'ENABLED' if cfg_vals['nav_enabled'] else 'DISABLED'}")
+    print(f"Barometer        : {cfg_vals['baro_model'].upper() if cfg_vals['baro_enabled'] else 'DISABLED'}")
+    print(f"Compass          : {cfg_vals['compass_model'].upper() if cfg_vals['compass_enabled'] else 'DISABLED'}")
     print(f"GPS Navigation   : {'ENABLED (Sense Plus UARTE1 @ 115.2k)' if cfg_vals['gps_enabled'] else 'DISABLED'}")
-    print(f"Altitude Ceiling : {cfg_vals['max_ceiling_m']:.1f} m AGL (Hard deck: {cfg_vals['hard_deck_m']:.1f} m AGL)")
+    print(f"Altitude Limits  : Hard deck: {cfg_vals['hard_deck_m']:.1f}m AGL, Max ceiling: {cfg_vals['max_ceiling_m']:.1f}m AGL")
     print(f"Cargo Features   : --features {cfg_vals['features_str']}")
     print(f"Output Directory : {out_dir}")
     print("-" * 70)
@@ -848,7 +964,7 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     uf2conv_script = WORKSPACE_ROOT / "scripts" / "uf2conv" / "uf2conv.py"
     dest_uf2 = out_dir / f"{base_name}.uf2"
     if uf2conv_script.exists() and dest_hex.exists():
-        run_cmd(["python3", str(uf2conv_script), "-c", "-f", "0xADA52840", str(dest_hex), "-o", str(dest_uf2)], capture=True)
+        run_cmd([sys.executable, str(uf2conv_script), "-c", "-f", "0xADA52840", str(dest_hex), "-o", str(dest_uf2)], capture=True)
 
     # Calculate memory consumption
     text, data, bss = parse_llvm_size(dest_elf)
@@ -884,8 +1000,13 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     print("FLASHING INSTRUCTIONS:")
     print("  USB Drag-and-Drop (UF2 Bootloader):")
     print("    1. Double-tap reset button to mount XIAO-SENSE drive")
-    print(f"    2. Copy '{dest_uf2.name}' to XIAO-SENSE drive")
-    print(f"    (Manual conversion: python3 scripts/uf2conv/uf2conv.py -c -f 0xADA52840 {dest_hex.name} -o firmware.uf2)")
+    if sys.platform == "win32":
+        print(f"    2. Copy '{dest_uf2.name}' to XIAO-SENSE drive letter (e.g. D:\\)")
+        print(f"       copy \"{dest_uf2}\" D:\\")
+    else:
+        print(f"    2. Copy '{dest_uf2.name}' to XIAO-SENSE drive")
+        print(f"       cp {dest_uf2} /run/media/$USER/XIAO-SENSE/")
+    print(f"    (Manual conversion: {Path(sys.executable).name} scripts/uf2conv/uf2conv.py -c -f 0xADA52840 {dest_hex.name} -o firmware.uf2)")
     print("  SWD / Debug Probe (probe-rs):")
     print(f"    probe-rs run --chip nRF52840_xxAA {dest_elf}")
     print("  Nordic nrfjprog:")
@@ -902,60 +1023,54 @@ def cmd_init():
         print(f"Existing wingfc.yaml backed up to {backup_path.name}")
 
     default_content = """# ==============================================================================
-# WingFC-rs Aircraft Configuration File (wingfc.yaml)
+# WingFC-rs Aircraft Configuration (wingfc.yaml)
 # ==============================================================================
-board: xiao-sense
+board: xiao-sense-plus      # xiao-sense | xiao-sense-plus
+orientation: default        # default, cw90, cw180, cw270, flip...
+airframe: elevon            # elevon, elevon_diff_thrust, single/dual_aileron_t_tail, v_tail
 
 receiver:
-  protocol: crsf
+  protocol: crsf            # crsf | ibus
+  channel_order: AETR       # Default: Roll=1, Pitch=2, Throttle=3, Yaw=4
+  arm_channel: 5
+  mode_channel: 6
   failsafe_timeout_ms: 500
 
-servos:
-  # PWM frame refresh frequency (50 Hz to 400 Hz).
-  # WARNING: Standard analog servos MUST use 50 Hz. Exceeding 60 Hz burns them out!
-  # High-speed digital servos can accept 200 Hz to 400 Hz.
-  pwm_frequency_hz: 50
+modes:
+  - mode: angle
+    channel: 6
+    range: [1300, 2100]
+  - mode: acro
+    channel: 6
+    range: [900, 1300]
 
-motor:
-  protocol: pwm
-  # PWM frequency (50 Hz to 400 Hz). Multirotor ESCs: 400 Hz. Airplane ESCs: 50 Hz.
-  pwm_frequency_hz: 400
-  min_throttle_us: 1000
-  max_throttle_us: 2000
+actuators:
+  servo_pwm_hz: 50          # 50Hz (analog) up to 400Hz (digital)
+  motor_protocol: pwm       # pwm (50-400Hz) | dshot
+  motor_pwm_hz: 400
+  differential_thrust: 0.15 # twin-motor yaw authority (if elevon_diff_thrust)
+  # Optional servo trims: defaults to 1000..2000us, subtrim 0, normal
+  servos:
+    servo1: { reversed: false, subtrim_us: 0 }
+    servo2: { reversed: false, subtrim_us: 0 }
 
-navigation:
-  enabled: false
-  barometer: false
-  compass: false
-  hard_deck_agl_m: 15.0
-  # LEGALITY WARNING: Max allowable sUAS altitude is 120.0 m (400 ft) AGL under
-  # FAA Part 107/44809 and EASA (EU) 2019/947 without formal waiver.
-  max_ceiling_agl_m: 120.0
+sensors:
+  barometer: none           # dps310 | bmp280 | none
+  compass: none             # qmc5883l | hmc5883l | none
+  gps: false                # true | false (requires xiao-sense-plus)
 
 tuning:
-  acro_rates:
-    roll_dps: 600.0
-    pitch_dps: 200.0
-    yaw_dps: 100.0
-  angle_limits:
-    max_roll_deg: 60.0
-    max_pitch_deg: 45.0
-  filters:
-    gyro_lpf_hz: 90.0
-    dterm_lpf_hz: 40.0
-    feedforward_lpf_hz: 45.0
-  rate_pid:
-    kp: 0.15
-    ki: 0.05
-    kd: 0.008
-    kff: 0.04
-    max_integral: 0.40
-  ahrs_beta: 0.04
+  acro_rates: { roll_dps: 600.0, pitch_dps: 200.0, yaw_dps: 100.0 }
+  angle_limits: { max_roll_deg: 60.0, max_pitch_deg: 45.0, p_gain: 4.0 }
+  rate_pid: { kp: 1.0, ki: 0.1, kd: 0.01, kff: 0.04, max_integral: 0.40 }
+  filters: { gyro_lpf_hz: 90.0, dterm_lpf_hz: 40.0, feedforward_lpf_hz: 45.0 }
+  vqf: { tau_acc: 3.5, tau_mag: 9.0 }
 
 safety:
-  max_arm_throttle_us: 1050
-  finger_delay_ms: 200
-  throttle_ramp_ms: 400
+  arm_switch_threshold_us: 1800
+  throttle_zero_threshold_us: 1050
+  hard_deck_agl_m: 15.0
+  max_ceiling_agl_m: 120.0
 """
     with open(DEFAULT_CONFIG_PATH, "w") as f:
         f.write(default_content)
@@ -964,6 +1079,33 @@ safety:
 
 def find_uf2_mount():
     """Searches common mount locations for a UF2 bootloader drive."""
+    if sys.platform == "win32":
+        import string
+        for letter in string.ascii_uppercase:
+            drive_str = f"{letter}:\\"
+            drive_path = Path(drive_str)
+            if drive_path.exists():
+                try:
+                    if (drive_path / "INFO_UF2.TXT").exists():
+                        return drive_path
+                    try:
+                        import ctypes
+                        vol_name_buf = ctypes.create_unicode_buffer(1024)
+                        if ctypes.windll.kernel32.GetVolumeInformationW(
+                            ctypes.c_wchar_p(drive_str),
+                            vol_name_buf,
+                            ctypes.sizeof(vol_name_buf),
+                            None, None, None, None, 0
+                        ):
+                            label = vol_name_buf.value.upper()
+                            if label in ["XIAO-SENSE", "XIAO-BLE", "NRF52BOOT", "CURRENT"]:
+                                return drive_path
+                    except Exception:
+                        pass
+                except (PermissionError, OSError):
+                    continue
+        return None
+
     user = os.environ.get("USER", "")
     search_dirs = [
         Path("/run/media") / user,
@@ -986,24 +1128,72 @@ def find_uf2_mount():
 
 def find_serial_port():
     """Finds first available serial port matching CDC ACM / USB for DFU bootloader."""
+    if sys.platform == "win32":
+        try:
+            import serial.tools.list_ports
+            ports = list(serial.tools.list_ports.comports())
+            for p in ports:
+                desc = (p.description or "").lower()
+                if any(x in desc for x in ["xiao", "nrf52", "cdc", "serial", "usb"]):
+                    return p.device
+            if ports:
+                return ports[0].device
+        except ImportError:
+            pass
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DEVICEMAP\SERIALCOMM")
+            ports = []
+            for i in range(winreg.QueryInfoKey(key)[1]):
+                ports.append(winreg.EnumValue(key, i)[1])
+            if ports:
+                return sorted(ports)[0]
+        except Exception:
+            pass
+        return None
+
     candidates = sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*") + glob.glob("/dev/cu.usbmodem*"))
     return candidates[0] if candidates else None
 
 
-def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DIR):
+def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DIR, auto_confirm=False):
     """Flashes firmware using selected method (auto, uf2, nrfjprog, dfu, probe-rs-hex, probe-rs-run)."""
-    base_name = f"wingfc-firmware-{cfg_vals['variant_name']}"
+    # 1. Run full aircraft configuration and compilation check first
+    print("=" * 70)
+    print("WINGFC-RS PRE-FLASH CONFIGURATION VERIFICATION")
+    print("=" * 70)
+    check_ok = cmd_check(cfg_vals)
+    if not check_ok:
+        print("\nERROR: Aircraft configuration validation or compilation check failed.")
+        print("Flashing aborted to prevent deploying an invalid or non-compiling build.")
+        return False
+
+    # 2. Interactive / stdin confirmation prompt
+    if not auto_confirm:
+        print()
+        prompt_str = "Confirm configuration and proceed with build & flash to hardware? [y/N]: " if sys.stdin.isatty() else ""
+        try:
+            ans = input(prompt_str).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nNotice: Flash confirmation required. In non-interactive or automated environments, run with -y / --yes to confirm.")
+            return False
+
+        if ans not in ["y", "yes"]:
+            print("Flashing cancelled.")
+            return False
+
+    # 3. Always compile release firmware with the confirmed configuration
     out_dir = Path(out_dir).resolve()
+    print("\nCompiling release firmware with confirmed configuration...")
+    ok = cmd_build(cfg_vals, out_dir)
+    if not ok:
+        return False
+
+    base_name = f"wingfc-firmware-{cfg_vals['variant_name']}"
     elf_path = out_dir / f"{base_name}.elf"
     hex_path = out_dir / f"{base_name}.hex"
     bin_path = out_dir / f"{base_name}.bin"
     uf2_path = out_dir / f"{base_name}.uf2"
-
-    if not elf_path.exists() or not hex_path.exists():
-        print(f"Target artifacts for '{base_name}' not found. Building now...")
-        ok = cmd_build(cfg_vals, out_dir)
-        if not ok:
-            return False
 
     selected_method = method or cfg_vals.get("flash_method", "auto")
     print("\n" + "=" * 70)
@@ -1036,8 +1226,12 @@ def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DI
             print("\nAvailable Flashing Methods & Manual Commands:")
             print("  1. USB Drag-and-Drop (UF2 Bootloader):")
             print("     - Double-tap the tiny reset button to mount 'XIAO-SENSE'.")
-            print(f"     - Copy '{uf2_path.name}' into the drive:")
-            print(f"       cp {uf2_path} /run/media/$USER/XIAO-SENSE/")
+            if sys.platform == "win32":
+                print(f"     - Copy '{uf2_path.name}' into the mounted drive letter (e.g. D:\\):")
+                print(f"       copy \"{uf2_path}\" D:\\")
+            else:
+                print(f"     - Copy '{uf2_path.name}' into the drive:")
+                print(f"       cp {uf2_path} /run/media/$USER/XIAO-SENSE/")
             print("  2. Nordic nrfjprog (SWD Intel HEX):")
             print(f"     nrfjprog --program {hex_path} --sectorerase --reset")
             print("  3. Serial DFU (adafruit-nrfutil):")
@@ -1072,7 +1266,7 @@ def cmd_flash(cfg_vals, method=None, port=None, mount_path=None, out_dir=DIST_DI
         if not uf2_path.exists():
             uf2conv_script = WORKSPACE_ROOT / "scripts" / "uf2conv" / "uf2conv.py"
             if uf2conv_script.exists() and hex_path.exists():
-                run_cmd(["python3", str(uf2conv_script), "-c", "-f", "0xADA52840", str(hex_path), "-o", str(uf2_path)], capture=True)
+                run_cmd([sys.executable, str(uf2conv_script), "-c", "-f", "0xADA52840", str(hex_path), "-o", str(uf2_path)], capture=True)
 
         target_file = dest_mount / uf2_path.name
         print(f"Copying '{uf2_path.name}' -> '{target_file}'...")
@@ -1150,8 +1344,8 @@ def main():
         "action",
         nargs="?",
         default="build",
-        choices=["build", "check", "test", "matrix", "init", "flash", "release"],
-        help="Action: 'build' (default: build from wingfc.yaml), 'check' (validate & check syntax), 'test' (run host unit tests), 'matrix' (run 8-target release matrix), 'init' (create fresh wingfc.yaml), 'flash' (flash via probe-rs)",
+        choices=["build", "check", "test", "matrix", "init", "flash", "release", "generate"],
+        help="Action: 'build' (default: build from wingfc.yaml), 'check' (validate & check syntax), 'generate' (validate & generate config.rs), 'test' (run host unit tests), 'matrix' (run 8-target release matrix), 'init' (create fresh wingfc.yaml), 'flash' (flash via probe-rs)",
     )
     parser.add_argument(
         "--config",
@@ -1181,6 +1375,17 @@ def main():
         default=None,
         help="Mount directory for UF2 drive (e.g., /run/media/user/XIAO-SENSE). Auto-detected if not specified.",
     )
+    parser.add_argument(
+        "--out-config",
+        default=None,
+        help="Target path where generated config.rs is written (default: crates/wingfc-firmware/src/config.rs)",
+    )
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Automatically confirm prompts without interactive input (e.g. bypass pre-flash confirmation prompt)",
+    )
 
     args, extra = parser.parse_known_args()
 
@@ -1189,14 +1394,17 @@ def main():
         return
 
     if args.action == "test":
-        print("Running host unit tests (wingfc-core)...")
-        cmd = ["cargo", "test", "-p", "wingfc-core", "--all-features"]
+        import subprocess
+        host_target = subprocess.check_output(["rustc", "-vV"], text=True)
+        host = [line.split(": ")[1] for line in host_target.splitlines() if line.startswith("host: ")][0]
+        print(f"Running host unit tests (wingfc-core) for {host}...")
+        cmd = ["cargo", "test", "--target", host, "-p", "wingfc-core", "--all-features"]
         ok = run_cmd(cmd)
         sys.exit(0 if ok else 1)
 
     if args.action == "matrix":
         matrix_script = WORKSPACE_ROOT / "scripts" / "build_matrix.py"
-        cmd = ["python3", str(matrix_script)] + extra
+        cmd = [sys.executable, str(matrix_script)] + extra
         ok = run_cmd(cmd)
         sys.exit(0 if ok else 1)
 
@@ -1210,7 +1418,10 @@ def main():
     raw_cfg = load_config(config_path)
     cfg_vals = validate_config(raw_cfg)
 
-    if args.action == "check":
+    if args.action == "generate":
+        generate_rust_config(cfg_vals, args.out_config)
+        sys.exit(0)
+    elif args.action == "check":
         ok = cmd_check(cfg_vals)
         sys.exit(0 if ok else 1)
     elif args.action == "build":
@@ -1223,6 +1434,7 @@ def main():
             port=args.port,
             mount_path=args.mount,
             out_dir=args.out_dir,
+            auto_confirm=args.yes,
         )
         sys.exit(0 if ok else 1)
 

@@ -1,330 +1,65 @@
 # ==============================================================================
-# WingFC-rs Aircraft Configuration File (wingfc.yaml)
+# WingFC-rs Aircraft Configuration (wingfc.yaml)
 # ==============================================================================
-# Edit your aircraft configuration below without touching any Rust source code
-# or Cargo build files.
-#
-# Check syntax & build readiness:
-#   ./scripts/build.sh check
-#
-# Build based on the YAML config:
-#   ./scripts/build.sh build --config <path_to_config>
-#
-# Flash the built firmware:
-#   ./scripts/build.sh flash
-#
-# Build output:
-#   dist/
-# ==============================================================================
-
-# Target Board Hardware
-# Options:
+# Target Board Hardware:
 #   - 'xiao-sense'       : Standard Seeed Studio XIAO nRF52840 Sense (6-DoF onboard IMU)
-#   - 'xiao-sense-plus'  : XIAO nRF52840 Sense Plus (Required for GPS navigation with extra UART)
+#   - 'xiao-sense-plus'  : XIAO nRF52840 Sense Plus (Required for GPS navigation via UARTE1)
 board: xiao-sense
 
 # Board Mounting Orientation: default, cw90, cw180, cw270, flip, flip_cw90, flip_cw180, flip_cw270
 orientation: default
 
-# Airframe Configuration:
-#   - elevon                   : Flying wing (Left/Right elevons + optional rudder)
-#   - elevon_diff_thrust       : Flying wing with twin differential thrust motors
-#   - single_aileron_t_tail    : Conventional airplane (S1: Aileron, S2: Elevator, S4: Rudder)
-#   - dual_aileron_t_tail      : Dual aileron airplane (S1: Left Ail, S2: Elevator, S4: Rudder, S5: Right Ail)
-#   - single_aileron_v_tail    : V-tail aircraft (S1: Aileron, S2: Right V-Tail, S4: Left V-Tail)
-#   - dual_aileron_v_tail      : Dual aileron V-tail (S1: Left Ail, S2: Right V-Tail, S4: Left V-Tail, S5: Right Ail)
+# Airframe Mixer Topology:
+#   - elevon               : Flying wing (Left/Right elevons + optional rudder)
+#   - elevon_diff_thrust   : Flying wing with twin differential thrust motors
+#   - single_aileron_t_tail: Conventional airplane (S1: Ail, S2: Elev, S4: Rudder)
+#   - dual_aileron_t_tail  : Dual aileron airplane (S1: L Ail, S2: Elev, S4: Rudder, S5: R Ail)
+#   - single_aileron_v_tail: V-tail aircraft (S1: Ail, S2: R V-Tail, S4: L V-Tail)
+#   - dual_aileron_v_tail  : Dual aileron V-tail (S1: L Ail, S2: R V-Tail, S4: L V-Tail, S5: R Ail)
 airframe: elevon
 
-# Hardware Loop Timing & IMU Data-Ready Synchronization:
-#   - standard : 416 Hz (Default, recommended for general flight, GPS waypoint navigation, and standard servos)
-#   - high     : 833 Hz (Recommended for high-speed combat wings, DShot, and 333-400Hz digital servos)
-loop_rate: high
-
-# Receiver Serial Protocol & Failsafe
-
 receiver:
-  # Options:
-  #   - 'crsf' : TBS Crossfire / ExpressLRS (CRSF @ 420,000 baud) [Recommended]
-  #   - 'ibus' : FlySky iBus protocol (115,200 baud)
-  protocol: ibus
-
-  # Duration in milliseconds without a valid RC frame before failsafe engages
-  # In failsafe: motors are cut to 0 and elevons neutralize to level flight
+  protocol: ibus            # crsf | ibus
+  channel_order: AETR       # Default: Aileron/Roll=1, Elevator/Pitch=2, Throttle=3, Rudder/Yaw=4
+  arm_channel: 5            # CH5 / AUX1 (Arm switch)
+  mode_channel: 6           # CH6 / AUX2 (Flight mode switch)
   failsafe_timeout_ms: 500
 
-
-  # RC Channel Mapping (1-16):
-  # Standard defaults: AETR (Aileron/Roll=1, Elevator/Pitch=2, Throttle=3, Rudder/Yaw=4)
-  # Channels 5+ are typically assigned to switches and potentiometers/sliders.
-  channels:
-    roll: 1      # Roll / Aileron stick
-    pitch: 2     # Pitch / Elevator stick
-    throttle: 3  # Throttle stick
-    yaw: 4       # Yaw / Rudder stick
-    arm: 5       # Arm switch (CH5 / AUX1)
-    mode: 6      # Flight mode switch (CH6 / AUX2: Acro vs Angle)
-
-# Safety Interlocks & Arming Thresholds
-safety:
-  # Microsecond threshold for Arm Switch (CH5 / AUX1).
-  # Channel pulse values above this threshold trigger the ARM command. (Default: 1800 us)
-  # Supported range: 1200 us to 1900 us.
-  #
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  # SAFETY WARNING - ARM SWITCH THRESHOLD:
-  # - Setting this threshold too low (e.g., <1400 us) risks accidental arming on
-  #   a 2-position or 3-position toggle switch.
-  # - Ensure this matches your transmitter's switch calibration (typically ~1000us
-  #   when disarmed, ~2000us when armed).
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  arm_switch_threshold_us: 1800
-
-  # Maximum allowable throttle stick pulse in microseconds to permit arming. (Default: 1050 us)
-  # Throttle stick must be strictly at or below this value to arm the motors.
-  # Supported range: 1000 us to 1200 us.
-  #
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  # CRITICAL HAZARD WARNING - MOTOR SPIN-UP & PERSONAL INJURY:
-  # - NEVER set this threshold higher than your transmitter's low-throttle position.
-  # - Setting throttle_zero_threshold_us above 1080 us may allow the aircraft to
-  #   arm with the motor already spooling up or active! High throttle arming
-  #   causes instant, violent propeller spin-up, leading to catastrophic
-  #   laceration injuries, property damage, or runaway aircraft!
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  throttle_zero_threshold_us: 1050
-
-# INAV-Style Flight Mode Selection Matrix
-# Configure multi-switch activation ranges for your transmitter channels (1-16).
-# If multiple ranges match simultaneously, safety priority order applies:
-#   RTH > AltHold > HeadingHold > Angle > Acro (manual fallback)
-#
-# Hardware Dependency Note:
-#   - angle and acro are always available (6-DoF onboard IMU).
-#   - heading_hold requires navigation.compass.enabled: true (or navigation.enabled: true).
-#   - alt_hold requires navigation.barometer: true (or navigation.enabled: true).
-#   - rth requires navigation.gps: true (or navigation.enabled: true).
+# Flight Mode Activation Ranges (channels 1-16, pulse range in microseconds)
 modes:
   - mode: angle             # Self-leveling attitude stabilization
-    channel: 6              # CH6 / AUX2 (e.g. 2-position switch)
-    min_us: 1300
-    max_us: 2100
+    channel: 6
+    range: [1300, 2100]
   - mode: acro              # Full rate manual / acrobatic mode
     channel: 6
-    min_us: 900
-    max_us: 1300
+    range: [900, 1300]
 
-# Servo Actuator Output Configuration
-servos:
-  # PWM frame refresh frequency in Hertz (Hz) for servo outputs (D0, D1, D2).
-  # Supported range: 50 Hz to 400 Hz (Default: 50 Hz).
-  #
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  # HARDWARE WARNING - SERVO OVERHEATING & MOTOR BURNOUT:
-  # - Standard Analog Servos (e.g., SG90, MG90S, TowerPro, plastic-gear 9g):
-  #   MUST be set to 50 Hz (maximum 60 Hz). Driving standard analog servos above
-  #   60 Hz causes excessive motor heating, violent chattering, gear stripping,
-  #   and permanent motor burnout within minutes or seconds!
-  # - High-Speed Digital Servos (e.g., KST, MKS, Savox, Blue Bird digital servos):
-  #   Can be configured at 200 Hz, 250 Hz, 333 Hz, or up to 400 Hz. Higher
-  #   refresh rates dramatically reduce control loop latency and improve
-  #   gust rejection and elevon stabilization. Verify servo specs first!
-  # - HARDWARE LIMIT: 400 Hz maximum. At frequencies above 400 Hz, the total
-  #   frame period (<2.5ms) does not provide adequate low-level off-time for
-  #   standard 1000..2000 us pulses.
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  pwm_frequency_hz: 400
+actuators:
+  servo_pwm_hz: 400          # 50 Hz (analog servos) up to 400 Hz (digital servos)
+  motor_protocol: pwm       # pwm (analog ESC) | dshot (digital DShot stream)
+  motor_pwm_hz: 400         # 50..400 Hz (multirotor ESCs: 400Hz, basic airplane ESCs: 50Hz)
+  differential_thrust: 0.15 # Twin-motor yaw authority fraction (for elevon_diff_thrust)
+  # Optional per-servo subtrim/reversals (defaults: 1000..2000 us, subtrim 0, reversed false)
+  servos:
+    servo1: { reversed: false, subtrim_us: 0 }
+    servo2: { reversed: false, subtrim_us: 0 }
 
-  # Per-Servo Limits, Sub-trim, and Reversals (servo1 .. servo8):
-  # Primary Servos (PWM1: D0, D1, D2, D5)
-  servo1:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
+# External Sensor Suite
+sensors:
+  barometer: none           # dps310 | bmp280 | none
+  compass: none             # qmc5883l | hmc5883l | none
+  declination_deg: 0.0      # Local magnetic declination in degrees (+ East, - West)
+  gps: false                # true | false (autonomous RTH, requires board: xiao-sense-plus)
 
-  servo2:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
-
-  servo3:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
-
-  servo4:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
-
-  # Secondary Expansion Servos (PWM2: D8, D9, D10, D11 - Sense Plus)
-  servo5:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
-
-  servo6:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
-
-  servo7:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
-
-  servo8:
-    min_us: 1000
-    max_us: 2000
-    subtrim_us: 0
-    reversed: false
-
-# In-Flight Dynamic PID Tuning (via transmitter potentiometer / slider channels)
-in_flight_tuning:
-  enabled: false
-  # Slot A: Tune a PID term using RC Channel (1-16)
-  slot_a:
-    parameter: none     # Options: none, pitch_kp, roll_kp, pitch_ki, roll_ki, pitch_kd, roll_kd, pitch_kff, roll_kff
-    channel: 9          # RC Channel number (1-16, e.g., 6 = CH6 / AUX2)
-    min_val: 0.05
-    max_val: 0.50
-
-  # Slot B: Tune a second PID term
-  slot_b:
-    parameter: none
-    channel: 10          # RC Channel number (1-16, e.g., 7 = CH7 / AUX3)
-    min_val: 0.005
-    max_val: 0.050
-
-# Motor ESC Output Protocol & Configuration
-motor:
-  # Options:
-  #   - 'pwm'   : Standard analog servo-style PWM pulses (Default: 400 Hz)
-  #   - 'dshot' : Digital DShot packet stream (Zero latency, no calibration needed)
-  protocol: pwm
-
-  # PWM frame frequency in Hertz (Hz) when protocol: 'pwm'.
-  # Supported range: 50 Hz to 400 Hz (Default: 400 Hz).
-  #
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  # HARDWARE WARNING - ESC COMPATIBILITY & ARMING:
-  # - Modern Multirotor ESCs (BLHeli_S, BLHeli_32, AM32):
-  #   Support 400 Hz high-speed analog PWM (or DShot).
-  # - Fixed-Wing & Legacy Airplane ESCs (e.g., basic SimonK, standard airplane ESCs,
-  #   yellow-wrap budget ESCs, linear BEC airplane ESCs):
-  #   Many fixed-wing ESCs ONLY accept 50 Hz or 60 Hz input signals. If your ESC
-  #   refuses to arm, continuously emits error beeps, or stutters at 400 Hz,
-  #   reduce this setting to 50 Hz or 100 Hz!
-  # - HARDWARE LIMIT: 50 Hz minimum to 400 Hz maximum (nRF52840 1MHz PWM timer).
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  pwm_frequency_hz: 400
-
-  # Differential thrust authority for twin-motor airframes (e.g., elevon_diff_thrust).
-  # Specified as a fraction (0.0 to 1.0) of full throttle range (1000us).
-  # Default 0.15 = +/- 150us maximum yaw differential at 100% yaw stick/demands.
-  differential_thrust: 0.15
-
-  min_throttle_us: 1000
-  max_throttle_us: 2000
-
-# Navigation, Sensor Fusion & Altitude Safety
-navigation:
-  # Set to true to enable autonomous navigation algorithms and sensors
-  enabled: false
-
-  # Individual sensor toggles (when enabled: true, baro, compass, and gps are activated)
-  barometer: false             # Vertical Kalman filter altitude fusion (BMP280/SPL06 on TWISPI1)
-
-  # External 3-Axis Magnetometer (on TWISPI1: D4 SDA, D5 SCL)
-  # Model must be explicitly specified (no auto-detection):
-  #   - qmc5883l : QMC5883L (I2C address 0x0D)
-  #   - hmc5883l : HMC5883L (I2C address 0x1E)
-  compass:
-    enabled: false
-    model: qmc5883l
-
-  gps: false                   # NMEA/UBX GPS navigation & Return-to-Home (Requires board: xiao-sense-plus)
-
-  # Return-to-Home (RTH) Guidance Parameters (when gps is active)
-  rth:
-    min_satellites: 6          # Minimum satellites required to latch home position
-    max_hdop: 2.5              # Maximum horizontal dilution of precision for valid lock
-    safe_altitude_agl_m: 30.0  # Safe climb altitude AGL during autonomous return
-
-  # ----------------------------------------------------------------------------
-  # Altitude Safety Boundaries & Regulatory Legality Limits
-  # ----------------------------------------------------------------------------
-  # Emergency climb floor in meters Above Ground Level (AGL)
-  hard_deck_agl_m: 15.0
-
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  # LEGALITY & AIRSPACE REGULATION WARNING:
-  # Under FAA (14 CFR Part 107.51 / 49 U.S.C. § 44809), EASA ((EU) 2019/947
-  # UAS.OPEN.010), UK CAA (CAP 722), and CASA regulations, the maximum legal
-  # operational ceiling for unmanned aerial systems (UAS) in open/recreational
-  # category airspace is strictly 120.0 meters (400 feet) Above Ground Level (AGL).
-  #
-  # Setting 'max_ceiling_agl_m' higher than 120.0m without explicit authorization,
-  # airspace waivers, or approved beyond-visual-line-of-sight (BVLOS) certificates
-  # from your national civil aviation authority is ILLEGAL, poses extreme mid-air
-  # collision danger to manned aviation, and subjects the pilot to substantial
-  # civil and criminal penalties.
-  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  max_ceiling_agl_m: 120.0     # Statutory maximum limit: 120.0 meters (400 ft) AGL
-
-# Flight Dynamics & Rates Tuning
 tuning:
-  # Maximum commanded angular velocity in Acro / Rates mode (degrees/second)
-  acro_rates:
-    roll_dps: 600.0            # Full stick roll rate
-    pitch_dps: 200.0           # Full stick pitch rate
-    yaw_dps: 100.0             # Full stick yaw rate
+  acro_rates: { roll_dps: 600.0, pitch_dps: 200.0, yaw_dps: 100.0 }
+  angle_limits: { max_roll_deg: 60.0, max_pitch_deg: 45.0, p_gain: 4.0 }
+  rate_pid: { kp: 1.0, ki: 0.1, kd: 0.01, kff: 0.04, max_integral: 0.40 }
+  filters: { gyro_lpf_hz: 90.0, dterm_lpf_hz: 40.0, feedforward_lpf_hz: 45.0 }
+  vqf: { tau_acc: 3.5, tau_mag: 9.0 }
 
-  # Bank limits in Angle / Self-Leveling mode (degrees)
-  angle_limits:
-    max_roll_deg: 60.0         # Maximum bank angle
-    max_pitch_deg: 45.0        # Maximum pitch climb/dive angle
-    angle_p_gain: 4.0          # Outer P-loop gain (s^-1) converting angle error to target rate
-
-  # Low-Pass Filter Cutoffs (Hertz)
-  filters:
-    gyro_lpf_hz: 90.0          # Primary gyro PT1 low-pass filter
-    dterm_lpf_hz: 40.0         # PID D-term PT1 low-pass filter
-    feedforward_lpf_hz: 45.0   # Feedforward stick derivative filter
-
-  # Flight Controller PID Gains (Roll & Pitch Elevon Axes)
-  rate_pid:
-    kp: 1.0                  # Proportional gain
-    ki: 0.1                  # Integral gain
-    kd: 0.01                  # Derivative gain
-    kff: 0.040                 # Feedforward stick velocity boost
-    max_integral: 0.400        # Anti-windup clamping threshold
-
-  # Madgwick AHRS Filter Convergence Gain (higher = faster accel alignment)
-  ahrs_beta: 0.500
-
-# ==============================================================================
-# Firmware Flashing Configuration
-# ==============================================================================
-# Configures the target deployment method executed by `./scripts/build.sh flash`
-flashing:
-  # Deployment Method:
-  #   - 'uf2'          : USB Mass Storage Drag-and-Drop (Recommended - no debug probe needed)
-  #   - 'auto'         : Automatically detects connected programmer or mounted drive
-  #   - 'nrfjprog'     : Nordic J-Link SWD programmer using self-addressing Intel HEX
-  #   - 'dfu'          : Serial DFU via adafruit-nrfutil over USB CDC-ACM
-  #   - 'probe-rs-hex' : SWD programmer flashing Intel HEX via probe-rs
-  #   - 'probe-rs-run' : SWD probe-rs run with live defmt RTT logging
-  method: uf2
-
-  # Optional serial port override for DFU (e.g., /dev/ttyACM0). Defaults to auto-detection.
-  # port: auto
-
-  # Optional mount directory override for UF2 drive. Defaults to auto-detection.
-  # mount: auto
+safety:
+  arm_switch_threshold_us: 1800
+  throttle_zero_threshold_us: 1050
+  hard_deck_agl_m: 15.0     # Emergency pull-up floor in meters AGL
+  max_ceiling_agl_m: 120.0  # Statutory altitude ceiling limit (120m / 400ft AGL)

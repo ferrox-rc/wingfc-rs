@@ -1,4 +1,4 @@
-use wingfc_core::ahrs::MadgwickAHRS;
+use wingfc_core::ahrs::VqfAHRS;
 use wingfc_core::dshot::DshotEncoder;
 use wingfc_core::math::{Quaternion, Vector3, RAD_TO_DEG};
 use wingfc_core::mixer::{AirframeMixer, AirframeType};
@@ -48,8 +48,8 @@ fn test_vector_and_quaternion_math() {
 }
 
 #[test]
-fn test_madgwick_ahrs_convergence() {
-    let mut ahrs = MadgwickAHRS::new(0.5);
+fn test_vqf_ahrs_convergence() {
+    let mut ahrs = VqfAHRS::new(3.5, 9.0, 0.005);
     let dt = 0.005; // 200 Hz
     let gyro = Vector3::ZERO;
     let accel = Vector3::new(0.0, 0.0, 9.81);
@@ -58,7 +58,7 @@ fn test_madgwick_ahrs_convergence() {
         ahrs.update_6dof(gyro, accel, dt);
     }
 
-    let (pitch, roll, _yaw) = ahrs.get_euler_angles();
+    let (pitch, roll, _yaw) = ahrs.euler_angles();
     assert!(
         pitch.abs() * RAD_TO_DEG < 1.0,
         "Pitch should converge to 0 deg, got {}",
@@ -248,6 +248,43 @@ fn test_arming_safety_logic() {
 }
 
 #[test]
+fn test_arming_safety_ground_signal_lost() {
+    use wingfc_core::safety::{ArmingSafety, ArmingStatus};
+
+    let mut safety = ArmingSafety::new();
+
+    // 1. Boot on bench with signal lost -> must be Disarmed (NOT Failsafe)
+    let status = safety.update(1000, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 2. Switch flipped to ARM while signal lost -> must stay Disarmed
+    let status = safety.update(1900, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 3. Signal acquired with switch disarmed -> Disarmed and ready
+    let status = safety.update(1000, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::Disarmed);
+    assert!(!safety.is_armed());
+
+    // 4. Arm safely with zero throttle -> ArmedAngle
+    let status = safety.update(1900, 1000, 1000, false);
+    assert_eq!(status, ArmingStatus::ArmedAngle);
+    assert!(safety.is_armed());
+
+    // 5. In-flight signal lost -> enters Failsafe immediately
+    let status = safety.update(1900, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Failsafe);
+    assert!(!safety.is_armed());
+
+    // 6. Subsequent cycles with signal still lost -> latches Failsafe
+    let status = safety.update(1900, 1000, 1000, true);
+    assert_eq!(status, ArmingStatus::Failsafe);
+    assert!(!safety.is_armed());
+}
+
+#[test]
 fn test_feedforward_response() {
     let cfg = PidConfig {
         kff: 0.10,
@@ -314,29 +351,146 @@ fn test_hand_autolaunch_flow() {
 
 #[cfg(feature = "compass")]
 #[test]
-fn test_9dof_madgwick_heading() {
-    let mut ahrs = MadgwickAHRS::new(0.5);
+fn test_9dof_vqf_heading() {
+    let mut ahrs = VqfAHRS::new(3.5, 9.0, 0.005);
     let dt = 0.005;
+    let dt_mag = 0.05; // 20 Hz
     let gyro = Vector3::ZERO;
     let accel = Vector3::new(0.0, 0.0, 9.81);
-    // Magnetic North vector pointing purely along X axis
+    // Magnetic North vector pointing purely along X axis (+X = North)
     let mag = Vector3::new(30.0, 0.0, 0.0);
 
-    for _ in 0..200 {
-        ahrs.update_9dof(gyro, accel, mag, dt);
+    for step in 0..200 {
+        ahrs.update_6dof(gyro, accel, dt);
+        if step % 10 == 0 {
+            ahrs.update_mag(mag, dt_mag);
+        }
     }
 
-    let (pitch, roll, yaw) = ahrs.get_euler_angles();
+    let (pitch, roll, yaw) = ahrs.euler_angles();
     assert!(pitch.abs() * RAD_TO_DEG < 1.0);
     assert!(roll.abs() * RAD_TO_DEG < 1.0);
     assert!(
         yaw.abs() * RAD_TO_DEG < 2.0,
-        "Heading should converge to North (0 deg)"
+        "Heading should converge to North (0 deg), got {}",
+        yaw * RAD_TO_DEG
+    );
+}
+
+#[cfg(feature = "compass")]
+#[test]
+fn test_vqf_magnetic_disturbance_rejection() {
+    let mut ahrs = VqfAHRS::new(3.5, 9.0, 0.005);
+    let dt = 0.005;
+    let dt_mag = 0.05;
+    let gyro = Vector3::ZERO;
+    let accel = Vector3::new(0.0, 0.0, 9.81);
+    let mag_clean = Vector3::new(30.0, 0.0, -10.0);
+
+    // 1. Establish clean reference
+    for step in 0..100 {
+        ahrs.update_6dof(gyro, accel, dt);
+        if step % 10 == 0 {
+            ahrs.update_mag(mag_clean, dt_mag);
+        }
+    }
+    assert!(!ahrs.mag_dist_detected);
+
+    let (p_before, r_before, y_before) = ahrs.euler_angles();
+
+    // 2. Inject massive motor current / magnetic spike (3x norm + distorted dip)
+    let mag_spiked = Vector3::new(90.0, 50.0, 80.0);
+    for step in 0..100 {
+        ahrs.update_6dof(gyro, accel, dt);
+        if step % 10 == 0 {
+            ahrs.update_mag(mag_spiked, dt_mag);
+        }
+    }
+
+    // Magnetic disturbance MUST be detected
+    assert!(ahrs.mag_dist_detected, "Disturbance must be flagged");
+
+    // Pitch and roll MUST NOT be corrupted by the magnetic spike
+    let (p_after, r_after, y_after) = ahrs.euler_angles();
+    assert!(
+        (p_after - p_before).abs() * RAD_TO_DEG < 0.1,
+        "Pitch should be immune to magnetic spike"
+    );
+    assert!(
+        (r_after - r_before).abs() * RAD_TO_DEG < 0.1,
+        "Roll should be immune to magnetic spike"
+    );
+    assert!(
+        (y_after - y_before).abs() * RAD_TO_DEG < 0.5,
+        "Heading should be frozen/rejected during spike"
+    );
+}
+
+#[test]
+fn test_vqf_rest_detection_and_bias_cancellation() {
+    let mut ahrs = VqfAHRS::new(3.5, 9.0, 0.005);
+    let dt = 0.005;
+    let accel = Vector3::new(0.0, 0.0, 9.81);
+
+    // Constant uncalibrated gyro turn-on bias (e.g. 1.0 deg/s around z)
+    let bias_rate = 1.0 * (core::f32::consts::PI / 180.0);
+    let raw_gyro = Vector3::new(0.0, 0.0, bias_rate);
+
+    // Run stationary for 4 seconds (> 1.5s rest_min_t)
+    for _ in 0..800 {
+        ahrs.update_6dof(raw_gyro, accel, dt);
+    }
+
+    assert!(
+        ahrs.rest_detected,
+        "Rest should be detected when stationary"
+    );
+    assert!(
+        (ahrs.bias.z - bias_rate).abs() < 0.1 * (core::f32::consts::PI / 180.0),
+        "Z-bias estimate should converge near actual bias, got {} deg/s",
+        ahrs.bias.z * RAD_TO_DEG
+    );
+}
+
+#[test]
+fn test_vqf_centripetal_turn_compensation() {
+    let mut ahrs = VqfAHRS::new(3.5, 9.0, 0.005);
+    let dt = 0.005;
+    let roll_deg = 30.0f32;
+    let roll_rad = roll_deg * core::f32::consts::PI / 180.0;
+    let v_mps = 18.0f32;
+    let g = 9.80665f32;
+
+    // Coordinated turn: psi_dot = (g * tan(phi)) / v
+    let tan_phi = libm::tanf(roll_rad);
+    let psi_dot = (g * tan_phi) / v_mps;
+    // Body rates for banked turn (pulling elevator to track turn plane):
+    let gyro = Vector3::new(
+        0.0,
+        psi_dot * libm::sinf(roll_rad),
+        psi_dot * libm::cosf(roll_rad),
     );
 
-    // Fallback to 6-DoF on zero magnetometer measurement
-    ahrs.update_9dof(gyro, accel, Vector3::ZERO, dt);
-    ahrs.reset();
+    // In a coordinated turn (zero slip), specific force is along aircraft Z: f_z = g / cos(phi)
+    let accel_measured = Vector3::new(0.0, 0.0, g / libm::cosf(roll_rad));
+
+    // Initialize roll attitude to 30 deg
+    let half_phi = 0.5 * roll_rad;
+    ahrs.gyr_quat = Quaternion::new(libm::cosf(half_phi), libm::sinf(half_phi), 0.0, 0.0);
+
+    // Run for 5 seconds (1000 steps) with GPS centripetal aiding
+    for _ in 0..1000 {
+        ahrs.update_6dof_centripetal_aided(gyro, accel_measured, v_mps, dt);
+    }
+
+    let (_, roll, _) = ahrs.euler_angles();
+    let roll_err_deg = (roll * RAD_TO_DEG - roll_deg).abs();
+    assert!(
+        roll_err_deg < 1.0,
+        "With GPS aiding, roll should stay at 30 deg during sustained turn, got {} deg (err {} deg)",
+        roll * RAD_TO_DEG,
+        roll_err_deg
+    );
 }
 
 #[cfg(feature = "baro")]
@@ -829,29 +983,117 @@ fn test_board_orientation_transforms() {
 fn test_in_flight_tuning_pots() {
     use wingfc_core::pid::{PidConfig, PidController};
     use wingfc_core::protocol::RcChannels;
-    use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
+    use wingfc_core::tuning::{InFlightTuning, TuneBank, TuneParameter, TuneSlot, MAX_TUNE_BANKS};
 
     let mut pitch_pid = PidController::new(PidConfig::default(), 0.002);
     let mut roll_pid = PidController::new(PidConfig::default(), 0.002);
+    let mut yaw_pid = PidController::new(PidConfig::default(), 0.002);
 
     let mut rc = RcChannels::default();
     rc.channels[5] = 1000; // Slot A low
     rc.channels[6] = 2000; // Slot B high
 
-    let tuning = InFlightTuning::new(
+    let mut banks = [TuneBank::default(); MAX_TUNE_BANKS];
+    banks[0] = TuneBank::new(
+        800,
+        2200,
         TuneSlot::new(TuneParameter::PitchKp, 5, 0.1, 0.5),
         TuneSlot::new(TuneParameter::RollKd, 6, 0.01, 0.05),
     );
 
-    tuning.update(&rc, &mut pitch_pid, &mut roll_pid);
+    let tuning = InFlightTuning::new(0xFF, 1, banks);
+
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
 
     assert!((pitch_pid.config.kp - 0.1).abs() < 1e-4);
     assert!((roll_pid.config.kd - 0.05).abs() < 1e-4);
 
     // Now test mid-stick (1500 us)
     rc.channels[5] = 1500;
-    tuning.update(&rc, &mut pitch_pid, &mut roll_pid);
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
     assert!((pitch_pid.config.kp - 0.3).abs() < 1e-4);
+}
+
+#[test]
+fn test_in_flight_tuning_banks_and_persistence() {
+    use wingfc_core::pid::{PidConfig, PidController};
+    use wingfc_core::protocol::RcChannels;
+    use wingfc_core::tuning::{InFlightTuning, TuneBank, TuneParameter, TuneSlot, MAX_TUNE_BANKS};
+
+    let mut pitch_pid = PidController::new(PidConfig::default(), 0.002);
+    let mut roll_pid = PidController::new(PidConfig::default(), 0.002);
+    let mut yaw_pid = PidController::new(PidConfig::default(), 0.002);
+
+    let mut banks = [TuneBank::default(); MAX_TUNE_BANKS];
+    // Bank 1 (LOW 900..1300): Tune Kp
+    banks[0] = TuneBank::new(
+        900,
+        1300,
+        TuneSlot::new(TuneParameter::PitchKp, 5, 0.1, 0.5),
+        TuneSlot::new(TuneParameter::RollKp, 6, 0.1, 0.5),
+    );
+    // Bank 2 (MID 1301..1699): Lock / Bypass
+    banks[1] = TuneBank::new(
+        1301,
+        1699,
+        TuneSlot::new(TuneParameter::None, 0, 0.0, 0.0),
+        TuneSlot::new(TuneParameter::None, 0, 0.0, 0.0),
+    );
+    // Bank 3 (HIGH 1700..2100): Tune Kd & Yaw Kp
+    banks[2] = TuneBank::new(
+        1700,
+        2100,
+        TuneSlot::new(TuneParameter::PitchKd, 5, 0.01, 0.05),
+        TuneSlot::new(TuneParameter::YawKp, 6, 0.2, 0.8),
+    );
+
+    // Selector channel on CH5 (idx 4)
+    let tuning = InFlightTuning::new(4, 3, banks);
+
+    let mut rc = RcChannels::default();
+
+    // 1. Selector in Bank 1 (LOW): CH5 = 1000 us
+    rc.channels[4] = 1000;
+    rc.channels[5] = 2000; // CH6 max -> PitchKp = 0.5
+    rc.channels[6] = 1000; // CH7 min -> RollKp = 0.1
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+
+    // 2. Switch to Bank 2 (MID / Lock): CH5 = 1500 us
+    // Pots move (e.g. pilot knocks pot A to 1000 us)
+    rc.channels[4] = 1500;
+    rc.channels[5] = 1000;
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    // PitchKp and RollKp MUST remain locked at 0.5 and 0.1
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+
+    // 3. Switch to Bank 3 (HIGH): CH5 = 1900 us
+    rc.channels[4] = 1900;
+    rc.channels[5] = 2000; // CH6 max -> PitchKd = 0.05
+    rc.channels[6] = 1500; // CH7 mid -> YawKp = 0.5
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    assert!((pitch_pid.config.kd - 0.05).abs() < 1e-4);
+    assert!((yaw_pid.config.kp - 0.5).abs() < 1e-4);
+    // Crucial: PitchKp and RollKp must still persist untouched from Bank 1!
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+
+    // 4. Return to Bank 2 (MID / Lock): CH5 = 1500 us
+    rc.channels[4] = 1500;
+    rc.channels[5] = 1200; // Wiggle pots
+    rc.channels[6] = 1800;
+    tuning.update(&rc, &mut pitch_pid, &mut roll_pid, &mut yaw_pid);
+
+    // All dialed gains stay locked
+    assert!((pitch_pid.config.kp - 0.5).abs() < 1e-4);
+    assert!((roll_pid.config.kp - 0.1).abs() < 1e-4);
+    assert!((pitch_pid.config.kd - 0.05).abs() < 1e-4);
+    assert!((yaw_pid.config.kp - 0.5).abs() < 1e-4);
 }
 
 #[test]
@@ -954,12 +1196,11 @@ fn test_cascaded_alt_hold() {
 #[test]
 fn test_angle_mode_tilt_response() {
     use libm::{cosf, sinf};
-    use wingfc_core::ahrs::MadgwickAHRS;
+    use wingfc_core::ahrs::VqfAHRS;
     use wingfc_core::mixer::{AirframeMixer, AirframeType};
     use wingfc_core::pid::{PidConfig, PidController};
 
     let dt = 0.002; // 500 Hz
-    let ahrs_beta = 0.5;
     let angle_p_gain = 10.0;
     let max_roll_angle = 60.0 * core::f32::consts::PI / 180.0;
     let max_pitch_angle = 45.0 * core::f32::consts::PI / 180.0;
@@ -974,7 +1215,7 @@ fn test_angle_mode_tilt_response() {
         ff_lpf_hz: 45.0,
     };
 
-    let mut ahrs = MadgwickAHRS::new(ahrs_beta);
+    let mut ahrs = VqfAHRS::new(0.5, 9.0, dt);
     let mut roll_pid = PidController::new(pid_cfg, dt);
     let mut pitch_pid = PidController::new(pid_cfg, dt);
     let mixer = AirframeMixer::new(AirframeType::Elevon);
@@ -983,7 +1224,7 @@ fn test_angle_mode_tilt_response() {
     for _ in 0..500 {
         ahrs.update_6dof(Vector3::ZERO, Vector3::new(0.0, 0.0, 9.80665), dt);
     }
-    let (p0, r0, _) = ahrs.get_euler_angles();
+    let (p0, r0, _) = ahrs.euler_angles();
     println!("Level: pitch={}, roll={}", p0, r0);
 
     // Now aircraft is tilted right by 30 degrees (roll = +30 deg = +0.5236 rad)
@@ -996,7 +1237,7 @@ fn test_angle_mode_tilt_response() {
     let mut last_s2 = 1500;
     for _ in 0..500 {
         ahrs.update_6dof(Vector3::ZERO, accel_tilted, dt);
-        let (est_pitch, est_roll, _) = ahrs.get_euler_angles();
+        let (est_pitch, est_roll, _) = ahrs.euler_angles();
 
         // Sticks centered (0.0)
         let pitch_stick = 0.0;
@@ -1016,7 +1257,7 @@ fn test_angle_mode_tilt_response() {
         last_s2 = out.servo2_us;
     }
 
-    let (final_pitch, final_roll, _) = ahrs.get_euler_angles();
+    let (final_pitch, final_roll, _) = ahrs.euler_angles();
     println!("Tilted: est_pitch={}, est_roll={}", final_pitch, final_roll);
     println!("Servos: s1={}, s2={}", last_s1, last_s2);
 

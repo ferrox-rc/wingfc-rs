@@ -77,17 +77,32 @@ UF2 (USB Flashing Format) breaks firmware into 512-byte blocks. Each block inclu
 
 ---
 
-## 3. Automated Flashing with `scripts/build.sh`
+## 3. Automated Flashing with `scripts/build.sh` / `scripts\build.bat`
 
-The WingFC builder supports choosing your flashing method via the `--method` (`-m`) argument, or setting a default method in [`wingfc.yaml`](../wingfc.yaml).
+The WingFC builder provides cross-platform automated flashing for Linux, macOS, and Windows (`scripts/build.sh` or `scripts\build.bat`).
+
+Before any hardware flashing occurs, the builder automatically performs a pre-flash configuration check (`cmd_check`), prints your aircraft configuration and hardware advisories, and requests explicit user confirmation to proceed:
+
+```text
+Confirm configuration and proceed with build & flash to hardware? [y/N]: 
+```
+
+Once confirmed, the builder automatically recompiles release firmware with your confirmed configuration and flashes the target using either auto-detection or your selected method.
 
 ### Command Syntax
 ```bash
-# Auto-detect connected programmer or mounted drive (Recommended)
+# Auto-detect connected programmer or mounted drive (Linux/macOS)
 ./scripts/build.sh flash
 
+# Windows Command Prompt or PowerShell:
+scripts\build.bat flash
+
+# Automatically confirm prompt (useful for CI / non-interactive automation):
+./scripts/build.sh flash -y
+scripts\build.bat flash -y
+
 # Explicitly select flashing method
-./scripts/build.sh flash --method uf2           # USB Mass-Storage Drag-and-Drop
+./scripts/build.sh flash --method uf2           # USB Mass-Storage Drag-and-Drop (Windows: scripts\build.bat flash --method uf2)
 ./scripts/build.sh flash --method nrfjprog      # Nordic J-Link SWD via Intel HEX
 ./scripts/build.sh flash --method dfu           # adafruit-nrfutil serial DFU
 ./scripts/build.sh flash --method probe-rs-hex  # SWD Intel HEX download via probe-rs
@@ -99,8 +114,8 @@ You can lock in your default method in `wingfc.yaml`:
 ```yaml
 flashing:
   method: auto          # options: auto, uf2, nrfjprog, dfu, probe-rs-hex, probe-rs-run
-  port: auto            # optional serial port for DFU (e.g., /dev/ttyACM0)
-  mount: auto           # optional mount path for UF2 drive (e.g., /run/media/$USER/XIAO-SENSE)
+  port: auto            # optional serial port for DFU (e.g., /dev/ttyACM0 or COM3)
+  mount: auto           # optional mount path for UF2 drive (e.g., /run/media/$USER/XIAO-SENSE or D:\)
 ```
 
 ---
@@ -110,12 +125,12 @@ flashing:
 ### Method A: USB Drag-and-Drop (UF2 Bootloader) &mdash; No Tools Required
 1. Connect the Seeed Studio XIAO nRF52840 Sense to your PC via USB-C.
 2. Quickly **double-tap the tiny reset button** (next to the USB-C port).
-3. The board LED will pulse green, and a USB mass-storage drive named **`XIAO-SENSE`** will appear on your system.
+3. The board LED will pulse green, and a USB mass-storage drive named **`XIAO-SENSE`** will appear on your system (e.g., `/run/media/$USER/XIAO-SENSE/` on Linux, `D:\` on Windows).
 4. Run:
    ```bash
-   ./scripts/build.sh flash --method uf2
+   ./scripts/build.sh flash --method uf2    # Windows: scripts\build.bat flash --method uf2
    ```
-   *(Or manually copy: `cp dist/wingfc-firmware-*.uf2 /run/media/$USER/XIAO-SENSE/`)*
+   *(Or manually copy: `cp dist/wingfc-firmware-*.uf2 /run/media/$USER/XIAO-SENSE/` or Windows: `copy dist\wingfc-firmware-*.uf2 D:\`)*
 5. The bootloader automatically writes the flash, unmounts the drive, and boots into WingFC.
 
 ### Method B: Nordic J-Link SWD (`nrfjprog`) &mdash; Professional Debugging

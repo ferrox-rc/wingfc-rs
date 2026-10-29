@@ -153,6 +153,15 @@ The **XIAO Sense Plus** expands the physical castellated edge perimeter to 23 pa
 | **Telemetry User LED** | `P0.17` | GPIO Output | Discrete status / GPS lock indicator (Active-LOW, sink current) |
 | **Reset / Boot Button** | `P0.18` | Hardware Reset | Triggers hardware system reset or bootloader entry |
 | **Battery Read Enable** | `P0.14` | GPIO Output | Active-LOW voltage divider enable |
+| **QSPI Flash SCK** | `P0.21` | `QSPI` | High-speed 32 MHz clock line for onboard 2MB NOR flash (P25Q16H) |
+| **QSPI Flash CSN** | `P0.25` | `QSPI` | Active-LOW chip select line |
+| **QSPI Flash IO0** | `P0.20` | `QSPI` | Quad SPI data line 0 (MOSI in 1-bit mode) |
+| **QSPI Flash IO1** | `P0.24` | `QSPI` | Quad SPI data line 1 (MISO in 1-bit mode) |
+| **QSPI Flash IO2** | `P0.22` | `QSPI` | Quad SPI data line 2 (Write Protect / IO2 in quad mode) |
+| **QSPI Flash IO3** | `P0.23` | `QSPI` | Quad SPI data line 3 (HOLD / IO3 in quad mode) |
+
+> [!NOTE]
+> **Pin Safety Verification**: The onboard QSPI flash pins occupy strictly `P0.20`..`P0.25`. This does not overlap or conflict with any edge castellated PWM output pin. Specifically, Servo 7 on `P0.19` (`D12`) remains completely unhindered and available.
 
 ---
 

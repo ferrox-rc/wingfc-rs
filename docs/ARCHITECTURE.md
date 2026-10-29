@@ -99,3 +99,33 @@ Execution runs on Embassy's cooperative async executor with **hardware DRDY inte
 7. **IMU Sampling & Transformation:** Accel and gyro vectors are burst-read over 400 kHz Fast-Mode EasyDMA I2C. Gyro bias is subtracted in the raw sensor frame before the 8-way mounting orientation matrix is applied.
 8. **Attitude Estimation & Control Loop:** The Madgwick AHRS and rate PIDs integrate with the measured dynamic `dt`. Transcendentals (`atan2f`/`asinf`) are evaluated lazily only when attitude stabilization or telemetry transmission requires them.
 9. **Airframe Mixing & Output Dispatch:** Mixer evaluates only active servo channels and precomputed neutrals. `PWM0` updates ESC pulses; `PWM1` and `PWM2` update servo pulses.
+
+---
+
+## 4. Multi-Rate Decoupled Architecture (`loop_rate: multirate`)
+
+Fixed-wing airframes have 10–25 Hz control bandwidth, so a monolithic loop synchronized to a fast IMU ODR wastes CPU and lets motor vibration alias into the control math. The `multirate` profile separates the sensing, control, and navigation rates:
+
+| Tier | Rate | Bus / Peripheral | Role |
+| :--- | :--- | :--- | :--- |
+| **1. IMU acquisition** | 1666.6 Hz | `TWISPI0` (dedicated) | LSM6DS3TR-C ODR; each DRDY burst-read is accumulated |
+| **2. Flight loop** | 208.33 Hz (`dt` = 4.8 ms) | CPU / `PWM0/1/2` | 8:1 boxcar average → VQF AHRS → PID → mixer → direct hardware PWM EasyDMA updates |
+| **3. Slow sensors & logging** | 50 Hz | `TWISPI1` / `QSPI` / `UARTE0` | Barometer + compass → Vertical Kalman Filter / heading, telemetry & QSPI blackbox logging |
+
+**Why 8:1 at 1666 Hz → 208.33 Hz?**
+* An 8-sample boxcar average is a sinc low-pass with nulls at multiples of 208.33 Hz, attenuating motor/prop harmonics before they reach the PID derivative term.
+* Exactly 8 samples per step yields a rock-solid `dt` of 4.8 ms, avoiding the clock aliasing of non-power-of-two loop rates against the LSM6DS3 binary ODRs.
+* 500 Hz (2000 µs) was rejected: it saturates servo/ESC PWM frames (a 2 ms pulse in a 2 ms period) and aliases against the sensor ODRs.
+
+### Implementation
+* [`wingfc_core::downsample::BoxcarAccumulator8`](../crates/wingfc-core/src/downsample.rs) performs the decimation (host-tested).
+* The IMU driver ([`drivers/imu.rs`](../crates/wingfc-firmware/src/drivers/imu.rs)) runs in `imu_worker_task`, waiting for 8 DRDY interrupts and publishing the averaged frame via [`bus::IMU_WATCH`](../crates/wingfc-firmware/src/bus.rs). Bias subtraction and the mounting matrix are applied per raw sample, before averaging.
+* Hardware `PWM0/1/2` EasyDMA duty registers are updated directly at the end of the 208.33 Hz flight control loop while the hardware timers autonomously generate the 50–400 Hz carrier.
+* The external sensor task polls the barometer and compass at 50 Hz on `TWISPI1`, keeping the IMU bus free of contention, alongside 50 Hz QSPI blackbox logging.
+* [`wingfc_core::compass`](../crates/wingfc-core/src/compass.rs) provides hard-iron/soft-iron calibration (`MagCalibration`, `MagCalibrator`) and tilt-compensated heading:
+
+  ```
+  Xh = mx*cos(theta) + my*sin(phi)*sin(theta) + mz*cos(phi)*sin(theta)
+  Yh = my*cos(phi) - mz*sin(phi)
+  heading = atan2(-Yh, Xh) + declination
+  ```

@@ -3,16 +3,18 @@
 High-performance, zero-latency, bare-metal Rust flight controller firmware for sub-250g FPV flying wings, acrobatic wings, and autonomous UAVs.
 
 ## Key Features
-- **YAML Aircraft Configuration:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](wingfc.yaml) without touching build files or Rust code.
-- **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and hardware DRDY interrupt-paced control loop with selectable rates (416 Hz standard / 833 Hz high-speed).
+- **YAML Aircraft Configuration & Build Profiles:** Configure board, receiver, motor, servos, safety thresholds, navigation, rates, and PID tunes in [`wingfc.yaml`](wingfc.yaml). Supports high-level build profiles (`ultralight` sub-250g default, `gps` full navigation) with granular hardware feature flags.
+- **Deterministic Hard Real-Time Execution:** Zero garbage collector, zero heap allocation (`#![no_std]`), and hardware DRDY interrupt-paced control loop. Supports multi-rate sinc decimation (1.66 kHz IMU ODR downsampled 8:1 to 208.33 Hz) and legacy direct modes (416 Hz / 833 Hz).
 - **Acrobatic & Rates Mode:** Direct angular velocity tracking with PT1 vibration filtering and FeedForward.
 - **Madgwick Quaternion AHRS:** 6-DoF and 9-DoF attitude estimation without gimbal lock and with dynamic G-rejection.
-- **Autonomous Navigation Suite:** Barometric Vertical Kalman Filter (altitude hold, stall prevention, hard-deck floor, statutory 120m ceiling limiter), tilt-compensated magnetic compass, and GPS Return-to-Home (RTH).
+- **Sensor Health Supervision:** Tri-state state machine (`Healthy`, `Degraded`, `Failed`) with timeout fault detection and automatic graceful fallback (e.g. `HeadingHold`/`AltHold` to `Angle`).
+- **Autonomous Navigation Suite:** Barometric Vertical Kalman Filter (altitude hold, stall prevention, hard-deck floor, statutory 120m ceiling limiter), tilt-compensated magnetic compass with 3x3 soft/hard iron calibration, and GPS Return-to-Home (RTH).
 - **Zero-Allocation NMEA GPS Engine:** High-speed streaming parser with automatic launch point latching and equirectangular flat-Earth coordinate projection.
 - **DMA-Driven Hardware I/O:** Embassy-based async UART (CRSF / ELRS @ 420 kBaud, iBus @ 115.2 kBaud, GPS @ 115.2 kBaud), SPI (DShot), and multi-frequency PWM (50 Hz &ndash; 400 Hz).
 - **Bidirectional CRSF / ELRS Telemetry:** Broadcasts 3D vehicle attitude, active flight mode, battery status, and GPS coordinates to EdgeTX / OpenTX transmitters via EasyDMA UARTE0 TX (`D6` / `P1.11`).
 - **Configurable Arming Interlocks:** Pilot-configurable arm switch and throttle-zero thresholds with active motor spin-up warning systems.
-- **Next-Gen Telemetry & Bench Debugging:** Sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and real-time binary blackbox structures.
+- **Multi-Bank In-Flight PID Tuning:** Real-time gain adjustment across up to 6 selectable banks via auxiliary switch, supporting parameter persistence and safe lockouts.
+- **Next-Gen Telemetry & Bench Debugging:** Native QSPI flash blackbox logging (2MB onboard P25Q16H), sub-microsecond RAM logging over SEGGER RTT via SWD, `defmt` structured logs, and real-time binary blackbox structures.
 
 ## Documentation
 - ⚙️ [Aircraft Configuration Guide (`wingfc.yaml`)](docs/CONFIG.md)
@@ -37,19 +39,21 @@ Just like Betaflight, INAV, or EdgeTX, all aircraft settings are controlled via 
 nano wingfc.yaml
 
 # 2. Check configuration syntax and validity (< 0.5s)
-./scripts/build.sh check
+./scripts/build.sh check               # Windows: scripts\build.bat check
 
 # 3. Build optimized release firmware (.elf, .bin, .hex in dist/)
-./scripts/build.sh
+./scripts/build.sh                     # Windows: scripts\build.bat
 
 # 4. Flash to Seeed Studio XIAO (see docs/FLASHING.md):
+# Automatically checks configuration and prompts for confirmation before building & flashing:
 # Option A: Auto-detect connected programmer or mounted drive (Recommended)
-./scripts/build.sh flash
+./scripts/build.sh flash               # Windows: scripts\build.bat flash
+# (Add -y / --yes to bypass interactive confirmation: ./scripts/build.sh flash -y)
 
 # Option B: USB Drag-and-Drop (UF2 Bootloader - No probe needed)
 # Double-tap reset button to mount XIAO-SENSE drive, then run:
-./scripts/build.sh flash --method uf2
-# (Or manual copy: cp dist/wingfc-firmware-*.uf2 /run/media/$USER/XIAO-SENSE/)
+./scripts/build.sh flash --method uf2  # Windows: scripts\build.bat flash --method uf2
+# (Or manual copy: cp dist/wingfc-firmware-*.uf2 /run/media/$USER/XIAO-SENSE/ or copy on Windows: copy dist\wingfc-firmware-*.uf2 D:\)
 
 # Option C: Nordic J-Link SWD via self-addressing Intel HEX
 ./scripts/build.sh flash --method nrfjprog
@@ -91,7 +95,7 @@ For complete cadence details and wiring specifications, see the [Pin Configurati
 ### Run Core Unit Tests on Host:
 ```bash
 # Via build utility
-./scripts/build.sh test
+./scripts/build.sh test                # Windows: scripts\build.bat test
 
 # Or directly via cargo
 cargo test -p wingfc-core --all-features
@@ -100,8 +104,8 @@ cargo test -p wingfc-core --all-features
 cargo llvm-cov -p wingfc-core --all-features
 ```
 
-#### Core Algorithm Test Coverage (88.4% Line, 89.6% Region, 87.8% Function)
-The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 27 host unit tests covering safety, kinematics, protocol decoders, and navigation:
+#### Core Algorithm Test Coverage
+The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 31 host unit tests covering safety, kinematics, protocol decoders, and navigation:
 
 | Subsystem / Module | Source File | Line Coverage | Function Coverage | Region Coverage | Key Verification Scenarios |
 | :--- | :--- | :---: | :---: | :---: | :--- |
@@ -116,12 +120,12 @@ The `#![no_std]` algorithmic flight core (`wingfc-core`) is verified by 27 host 
 | **Arming Safety Interlocks** | [`safety.rs`](crates/wingfc-core/src/safety.rs) | **86.5%** | **77.8%** | **84.1%** | Configurable thresholds, high-throttle lockout, zero-surge |
 | **Rate PID & FeedForward** | [`pid.rs`](crates/wingfc-core/src/pid.rs) | **84.5%** | **80.0%** | **82.8%** | Anti-windup clamping, dynamic FeedForward transient & decay |
 | **Mode Matrix & Cascaded** | [`mode.rs`](crates/wingfc-core/src/mode.rs) | **82.9%** | **68.4%** | **81.8%** | Multi-switch mode ranges, Heading Hold & Alt Hold cascades |
-| **In-Flight Pot Tuning** | [`tuning.rs`](crates/wingfc-core/src/tuning.rs) | **82.0%** | **100.0%** | **80.9%** | Potentiometer channel deadbands, real-time PID scaling |
+| **In-Flight Pot & Bank Tuning** | [`tuning.rs`](crates/wingfc-core/src/tuning.rs) | **85.0%** | **100.0%** | **84.0%** | Potentiometer channel deadbands, bank switching, gain persistence |
 | **FlySky iBus Protocol** | [`protocol/ibus.rs`](crates/wingfc-core/src/protocol/ibus.rs) | **82.3%** | **71.4%** | **85.7%** | 16-bit inverse checksum, 14-channel unpacking, failsafe bits |
 | **GPS & NMEA Navigation** | [`gps.rs`](crates/wingfc-core/src/gps.rs) | **79.6%** | **85.7%** | **84.8%** | NMEA GGA/RMC parsing, home latching, RTH bearing & error |
 | **Madgwick 9-DoF AHRS** | [`ahrs.rs`](crates/wingfc-core/src/ahrs.rs) | **79.5%** | **100.0%** | **84.3%** | 6-DoF gravity alignment, 9-DoF mag fusion, zero-mag fallback |
 | **DShot Motor Protocol** | [`dshot.rs`](crates/wingfc-core/src/dshot.rs) | **76.9%** | **66.7%** | **82.9%** | 16-bit packet encoding, nibble checksum, SPI MOSI bitstream |
-| **Total `wingfc-core`** | **All Modules** | **88.4%** | **87.8%** | **89.6%** | **28 unit tests, 100% passing** |
+| **Total `wingfc-core`** | **All Modules** | **88.6%** | **88.2%** | **89.9%** | **31 unit tests, 100% passing** |
 
 ### Production Release Matrix (All 8 Release Permutations):
 ```bash

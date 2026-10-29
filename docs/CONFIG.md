@@ -2,7 +2,7 @@
 
 `wingfc-rs` allows pilots and developers to configure their aircraft hardware, airframe mixers, receiver protocols, loop timing, and PID gains through a single, human-readable YAML configuration file ([`wingfc.yaml`](../wingfc.yaml)), eliminating the need to modify Rust source code or Cargo feature flags.
 
-The build engine (`./scripts/build.sh` or `python3 scripts/builder.py`) automatically parses, validates, and generates zero-cost compile-time Rust parameters in `crates/wingfc-firmware/src/config.rs`.
+The build engine (`./scripts/build.sh`, `scripts\build.bat` on Windows, or `python scripts/builder.py`) automatically parses, validates, and generates zero-cost compile-time Rust parameters in `crates/wingfc-firmware/src/config.rs`.
 
 ---
 
@@ -20,9 +20,10 @@ airframe: elevon          # Options: elevon, elevon_diff_thrust, single_aileron_
                           #          dual_aileron_t_tail, single_aileron_v_tail, dual_aileron_v_tail
 
 # Hardware Loop Timing & IMU Data-Ready Synchronization:
-#   standard: 416 Hz (Default, recommended for general flight, GPS waypoint navigation, and standard servos)
-#   high:     833 Hz (Recommended for high-speed combat wings, DShot, and 333-400Hz digital servos)
-loop_rate: standard       # Options: standard, high
+#   standard:  416 Hz (Default, recommended for general flight, GPS waypoint navigation, and standard servos)
+#   high:      833 Hz (Recommended for high-speed combat wings, DShot, and 333-400Hz digital servos)
+#   multirate: IMU sampled at 1.66 kHz and boxcar-averaged 8:1 to a fixed 208.33 Hz (dt = 4.8 ms) flight loop
+loop_rate: standard       # Options: standard, high, multirate
 ```
 
 | Parameter | Options / Range | Default | Description |
@@ -30,7 +31,7 @@ loop_rate: standard       # Options: standard, high
 | `board` | `xiao-sense`, `xiao-sense-plus` | `xiao-sense` | Selects target board layout. Standard Sense provides 14 castellated pads; Sense Plus adds expansion pads for GPS UART (`UARTE1`) and 4 extra PWM servos (`PWM2`). |
 | `orientation` | `default`, `cw90`, `cw180`, `cw270`, `flip`, `flip_cw90`, `flip_cw180`, `flip_cw270` | `default` | 3D coordinate transformation mapping sensor axes to standard aircraft body frame (X=forward, Y=right, Z=down). |
 | `airframe` | `elevon`, `elevon_diff_thrust`, `single_aileron_t_tail`, `dual_aileron_t_tail`, `single_aileron_v_tail`, `dual_aileron_v_tail` | `elevon` | Pre-configured aerodynamic control surface mixer topology. |
-| `loop_rate` | `standard` (416 Hz), `high` (833 Hz) | `standard` | Configures the LSM6DS3 hardware ODR and GPIOTE interrupt pacing. `standard` provides optimal CPU headroom for GPS navigation and standard servos; `high` provides minimum latency for aerobatic speedwings. |
+| `loop_rate` | `standard` (416 Hz), `high` (833 Hz), `multirate` (1666 Hz → 208.33 Hz) | `standard` | Configures the LSM6DS3 hardware ODR and GPIOTE interrupt pacing. `standard` provides optimal CPU headroom for GPS navigation and standard servos; `high` provides minimum latency for aerobatic speedwings; `multirate` averages 8 consecutive 1.66 kHz samples (sinc/boxcar low-pass that suppresses motor/prop harmonics) into one jitter-free 4.8 ms control step, ideal for fixed-wing airframes with 10–25 Hz control bandwidth. |
 
 ---
 
@@ -115,37 +116,103 @@ motor:
 
 ---
 
-## 6. In-Flight PID Tuning
+## 6. In-Flight PID Tuning (Multi-Bank & Selector Switch)
 
 ```yaml
 in_flight_tuning:
   enabled: false
-  slot_a:
-    parameter: none       # Options: none, pitch_kp, roll_kp, pitch_ki, etc.
-    channel: 7            # RC channel (1-16)
-    min_val: 0.05
-    max_val: 0.50
-  slot_b:
-    parameter: none
-    channel: 8
-    min_val: 0.005
-    max_val: 0.050
+
+  # Optional RC auxiliary channel (1-16) to select the active tuning bank (e.g. 3-POS switch or 6POS button).
+  # If omitted or not configured, Bank 1 is permanently active.
+  selector_channel: 5
+
+  # Selectable Tuning Banks (up to 6 banks supported):
+  # Tuned gains persist in memory across bank switches. Selecting a bank with parameter: 'none' locks/freezes gains.
+  banks:
+    # Bank 1: Switch LOW (900-1300 us) -> Tune Rate Proportional (Kp) Gains
+    - switch_range: [900, 1300]
+      slot_a:
+        parameter: pitch_kp   # Options: none, pitch_kp, roll_kp, pitch_ki, roll_ki, pitch_kd, roll_kd,
+                              #          pitch_kff, roll_kff, yaw_kp, yaw_ki, yaw_kd, yaw_kff
+        channel: 9            # RC Channel number (1-16, e.g., 9 = CH9 / Slider 1)
+        min_val: 0.05
+        max_val: 0.50
+      slot_b:
+        parameter: roll_kp
+        channel: 10           # RC Channel number (1-16, e.g., 10 = CH10 / Slider 2)
+        min_val: 0.05
+        max_val: 0.50
+
+    # Bank 2: Switch MID (1301-1699 us) -> Safe Lock / Bypass (freeze current gains)
+    - switch_range: [1301, 1699]
+      slot_a:
+        parameter: none
+      slot_b:
+        parameter: none
+
+    # Bank 3: Switch HIGH (1700-2100 us) -> Tune Rate Derivative (Kd) Gains
+    - switch_range: [1700, 2100]
+      slot_a:
+        parameter: pitch_kd
+        channel: 9
+        min_val: 0.005
+        max_val: 0.050
+      slot_b:
+        parameter: roll_kd
+        channel: 10
+        min_val: 0.005
+        max_val: 0.050
 ```
 
 | Parameter | Options / Range | Description |
 | :--- | :--- | :--- |
 | `enabled` | `true`, `false` | Enables real-time PID gain adjustment via designated transmitter potentiometers or sliders. |
-| `slot_a.parameter`<br>`slot_b.parameter` | `none`, `pitch_kp`, `roll_kp`, `pitch_ki`, `roll_ki`, `pitch_kd`, `roll_kd`, `pitch_kff`, `roll_kff` | Target PID/FeedForward gain modified by the corresponding channel. |
-| `slot_a.channel`<br>`slot_b.channel` | `1` .. `16` | RC Channel number allocated to the adjustment pot. |
-| `min_val` .. `max_val` | Floating point values | Gain range mapped linearly across the 1000..2000 &mu;s stick/pot sweep. |
+| `selector_channel` | `1` .. `16` (optional) | RC auxiliary channel (e.g., 3-position switch) used to switch between active tuning banks. If omitted, Bank 1 remains permanently active. |
+| `banks` | List of up to 6 banks | Bank definitions containing `switch_range`, `slot_a`, and `slot_b`. |
+| `switch_range` | `[min_us, max_us]` | RC pulse width window (800&ndash;2200 &mu;s) activating this tuning bank. |
+| `slot_a.parameter`<br>`slot_b.parameter` | `none`, `pitch_kp`, `roll_kp`, `pitch_ki`, `roll_ki`, `pitch_kd`, `roll_kd`, `pitch_kff`, `roll_kff`, `yaw_kp`, `yaw_ki`, `yaw_kd`, `yaw_kff` | Target PID or FeedForward gain scaled by the adjustment channel. Set to `none` to freeze/lock current gains safely. |
+| `slot_a.channel`<br>`slot_b.channel` | `1` .. `16` | RC Channel number allocated to the adjustment potentiometer or slider. |
+| `min_val` .. `max_val` | Floating point values | Gain range mapped linearly across the 1000..2000 &mu;s pot sweep. |
+
+> [!NOTE]
+> **Gain Persistence & Safe Lock**: When switching from Bank 1 to Bank 2 (or adjusting another bank), previously tuned PID gains remain active in RAM. Assigning `parameter: none` creates a safe lock bank, allowing pilots to freeze their dialed-in gains without accidental bumping during flight.
+> Legacy single-bank configurations using top-level `slot_a` and `slot_b` without `banks` remain fully supported for backward compatibility.
 
 ---
 
 ## 7. Autonomous Navigation Suite
 
+```yaml
+navigation:
+  enabled: false
+
+  # External Digital Barometer (TWISPI1: D4 SDA, D5 SCL)
+  barometer:
+    enabled: false
+    model: dps310        # Options: dps310 (Carrier Board default), bmp280
+    i2c_address: 0x77    # 0x77 or 0x76
+
+  # External 3-Axis Magnetometer (TWISPI1: D4 SDA, D5 SCL)
+  compass:
+    enabled: false
+    model: qmc5883l      # Options: qmc5883l (addr 0x0D), hmc5883l (addr 0x1E)
+
+  # GPS Receiver Link (UARTE1 on Sense Plus: D14 RX, D15 TX)
+  gps: false
+
+  rth:
+    min_satellites: 6
+    max_hdop: 2.5
+    safe_altitude_agl_m: 30.0
+
+  hard_deck_agl_m: 15.0
+  max_ceiling_agl_m: 120.0
+```
+
 | Subsystem | Configuration | Reference Specification |
 | :--- | :--- | :--- |
-| **GPS Receiver Link** | NMEA parser @ 115,200 baud on Sense Plus `UARTE1` | [GPS Navigation Specification](GPS_NAVIGATION.md) |
+| **Digital Barometer** | Infineon DPS310 / Bosch BMP280 on `TWISPI1` (`D4`/`D5`) | [Architecture Specification](ARCHITECTURE.md) |
+| **External Magnetometer** | QMC5883L / HMC5883L I2C Fast-Mode on `TWISPI1` (`D4`/`D5`) | [Architecture Specification](ARCHITECTURE.md) |
+| **GPS Receiver Link** | NMEA parser @ 115,200 baud on Sense Plus `UARTE1` (`D14`/`D15`) | [GPS Navigation Specification](GPS_NAVIGATION.md) |
 | **Fail-safe Return-to-Home** | Autonomous climb, loiter, and 120m statutory ceiling | [GPS Navigation Specification](GPS_NAVIGATION.md) |
-| **External Magnetometer** | I2C Fast-Mode on `TWISPI1` (`D4`/`D5`) | [Architecture Specification](ARCHITECTURE.md) |
 

@@ -1,14 +1,19 @@
-//! User aircraft configuration parameters for `wingfc-firmware`.
-//!
-//! Generated automatically from `wingfc.yaml` by the build system.
-//! Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
+// User aircraft configuration parameters for `wingfc-firmware`.
+// Generated automatically from `wingfc.yaml` by the build system.
+// Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
+#[allow(unused_imports)]
 use embassy_time::Duration;
-use wingfc_core::math::{BoardOrientation, DEG_TO_RAD};
+#[allow(unused_imports)]
+use wingfc_core::math::{BoardOrientation, Vector3, DEG_TO_RAD};
+#[allow(unused_imports)]
 use wingfc_core::mixer::{AirframeType, ServoConfig};
+#[allow(unused_imports)]
 use wingfc_core::mode::{FlightMode, ModeMatrix, ModeRange};
+#[allow(unused_imports)]
 use wingfc_core::pid::PidConfig;
-use wingfc_core::tuning::{InFlightTuning, TuneParameter, TuneSlot};
+#[allow(unused_imports)]
+use wingfc_core::tuning::{InFlightTuning, TuneBank, TuneParameter, TuneSlot};
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = BoardOrientation::Default;
@@ -21,25 +26,29 @@ pub const AIRFRAME_TYPE: AirframeType = AirframeType::Elevon;
 pub enum LoopRateProfile {
     Standard416Hz,
     High833Hz,
+    MultiRate208Hz,
 }
 
 /// Configured flight loop rate profile
-pub const LOOP_RATE_PROFILE: LoopRateProfile = LoopRateProfile::High833Hz;
+pub const LOOP_RATE_PROFILE: LoopRateProfile = LoopRateProfile::MultiRate208Hz;
 
 /// Nominal flight loop frequency in Hz
-pub const NOMINAL_LOOP_HZ: u32 = 833;
+pub const NOMINAL_LOOP_HZ: u32 = 208;
 
 /// Nominal flight loop time-step in seconds
-pub const NOMINAL_DT: f32 = 0.001200;
+pub const NOMINAL_DT: f32 = 0.004800;
 
 /// Retained alias for nominal DT (used for initial static filter cutoffs)
 pub const DT: f32 = NOMINAL_DT;
 
 /// LSM6DS3 register value for Accel (CTRL1_XL): configured ODR + +/-16g range
-pub const IMU_ODR_XL_REG_VAL: u8 = 0x74;
+pub const IMU_ODR_XL_REG_VAL: u8 = 0x84;
 
 /// LSM6DS3 register value for Gyro (CTRL2_G): configured ODR + +/-2000 dps range
-pub const IMU_ODR_G_REG_VAL: u8 = 0x7c;
+pub const IMU_ODR_G_REG_VAL: u8 = 0x8c;
+
+/// Number of raw IMU samples boxcar-averaged per flight loop iteration (1 = no decimation)
+pub const IMU_DECIMATION: u8 = 8;
 
 /// Duration without valid RC packets before entering failsafe mode
 pub const FAILSAFE_TIMEOUT: Duration = Duration::from_millis(500);
@@ -66,7 +75,7 @@ pub const THROTTLE_ZERO_THRESHOLD: u16 = 1050;
 
 /// Configured PWM frame frequency for servo outputs in Hz (50Hz - 400Hz).
 /// Standard analog servos require 50 Hz; digital servos can accept up to 400 Hz.
-pub const SERVO_PWM_HZ: u32 = 60;
+pub const SERVO_PWM_HZ: u32 = 400;
 
 /// Per-servo output endpoint, subtrim, and inversion calibration profiles
 pub const SERVO_CONFIGS: [ServoConfig; 8] = [
@@ -148,31 +157,55 @@ pub const ANGLE_P_GAIN: f32 = 4.00;
 /// In-flight real-time PID potentiometer tuning configuration
 pub const IN_FLIGHT_TUNING_ENABLED: bool = false;
 pub const IN_FLIGHT_TUNING: InFlightTuning = InFlightTuning {
-    slot_a: TuneSlot {
-        parameter: TuneParameter::None,
-        channel_idx: 8,
-        min_val: 0.0500,
-        max_val: 0.5000,
-    },
-    slot_b: TuneSlot {
-        parameter: TuneParameter::None,
-        channel_idx: 9,
-        min_val: 0.0050,
-        max_val: 0.0500,
-    },
+    selector_channel_idx: 0xFF,
+    num_banks: 1,
+    banks: [
+        TuneBank {
+            range_min_us: 800,
+            range_max_us: 2200,
+            slot_a: TuneSlot::DEFAULT,
+            slot_b: TuneSlot::DEFAULT,
+        },
+        TuneBank::DEFAULT,
+        TuneBank::DEFAULT,
+        TuneBank::DEFAULT,
+        TuneBank::DEFAULT,
+        TuneBank::DEFAULT,
+    ],
 };
 
 /// Emergency hard-deck floor in meters Above Ground Level (AGL)
 pub const HARD_DECK_AGL_M: f32 = 15.0;
 
-/// GPS autonomous navigation and Return-to-Home parameters
+/// Barometer configuration
+#[cfg(feature = "baro")]
+pub use crate::drivers::BaroModel;
+
+pub const BARO_ENABLED: bool = false;
+#[cfg(feature = "baro")]
+pub const BARO_MODEL: BaroModel = BaroModel::Bmp280;
+#[cfg(feature = "baro")]
+pub const BARO_I2C_ADDR: u8 = 0x77;
+
+/// External Compass / Magnetometer configuration
 #[cfg(feature = "compass")]
 pub use crate::drivers::CompassModel;
 
-/// External Compass / Magnetometer configuration
 pub const COMPASS_ENABLED: bool = false;
 #[cfg(feature = "compass")]
-pub const COMPASS_MODEL: CompassModel = CompassModel::Qmc5883l;
+pub const COMPASS_MODEL: CompassModel = CompassModel::Hmc5883l;
+#[cfg(feature = "compass")]
+pub const MAG_DECLINATION_RAD: f32 = 0.000000;
+#[cfg(feature = "compass")]
+pub const MAG_CALIBRATION: wingfc_core::compass::MagCalibration =
+    wingfc_core::compass::MagCalibration {
+        hard_iron: Vector3::new(0.0000, 0.0000, 0.0000),
+        soft_iron: [
+            [1.0000, 0.0000, 0.0000],
+            [0.0000, 1.0000, 0.0000],
+            [0.0000, 0.0000, 1.0000],
+        ],
+    };
 
 /// GPS autonomous navigation and Return-to-Home parameters
 pub const GPS_ENABLED: bool = false;
@@ -187,8 +220,11 @@ pub const MAX_CEILING_AGL_M: f32 = 120.0;
 /// PT1 low-pass filter cutoff frequency for gyro harmonic vibration rejection (Hz)
 pub const GYRO_LPF_CUTOFF_HZ: f32 = 90.0;
 
-/// Madgwick AHRS filter convergence gain beta
-pub const AHRS_BETA: f32 = 0.5000;
+/// VQF AHRS accelerometer low-pass filtering time constant in seconds (Laidig & Seel 2023)
+pub const VQF_TAU_ACC: f32 = 3.50;
+
+/// VQF AHRS magnetometer heading correction time constant in seconds
+pub const VQF_TAU_MAG: f32 = 9.00;
 
 /// Inner rate loop PID + FeedForward configuration
 pub const RATE_PID_CONFIG: PidConfig = PidConfig {
