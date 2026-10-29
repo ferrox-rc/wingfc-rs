@@ -6,11 +6,11 @@
 
 ## 1. System Design Principles
 
-1. **Deterministic Execution:** Zero heap allocations (`no_std`), zero garbage collection pauses, and hard real-time execution at 500Hz (2000&mu;s period).
-2. **Hardware Watchdog Supervision:** 2000ms hardware watchdog timer (`WDT`) supervised directly by the 500 Hz flight loop.
+1. **Deterministic Execution:** Zero heap allocations (`no_std`), zero garbage collection pauses, and hard real-time execution in the event-paced 208.33 Hz flight loop (`dt` = 4.8 ms), decoupled from the 1.666 kHz IMU decimation engine.
+2. **Hardware Watchdog Supervision:** 2000ms hardware watchdog timer (`WDT`) supervised directly by the flight control task.
 3. **Zero-Cost Abstractions:** Build-time Cargo feature flags eliminate inactive protocols, algorithms, and drivers at compile time via dead-code elimination.
 4. **Defense-in-Depth Safety:** Multi-layered arming interlocks, zero-surge failsafe recovery, and physical separation between core logic (`wingfc-core`) and peripheral drivers (`wingfc-firmware`).
-5. **Modularity for Rapid Testing:** Pure flight control algorithms are isolated in `wingfc-core` and fully testable on host platforms via standard `cargo test` (achieving 88.4% line coverage and 89.8% region coverage across 21 unit tests).
+5. **Modularity for Rapid Testing:** Pure flight control algorithms are isolated in `wingfc-core` and fully testable on host platforms via standard `cargo test` across unit and integration test suites.
 6. **Zero-Code User Configuration:** End users configure aircraft hardware, protocols, flight dynamics, per-servo limits, and PID tunes using a friendly configuration file ([`wingfc.yaml`](../wingfc.yaml)) without touching Rust source code or build files (see the [Aircraft Configuration Guide](CONFIG.md)).
 7. **Visual Architectural Flowcharts:** Complete Mermaid.js state and dataflow diagrams are available in the [System Architecture & Control Flowcharts](FLOWCHARTS.md).
 
@@ -25,21 +25,22 @@ Physical pinout allocations, wiring isolation guidelines, electrical specs, and 
 * **`PWM1` (Primary Servos 1..4):** Drives standard flight control surfaces (`D0`/`P0.02`, `D1`/`P0.03`, `D2`/`P0.28`, `D9`/`P1.14`).
 * **`PWM2` (Secondary Servos 5..8):** Available on Seeed Studio XIAO nRF52840 Sense Plus (`D10`/`P1.15`, `D11`/`P0.15`, `D12`/`P0.19`, `D13`/`P1.01`) for auxiliary gear, pan/tilt, or extra control surfaces.
 * **`TWISPI0` (Internal IMU):** Dedicated 400 kHz Fast-Mode EasyDMA I2C bus communicating with the onboard ST LSM6DS3TR-C 6-DoF sensor (`P0.07` SDA, `P0.27` SCL, `P1.08` Power Rail with `HighDrive`).
-* **`TWISPI1` (External Sensors):** Dedicated 400 kHz I2C bus on castellated pads (`D4`/`P0.04` SDA, `D5`/`P0.05` SCL) for external QMC5883L/HMC5883L magnetometers and BMP280/SPL06 barometers.
+* **`TWISPI1` (External Sensors):** Dedicated 400 kHz I2C bus on castellated pads (`D4`/`P0.04` SDA, `D5`/`P0.05` SCL) for external QMC5883L/HMC5883L magnetometers and BMP280/DPS310 barometers.
+* **`QSPI` (NOR Flash Blackbox):** Dedicated 32 MHz Quad-IO EasyDMA interface on `P0.20` through `P0.25` for the onboard Puya P25Q16H 2 MB NOR flash, providing autonomous 50 Hz flight data recording (see the [Blackbox Specification](BLACKBOX.md)).
 * **`UARTE0` (RC Receiver & Telemetry):** Buffered EasyDMA UART engine servicing high-speed RC protocols (CRSF/ELRS @ 420 kBaud or FlySky iBus @ 115.2 kBaud) and bidirectional telemetry transmission (see the [Receiver & Telemetry Specification](RECEIVERS.md)).
 * **`UARTE1` (Autonomous GPS):** Secondary EasyDMA serial engine on Sense Plus (`D14`/`P0.09` RX, `D15`/`P0.10` TX) running the zero-allocation NMEA navigation parser (see the [GPS Navigation Specification](GPS_NAVIGATION.md)).
 * **Visual Telemetry:** Coordinated dual-LED system featuring the 3-color RGB LED (`P0.26`, `P0.30`, `P0.06`) and discrete User LED (`P0.17`).
 
 ---
 
-### 3. Hardware Event-Driven Flight Loop (416 Hz / 833 Hz)
+### 3. Hardware Event-Driven Control Loop Architecture
 
-Execution runs on Embassy's cooperative async executor with **hardware DRDY interrupt pacing** via GPIOTE on `P0.11` (`pin_imu_int1`), eliminating beat-frequency clock aliasing and phase jitter between the MCU and sensor crystal domains:
+Execution runs on Embassy's cooperative async executor with hardware DRDY interrupt pacing via GPIOTE on `P0.11` (`pin_imu_int1`). In the default `multirate` profile, execution is structured into three decoupled tiers (see Section 4). In legacy direct modes, the loop executes directly at 416 Hz or 833 Hz:
 
 ```
                   +---------------------------------------------------+
                   |  LSM6DS3 INT1 Hardware Data-Ready Interrupt (WFE) |
-                  |    (416 Hz Standard / 833 Hz High-Speed Profile)  |
+                  |    (1666 Hz Multirate / 416 Hz / 833 Hz Direct)   |
                   +---------------------------------------------------+
                                             |
                                             v

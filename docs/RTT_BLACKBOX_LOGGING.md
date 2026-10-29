@@ -80,20 +80,20 @@ At 500 Hz, this binary frame generates **14.0 KB/s** of stream data. Because the
 
 ---
 
-## 3. Hardware Limitations of the Bare XIAO Module
+## 3. Persistent Storage: Onboard QSPI Flash vs. MicroSD
 
-While RTT is ideal for bench testing, **in-flight Blackbox logging requires persistent local storage.**
+While RTT is ideal for real-time bench monitoring over SWD, in-flight flight logging requires non-volatile storage:
 
-The bare Seeed Studio XIAO nRF52840 Sense module does not have the hardware required for autonomous in-flight Blackbox recording:
-1. **No High-Speed Non-Volatile Flash:** The XIAO Sense lacks an external SPI/QSPI NOR flash chip. Logging into internal MCU flash is unfeasible because flash page write/erase operations stall CPU execution for tens of milliseconds, which would breach the 2ms hard real-time flight loop deadline and crash the aircraft.
-2. **No MicroSD Card Slot:** High-rate flight data logging (14 KB/s to 50 KB/s) requires multi-megabyte storage capacity. A standard 10-minute flight generates approximately 8.4 MB of raw telemetry data.
-3. **GPIO Exhaustion:** Operating an SD card in SDIO (4-bit) or SPI (4-wire) mode requires 4 to 6 GPIO pins. The standard XIAO exposes only 8 external GPIOs in total, all of which are consumed by Servos, ESC, RC Input, and external I2C.
+1. **Onboard 2 MB QSPI NOR Flash (Current XIAO Implementation):**
+   WingFC-rs records armed flight sessions directly to the Seeed Studio XIAO's onboard Puya P25Q16H 2 MB NOR flash at 50 Hz. This provides 21.6 minutes of autonomous flight recording per cycle without consuming external GPIOs. Complete frame format specifications, offload instructions, and Betaflight Blackbox Explorer workflows are documented in [Onboard QSPI Blackbox Flight Data Recorder](BLACKBOX.md).
+2. **Upcoming Custom PCB Architecture (Co-Processor & SD Card):**
+   To support multi-hour continuous recording without SD card write latency spikes impacting the primary flight loop, future custom carrier hardware offloads FatFS and SDIO operations to a dedicated auxiliary MCU.
 
 ---
 
 ## 4. Custom PCB Architecture: Dedicated Co-Processor & SD Card Subsystem
 
-To provide seamless, in-flight Blackbox logging and expanded telemetry without degrading the primary flight controller's real-time deterministic performance, the upcoming custom hardware layout will incorporate a **dedicated secondary co-processor**:
+To provide hours of continuous high-rate logging without degrading the primary flight controller's real-time deterministic performance, the upcoming custom hardware layout incorporates an auxiliary co-processor:
 
 ```mermaid
 graph TD
@@ -137,68 +137,18 @@ graph TD
 
 ### Architecture Advantages:
 1. **Zero Real-Time Penalty on the Flight Controller:**
-   SD card write operations routinely encounter unpredictable latency spikes (up to 100-250ms when an SD card internal controller performs wear-leveling or block allocation). Offloading file system operations (FatFS) to a companion co-processor completely insulates the primary flight loop from SD card latency spikes.
-2. **Dedicated SD Card Storage:**
-   The co-processor buffers incoming stream frames in RAM and flushes them to the MicroSD card using 4-bit high-speed SDIO DMA. A standard 32GB MicroSD card can store hundreds of flight hours.
-3. **Blackbox Log Format Compatibility:**
-   The co-processor writes flight logs in standard **Betaflight Blackbox (`.bbl`)** or **CSV** formats, enabling instant drag-and-drop analysis in the open-source **Betaflight Blackbox Explorer** for:
-   * Gyro noise FFT spectral analysis and notch filter tuning.
-   * Elevon PID step-response optimization.
-   * Airspeed and barometric altitude safety audits.
-4. **Wireless Ground Station Bridge:**
-   If an ESP32 or wireless-capable co-processor is chosen, it can simultaneously serve as a high-speed Wi-Fi/Bluetooth bridge, transmitting live telemetry to a ground station tablet or laptop while writing the primary log to the SD card.
+   SD card write operations routinely encounter latency spikes (100 to 250 ms when an SD card internal controller performs wear-leveling or block allocation). Offloading file system operations to a companion co-processor completely insulates the primary flight loop from SD latency spikes.
+2. **Dedicated Multi-Hour Storage:**
+   The co-processor buffers incoming stream frames in RAM and flushes them to the MicroSD card using 4-bit high-speed SDIO DMA. A standard 32 GB MicroSD card stores hundreds of flight hours.
+3. **Wireless Ground Station Bridge:**
+   An ESP32 or wireless-capable co-processor can simultaneously serve as a high-speed Wi-Fi or Bluetooth bridge, transmitting live telemetry to a ground station tablet or laptop while writing the primary log to the SD card.
 
 ---
 
-## 5. QSPI Onboard Blackbox & Betaflight Blackbox Explorer Workflow
+## 5. Dedicated Documentation Reference
 
-On the Seeed Studio XIAO nRF52840 Sense, `wingfc-rs` natively logs armed flight sessions to the onboard **2 MB Puya P25Q16H QSPI NOR Flash** at 50 Hz using a concise, fixed-size **32-byte binary `BlackboxFrame`**. Each 32-byte frame packs gyro rates, accelerations, servo/motor PWM outputs, and individual PID controller terms (`axisP`, `axisI`, `axisD` for roll and pitch) with a CRC-8 integrity checksum.
+For practical flight logging guides, frame byte definitions, and offloading instructions, see:
 
-When offloading, `scripts/blackbox.py` streams these raw 32-byte binary frames from QSPI flash and **simultaneously formats and outputs both `.bbl` (Betaflight Blackbox v2) and `.csv` (spreadsheet/Pandas telemetry)**.
+* [Onboard QSPI Blackbox Flight Data Recorder](BLACKBOX.md): Details the 32-byte binary frame format, USB/SWD dump procedures via `scripts/blackbox.py`, and Betaflight Blackbox Explorer airplane mixer setup.
+* [Pin Configuration & Hardware Allocation Specification](PINOUT.md): Details pin assignments and electrical characteristics for the nRF52840 QSPI bus on `P0.20` through `P0.25`.
 
-### Offloading Blackbox Logs
-Connect your computer either via the USB-C port on the XIAO or via the **Seeed Studio XIAO DebugMate (SWD)** and run:
-
-```bash
-# 1. Inspect flash capacity and recorded sessions (auto-detects USB or DebugMate SWD)
-python3 scripts/blackbox.py info
-
-# 2. Dump raw QSPI flash and simultaneously generate both flight.bbl and flight.csv
-python3 scripts/blackbox.py dump flight
-
-# Optional: Dump via XIAO DebugMate SWD explicitly (also saves raw 32-byte .bin frames if --raw is passed)
-python3 scripts/blackbox.py dump flight --swd --raw
-
-# 3. Erase logged sessions to free flash capacity for your next flight
-python3 scripts/blackbox.py erase
-```
-
----
-
-### Viewing Logs in Betaflight Blackbox Explorer
-
-The generated `flight.bbl` log is 100% compatible with the official open-source **[Betaflight Blackbox Explorer](https://blackbox.betaflight.com/)** (or the standalone desktop application).
-
-> [!IMPORTANT]
-> **Switching from Default Quad X to Airplane / Flying Wing Mixer**
-> By default, the Betaflight Blackbox Explorer visualizes crafts as a multirotor (`Quad X`). Because `wingfc-rs` flies sub-250g flying wings and airplanes, you should switch the 3D visualizer model:
-> 1. Open [Betaflight Blackbox Explorer](https://blackbox.betaflight.com/) in Google Chrome or Microsoft Edge.
-> 2. Drag and drop your downloaded `flight.bbl` file into the window.
-> 3. Click the **Gear icon (Settings)** in the upper right corner.
-> 4. In **Model / Craft Configuration**, switch the model type or craft mixer from **Quad X** to **Airplane / Flying Wing** (or custom elevon mixer).
-> 5. The 3D orientation preview and control surface graphs will now reflect your elevons / ailerons (`servo[0]`, `servo[1]`) and motor throttle (`motor[0]`).
-
----
-
-### PID Analysis & Flight Tuning Traces
-
-The generated `.bbl` container includes live PID and FeedForward terms generated by `wingfc-core`:
-
-* **`axisP[0]` / `axisP[1]`**: Proportional control effort on Roll and Pitch.
-* **`axisI[0]` / `axisI[1]`**: Integrated error response and anti-windup trim on Roll and Pitch.
-* **`axisD[0]` / `axisD[1]`**: Derivative damping effort on Roll and Pitch.
-* **`rcCommand[0..3]`**: Commanded stick deflections and throttle.
-* **`gyroADC[0..2]`**: Angular rates in degrees per second (&deg;/s).
-* **`accSmooth[0..2]`**: Linear accelerations in milli-G.
-
-Use the graph trace visibility checkboxes in Blackbox Explorer to isolate `axisP` and `axisD` against `gyroADC` during sharp stick maneuvers to verify damping without high-frequency D-term oscillation.
