@@ -55,10 +55,10 @@ Operating on the **Seeed Studio XIAO nRF52840** (ARM Cortex-M4F @ 64 MHz with si
 
 ## 🌐 Community & Links
 
-* **Main Website & Live Telemetry Hub:** [ferroxrc.com](https://ferroxrc.com)
-* **Ground Station OS:** [ferrox-rc/flysky-i6x-rs](https://github.com/ferrox-rc/flysky-i6x-rs)
+* **Main Website:** [ferroxrc.com](https://ferroxrc.com)
+* **Transmitter OS:** [ferrox-rc/flysky-i6x-rs](https://github.com/ferrox-rc/flysky-i6x-rs)
 * **Hardware Carrier Board Repository:** [ferrox-rc/wingfc-hardware](https://github.com/ferrox-rc/wingfc-hardware)
-* **Community Discord:** [OpenI6X / Ferrox Discord](https://discord.gg/3vKfYNTVa2)
+* **Community Discord:** [Ferrox Discord](https://discord.gg/3vKfYNTVa2)
 
 ---
 
