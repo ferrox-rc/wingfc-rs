@@ -130,16 +130,39 @@ For complete wiring specifications and pad allocations, see the [Pin Configurati
 
 ---
 
-## Workspace Structure
+## Workspace Structure (3-Crate Hardware Abstraction)
 
-* [`wingfc.yaml`](wingfc.yaml): Master user aircraft configuration file.
-* [`crates/wingfc-core`](crates/wingfc-core): Pure `#![no_std]` algorithms (VQF AHRS, PID, downsampling, airframe mixers, protocols, GPS) with zero hardware dependencies, testable directly on host platforms via `cargo test`.
+`wingfc-rs` is organized into a 3-crate workspace so that changing `board:` in [`wingfc.yaml`](wingfc.yaml) compiles the exact same flight core and external sensor drivers against the target MCU's native peripheral HAL:
+
+* [`wingfc.yaml`](wingfc.yaml): Master user aircraft configuration file (`board: xiao-sense | xiao-sense-plus | xiao-stm32c5`).
+* [`crates/wingfc-core`](crates/wingfc-core): 100% pure deterministic `#![no_std]` math, control theory, and byte-level protocol parsers (VQF AHRS, PID, 8:1 boxcar downsampling, airframe mixers, CRSF/iBus, NMEA GPS) with zero hardware traits or I/O, testable directly on host platforms via `cargo test`.
 * [`crates/wingfc-drivers`](crates/wingfc-drivers): MCU-agnostic external sensor IC drivers (`LSM6DS3TR-C`, `DPS310`, `BMP280`, `QMC5883L`, `HMC5883L`, `StatusLed`) built on `embedded-hal` 1.0 / `embedded-hal-async` 1.0, plus on-chip peripheral traits (`ServoOutput`, `MotorOutput`, `NorFlashStorage`).
-* [`crates/wingfc-firmware`](crates/wingfc-firmware): Target flight controller firmware and board definitions:
-  * **Seeed Studio XIAO nRF52840 Sense / Sense Plus (`board: xiao-sense` / `xiao-sense-plus`)**: Bench-verified and flight-ready (`thumbv7em-none-eabihf`).
-  * **Seeed Studio XIAO STM32C5 (`board: xiao-stm32c5`)**: Next-generation Cortex-M33F @ 144 MHz target with 16 MB XSPI NOR flash and onboard IMU thermal heater controller, staged for hardware verification (`thumbv8m.main-none-eabihf`).
+* [`crates/wingfc-firmware`](crates/wingfc-firmware): On-chip MCU peripheral implementations (`pwm`, `qspi`/`xspi`, `pins`), generic Embassy tasks, and board definitions (`boards/xiao_nrf52840.rs`, `boards/xiao_stm32c5.rs`).
 * [`scripts/`](scripts): Build automation, validation, and blackbox offload tools.
 * [`docs/`](docs): Technical specifications, hardware pinouts, and subsystem guides.
+
+---
+
+## Multi-Tier Hardware Roadmap: Sub-250g nRF52840 & Higher-Tier XIAO STM32C5
+
+While `wingfc-rs` originated for sub-250g micro flying wings on the **Seeed Studio XIAO nRF52840 Sense**, the hardware-agnostic architecture supports scaling up to larger, long-range fixed-wing UAVs not restricted by the sub-250g limit via the **[Seeed Studio XIAO STM32C5](https://wiki.seeedstudio.com/xiao_stm32c5_getting_started/)**, while keeping the carrier footprint as compact as possible.
+
+| Specification / Subsystem | Tier 1: Sub-250g Ultralight (`xiao-sense` / `xiao-sense-plus`) | Tier 2: Higher-Performance UAV (`xiao-stm32c5`) |
+| :--- | :--- | :--- |
+| **Status** | **Bench-Verified & Flight-Ready** | **Architecture & HAL Staged (Awaiting Hardware)** |
+| **MCU & Core Clock** | Nordic nRF52840 (Cortex-M4F @ **64 MHz**, `thumbv7em-none-eabihf`) | ST STM32C5A3CG (Cortex-M33F @ **144 MHz**, `thumbv8m.main-none-eabihf`) |
+| **Memory** | 1 MB Flash / 256 KB SRAM | 1 MB Flash / 256 KB SRAM |
+| **Onboard 6-DoF IMU** | ST `LSM6DS3TR-C` on `TWISPI0` (`P0.07`/`P0.27`), `INT1` on `P0.11` | ST `LSM6DS3TR-C` on `I2C2` (`PB4`/`PB3`), `INT1` on `PC13` |
+| **Onboard IMU Thermal Control** | None (Ambient die temperature) | **Active IMU Heater on `PA8` (`TIM1_CH1` PWM)** regulated at **45&deg;C** (`ImuHeaterController`) via `OUT_TEMP_L/H` (`0x20..0x21`) to eliminate temperature-induced gyro bias drift |
+| **Onboard Blackbox NOR Flash** | **2 MB** Puya `P25Q16H` (QSPI) &mdash; ~22 min @ 50 Hz | **16 MB** Puya `PY25Q128HA` (OctoSPI / XSPI) &mdash; **~2.9 hours** @ 50 Hz (or 208 Hz full-rate logging) |
+| **CAN Bus Avionics** | None | **Dual FDCAN** with onboard **`TCAN3403-Q1`** CAN transceiver (`PB8`/`PB9`) for DroneCAN / UAVCAN digital airspeed, GPS, and smart ESCs |
+| **Timer & DMA Channels** | 3&times; 4-ch hardware PWM blocks (`PWM0..2`) | Multi-instance 16/32-bit `TIMx` timers + `GPDMA` for multi-channel PWM & bidirectional DShot |
+
+### I2C Wire-Time Physics vs. DMA CPU Overhead
+
+Both XIAO boards connect their onboard `LSM6DS3TR-C` IMU over a 400 kHz Fast-Mode I2C bus:
+* **Wire-Time Limit (Physical Bus Ceiling):** Reading a 12-byte 6-DoF frame (`OUTX_L_G` through `OUTZ_H_XL`) at 400 kHz takes **~342&ndash;380 &mu;s** of physical bus time due to I2C start/stop conditions, register addressing, and ACK bits. At the 1.666 kHz ODR (600 &mu;s period), this occupies ~60% of the dedicated internal I2C bus bandwidth, making 1.666 kHz the practical ceiling for 400 kHz I2C.
+* **Zero CPU Blocking via DMA (`EasyDMA` / `GPDMA`):** Because `wingfc-rs` uses hardware `INT1` data-ready interrupts paired with async DMA I2C transfers, the CPU spends **&lt; 3 &mu;s** setting up the DMA descriptor and then yields via `await` (`WFE`) while the peripheral shifts the 12 bytes in the background. On the 144 MHz STM32C5, this leaves **&gt; 99% of the 691,200 clock cycles** per 4.8 ms flight loop window free for navigation, EKF/VQF attitude estimation, FDCAN peripherals, and high-rate blackbox logging.
 
 ---
 

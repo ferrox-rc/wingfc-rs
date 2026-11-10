@@ -5,7 +5,7 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-11-09
 
 ### 🚀 Features & Architecture
 
@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `boards/` module (`BoardTarget`, `xiao_nrf52840`, `xiao_stm32c5`, and `memory_stm32c5.x` linker script) targeting Cortex-M33F @ 144 MHz (`thumbv8m.main-none-eabihf`) with 16 MB XSPI NOR flash geometry.
   - Added `Lsm6ds3Driver::read_temperature_c()` (`0x20..0x21`) and `ImuHeaterController` PI thermal loop (`PA8` `TIM1_CH1` @ 45°C setpoint) for zero-thermal-drift gyro regulation.
   - Updated `scripts/builder.py` and `build.rs` to automatically select target triples and linker scripts from `wingfc.yaml`.
+
+### 📚 Documentation & CI
+
+- Added dedicated QSPI Blackbox specification (`docs/BLACKBOX.md`) and Seeed Studio XIAO DebugMate SWD offload / RTT bench debugging guide (`docs/RTT_BLACKBOX_LOGGING.md`).
+- Aligned documentation and ecosystem branding with the `ferrox-rc` organization and VQF AHRS architecture.
+- Updated GitHub Actions CI pipeline and `scripts/builder.py` test runner to lint and test both `wingfc-core` and `wingfc-drivers`.
 
 ## [0.5.0] - 2026-10-26
 
