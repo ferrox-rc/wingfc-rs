@@ -46,9 +46,9 @@ pub struct XiaoStm32c5Board {
 impl XiaoStm32c5Board {
     pub const fn new() -> Self {
         Self {
-            imu_i2c_bus: 2,   // I2C2 on PB4/PB3
-            ext_i2c_bus: 1,   // I2C1 on PA0/PA1
-            rc_uart_bus: 1,   // USART1 on PA2/PA3
+            imu_i2c_bus: 2,       // I2C2 on PB4/PB3
+            ext_i2c_bus: 1,       // I2C1 on PA0/PA1
+            rc_uart_bus: 1,       // USART1 on PA2/PA3
             heater_enabled: true, // PA8 TIM1_CH1 heater active
         }
     }

@@ -18,9 +18,9 @@ use wingfc_drivers::baro::{pressure_to_altitude, BaroModel, Bmp280Driver, Dps310
 
 #[cfg(feature = "compass")]
 use crate::config::{COMPASS_ENABLED, COMPASS_MODEL, MAG_CALIBRATION};
+use wingfc_core::sensor_health::{is_mag_magnitude_plausible, SensorHealth};
 #[cfg(feature = "compass")]
 use wingfc_drivers::compass::{CompassModel, Hmc5883lDriver, Qmc5883lDriver};
-use wingfc_core::sensor_health::{is_mag_magnitude_plausible, SensorHealth};
 
 /// External (slow) sensor poll period: 50 Hz navigation tier (20 ms).
 const EXT_SENSOR_PERIOD_MS: u64 = 20;

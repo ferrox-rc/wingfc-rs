@@ -133,8 +133,11 @@ For complete wiring specifications and pad allocations, see the [Pin Configurati
 ## Workspace Structure
 
 * [`wingfc.yaml`](wingfc.yaml): Master user aircraft configuration file.
-* [`crates/wingfc-core`](crates/wingfc-core): Pure `#![no_std]` algorithms (VQF AHRS, PID, downsampling, airframe mixers, protocols, GPS) testable directly on host platforms via `cargo test`.
-* [`crates/wingfc-firmware`](crates/wingfc-firmware): Target firmware for Seeed Studio XIAO nRF52840 Sense (`thumbv7em-none-eabihf`).
+* [`crates/wingfc-core`](crates/wingfc-core): Pure `#![no_std]` algorithms (VQF AHRS, PID, downsampling, airframe mixers, protocols, GPS) with zero hardware dependencies, testable directly on host platforms via `cargo test`.
+* [`crates/wingfc-drivers`](crates/wingfc-drivers): MCU-agnostic external sensor IC drivers (`LSM6DS3TR-C`, `DPS310`, `BMP280`, `QMC5883L`, `HMC5883L`, `StatusLed`) built on `embedded-hal` 1.0 / `embedded-hal-async` 1.0, plus on-chip peripheral traits (`ServoOutput`, `MotorOutput`, `NorFlashStorage`).
+* [`crates/wingfc-firmware`](crates/wingfc-firmware): Target flight controller firmware and board definitions:
+  * **Seeed Studio XIAO nRF52840 Sense / Sense Plus (`board: xiao-sense` / `xiao-sense-plus`)**: Bench-verified and flight-ready (`thumbv7em-none-eabihf`).
+  * **Seeed Studio XIAO STM32C5 (`board: xiao-stm32c5`)**: Next-generation Cortex-M33F @ 144 MHz target with 16 MB XSPI NOR flash and onboard IMU thermal heater controller, staged for hardware verification (`thumbv8m.main-none-eabihf`).
 * [`scripts/`](scripts): Build automation, validation, and blackbox offload tools.
 * [`docs/`](docs): Technical specifications, hardware pinouts, and subsystem guides.
 

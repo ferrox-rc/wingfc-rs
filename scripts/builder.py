@@ -620,10 +620,18 @@ def validate_config(cfg):
 
 def generate_rust_config(cfg_vals, out_path=None):
     """Generates Rust aircraft configuration code from validated parameters."""
+    board_target_rust = {
+        "xiao-sense": "BoardTarget::XiaoSense",
+        "xiao-sense-plus": "BoardTarget::XiaoSensePlus",
+        "xiao-stm32c5": "BoardTarget::XiaoStm32c5",
+    }.get(cfg_vals["board"], "BoardTarget::XiaoSense")
+
     code = f"""// User aircraft configuration parameters for `wingfc-firmware`.
 // Generated automatically from `wingfc.yaml` by the build system.
 // Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
+#[allow(unused_imports)]
+use crate::boards::BoardTarget;
 #[allow(unused_imports)]
 use embassy_time::Duration;
 #[allow(unused_imports)]
@@ -631,21 +639,14 @@ use wingfc_core::math::{{BoardOrientation, Vector3, DEG_TO_RAD}};
 #[allow(unused_imports)]
 use wingfc_core::mixer::{{AirframeType, ServoConfig}};
 #[allow(unused_imports)]
-use wingfc_core::tuning::{{InFlightTuning, TuneBank, TuneParameter, TuneSlot}};
+use wingfc_core::mode::{{FlightMode, ModeMatrix, ModeRange}};
 #[allow(unused_imports)]
 use wingfc_core::pid::PidConfig;
 #[allow(unused_imports)]
-use wingfc_core::mode::{{FlightMode, ModeMatrix, ModeRange}};
-#[allow(unused_imports)]
-use crate::boards::BoardTarget;
+use wingfc_core::tuning::{{InFlightTuning, TuneBank, TuneParameter, TuneSlot}};
 
 /// Target hardware board variant
-pub const BOARD_TARGET: BoardTarget = match "{cfg_vals['board']}" {{
-    "xiao-sense" => BoardTarget::XiaoSense,
-    "xiao-sense-plus" => BoardTarget::XiaoSensePlus,
-    "xiao-stm32c5" => BoardTarget::XiaoStm32c5,
-    _ => BoardTarget::XiaoSense,
-}};
+pub const BOARD_TARGET: BoardTarget = {board_target_rust};
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = {cfg_vals['orientation_rust']};
@@ -1426,8 +1427,8 @@ def main():
         import subprocess
         host_target = subprocess.check_output(["rustc", "-vV"], text=True)
         host = [line.split(": ")[1] for line in host_target.splitlines() if line.startswith("host: ")][0]
-        print(f"Running host unit tests (wingfc-core) for {host}...")
-        cmd = ["cargo", "test", "--target", host, "-p", "wingfc-core", "--all-features"]
+        print(f"Running host unit tests (wingfc-core & wingfc-drivers) for {host}...")
+        cmd = ["cargo", "test", "--target", host, "-p", "wingfc-core", "-p", "wingfc-drivers", "--all-features"]
         ok = run_cmd(cmd)
         sys.exit(0 if ok else 1)
 

@@ -164,8 +164,7 @@ where
     let mut write_ptr = LOG_START_ADDR;
     let mut session_count: u32 = 1;
 
-    if flash.read_page(0x000000, &mut header_buf).await.is_ok()
-        && header_buf[0..4] == HEADER_MAGIC
+    if flash.read_page(0x000000, &mut header_buf).await.is_ok() && header_buf[0..4] == HEADER_MAGIC
     {
         let stored_ptr =
             u32::from_le_bytes([header_buf[4], header_buf[5], header_buf[6], header_buf[7]]);
@@ -306,11 +305,7 @@ async fn ensure_sector_erased<F: NorFlashStorage>(flash: &mut F, write_ptr: u32)
 }
 
 /// Persists the active write pointer and session counter into Sector 0
-async fn write_flash_header<F: NorFlashStorage>(
-    flash: &mut F,
-    write_ptr: u32,
-    session_count: u32,
-) {
+async fn write_flash_header<F: NorFlashStorage>(flash: &mut F, write_ptr: u32, session_count: u32) {
     let _ = flash.erase_sector(0x000000).await;
     let mut buf = PageBuffer::new();
     buf.0[0..4].copy_from_slice(&HEADER_MAGIC);

@@ -5,6 +5,19 @@ All notable changes to the WingFC-rs flight controller project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🚀 Features & Architecture
+
+- **3-Crate Hardware Abstraction Layer (`wingfc-drivers`):**
+  - Extracted MCU-agnostic external IC drivers (`LSM6DS3TR-C` IMU, `DPS310`/`BMP280` barometers, `QMC5883L`/`HMC5883L` compasses, `StatusLed` / `RgbLedDriver`) built on `embedded-hal` 1.0 and `embedded-hal-async` 1.0 into `crates/wingfc-drivers`.
+  - Defined MCU-agnostic on-chip peripheral traits (`ServoOutput`, `MotorOutput`, `NorFlashStorage`) decoupling all flight loop, receiver, telemetry, external sensor, and blackbox tasks from specific microcontroller HALs.
+  - Preserved `crates/wingfc-core` as 100% pure deterministic math, control theory, and byte-level protocol parsers (`#![no_std]`, zero hardware traits).
+- **Seeed Studio XIAO STM32C5 Board Support Scaffolding (`board: xiao-stm32c5`):**
+  - Added `boards/` module (`BoardTarget`, `xiao_nrf52840`, `xiao_stm32c5`, and `memory_stm32c5.x` linker script) targeting Cortex-M33F @ 144 MHz (`thumbv8m.main-none-eabihf`) with 16 MB XSPI NOR flash geometry.
+  - Added `Lsm6ds3Driver::read_temperature_c()` (`0x20..0x21`) and `ImuHeaterController` PI thermal loop (`PA8` `TIM1_CH1` @ 45°C setpoint) for zero-thermal-drift gyro regulation.
+  - Updated `scripts/builder.py` and `build.rs` to automatically select target triples and linker scripts from `wingfc.yaml`.
+
 ## [0.5.0] - 2026-10-26
 
 ### 🚀 Features

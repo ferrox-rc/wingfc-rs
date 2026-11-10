@@ -3,6 +3,8 @@
 // Users configure their aircraft via `wingfc.yaml` without editing Rust source code.
 
 #[allow(unused_imports)]
+use crate::boards::BoardTarget;
+#[allow(unused_imports)]
 use embassy_time::Duration;
 #[allow(unused_imports)]
 use wingfc_core::math::{BoardOrientation, Vector3, DEG_TO_RAD};
@@ -14,8 +16,6 @@ use wingfc_core::mode::{FlightMode, ModeMatrix, ModeRange};
 use wingfc_core::pid::PidConfig;
 #[allow(unused_imports)]
 use wingfc_core::tuning::{InFlightTuning, TuneBank, TuneParameter, TuneSlot};
-#[allow(unused_imports)]
-use crate::boards::BoardTarget;
 
 /// Target hardware board variant
 pub const BOARD_TARGET: BoardTarget = BoardTarget::XiaoSense;

@@ -22,9 +22,6 @@ use crate::config::{
     RC_CH_ARM, RC_CH_PITCH, RC_CH_ROLL, RC_CH_THROTTLE, RC_CH_YAW, SERVO_CONFIGS,
     THROTTLE_ZERO_THRESHOLD, VQF_TAU_ACC, VQF_TAU_MAG,
 };
-#[cfg(not(feature = "dshot"))]
-use wingfc_drivers::MotorOutput;
-use wingfc_drivers::Lsm6ds3Driver;
 use crate::tasks::telemetry::VisualStatus;
 #[cfg(any(feature = "baro", feature = "compass"))]
 use crate::tasks::ExternalSensorSnapshot;
@@ -36,6 +33,9 @@ use wingfc_core::mode::HeadingHoldController;
 use wingfc_core::sensor_health::SensorHealth;
 #[cfg(feature = "baro")]
 use wingfc_core::vertical_kf::VerticalKalmanFilter;
+use wingfc_drivers::Lsm6ds3Driver;
+#[cfg(not(feature = "dshot"))]
+use wingfc_drivers::MotorOutput;
 
 /// Runs boot-time ESC calibration check if PWM is used (Universal Rule #3).
 #[cfg(not(feature = "dshot"))]

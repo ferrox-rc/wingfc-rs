@@ -39,8 +39,8 @@ jobs:
       - name: Check code formatting
         run: cargo fmt --all -- --check
 
-      - name: Run clippy linter (wingfc-core)
-        run: cargo clippy -p wingfc-core --all-features -- -D warnings
+      - name: Run clippy linter (wingfc-core & wingfc-drivers)
+        run: cargo clippy -p wingfc-core -p wingfc-drivers --all-features -- -D warnings
 
       - name: Run host unit tests across feature matrix
         run: ./scripts/build.sh test
