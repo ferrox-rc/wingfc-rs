@@ -1,93 +1,26 @@
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::peripherals;
 use embassy_nrf::Peri;
+pub use wingfc_drivers::led::{LedColor, StatusLed};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LedColor {
-    Off,
-    Red,
-    Green,
-    Blue,
-    Cyan,
-    Yellow,
-    White,
-}
+pub type RgbLedDriver = wingfc_drivers::led::RgbLedDriver<
+    Output<'static>,
+    Output<'static>,
+    Output<'static>,
+    Output<'static>,
+>;
 
-pub struct RgbLedDriver {
-    red: Output<'static>,
-    green: Output<'static>,
-    blue: Output<'static>,
-    user: Output<'static>,
-}
+/// Initializes the active-LOW 4-channel RGB + User LED driver on the Seeed Studio XIAO nRF52840 Sense.
+pub fn init_board_leds(
+    red_pin: Peri<'static, peripherals::P0_26>,
+    green_pin: Peri<'static, peripherals::P0_30>,
+    blue_pin: Peri<'static, peripherals::P0_06>,
+    user_pin: Peri<'static, peripherals::P0_17>,
+) -> RgbLedDriver {
+    let red = Output::new(red_pin, Level::High, OutputDrive::Standard);
+    let green = Output::new(green_pin, Level::High, OutputDrive::Standard);
+    let blue = Output::new(blue_pin, Level::High, OutputDrive::Standard);
+    let user = Output::new(user_pin, Level::High, OutputDrive::Standard);
 
-impl RgbLedDriver {
-    pub fn new(
-        red_pin: Peri<'static, peripherals::P0_26>,
-        green_pin: Peri<'static, peripherals::P0_30>,
-        blue_pin: Peri<'static, peripherals::P0_06>,
-        user_pin: Peri<'static, peripherals::P0_17>,
-    ) -> Self {
-        // Active-low: start with all LEDs OFF (Level::High)
-        let red = Output::new(red_pin, Level::High, OutputDrive::Standard);
-        let green = Output::new(green_pin, Level::High, OutputDrive::Standard);
-        let blue = Output::new(blue_pin, Level::High, OutputDrive::Standard);
-        let user = Output::new(user_pin, Level::High, OutputDrive::Standard);
-
-        Self {
-            red,
-            green,
-            blue,
-            user,
-        }
-    }
-
-    /// Sets the physical RGB color immediately (Active-LOW: low = ON, high = OFF)
-    pub fn set_color(&mut self, color: LedColor) {
-        match color {
-            LedColor::Off => {
-                self.red.set_high();
-                self.green.set_high();
-                self.blue.set_high();
-            }
-            LedColor::Red => {
-                self.red.set_low();
-                self.green.set_high();
-                self.blue.set_high();
-            }
-            LedColor::Green => {
-                self.red.set_high();
-                self.green.set_low();
-                self.blue.set_high();
-            }
-            LedColor::Blue => {
-                self.red.set_high();
-                self.green.set_high();
-                self.blue.set_low();
-            }
-            LedColor::Cyan => {
-                self.red.set_high();
-                self.green.set_low();
-                self.blue.set_low();
-            }
-            LedColor::Yellow => {
-                self.red.set_low();
-                self.green.set_low();
-                self.blue.set_high();
-            }
-            LedColor::White => {
-                self.red.set_low();
-                self.green.set_low();
-                self.blue.set_low();
-            }
-        }
-    }
-
-    /// Controls the discrete User LED (P0.17, Active-LOW: on = low, off = high)
-    pub fn set_user_led(&mut self, on: bool) {
-        if on {
-            self.user.set_low();
-        } else {
-            self.user.set_high();
-        }
-    }
+    wingfc_drivers::led::RgbLedDriver::new(red, green, blue, user)
 }

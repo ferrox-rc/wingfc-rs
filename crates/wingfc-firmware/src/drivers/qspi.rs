@@ -3,7 +3,6 @@
 //! Provides high-speed 32 MHz QSPI page reads, DMA page writes, and 4 KB sector erases.
 //! Targets internal NOR flash on the Seeed Studio XIAO nRF52840 Sense.
 
-use core::ops::{Deref, DerefMut};
 use embassy_nrf::gpio::Pin;
 use embassy_nrf::interrupt::typelevel::Binding;
 use embassy_nrf::qspi::{
@@ -11,6 +10,9 @@ use embassy_nrf::qspi::{
     WritePageSize,
 };
 use embassy_nrf::Peri;
+pub use wingfc_drivers::{
+    FlashError as QspiError, NorFlashStorage, PageBuffer, FLASH_SECTOR_SIZE as QSPI_SECTOR_SIZE,
+};
 
 /// Puya Semiconductor P25Q16H JEDEC Manufacturer & Device Identification
 /// [Manufacturer: 0x85 (Puya), Memory Type: 0x60, Capacity: 0x15 (16 Mbit / 2 MB)]
@@ -18,51 +20,6 @@ pub const P25Q16H_JEDEC_ID: [u8; 3] = [0x85, 0x60, 0x15];
 
 /// Total capacity of P25Q16H in bytes (2 MB = 512 sectors * 4 KB)
 pub const QSPI_FLASH_SIZE_BYTES: u32 = 2 * 1024 * 1024;
-/// Page size in bytes for program operations (256 bytes = 8 Blackbox frames)
-pub const QSPI_PAGE_SIZE: usize = 256;
-/// Sector size in bytes for erase operations (4 KB = 16 pages)
-pub const QSPI_SECTOR_SIZE: usize = 4096;
-
-/// 4-byte aligned 256-byte page buffer required by Nordic EasyDMA hardware.
-#[derive(Clone, Copy)]
-#[repr(align(4))]
-pub struct PageBuffer(pub [u8; QSPI_PAGE_SIZE]);
-
-impl PageBuffer {
-    pub const fn new() -> Self {
-        Self([0u8; QSPI_PAGE_SIZE])
-    }
-}
-
-impl Default for PageBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Deref for PageBuffer {
-    type Target = [u8; QSPI_PAGE_SIZE];
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for PageBuffer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, defmt::Format)]
-pub enum QspiError {
-    DeviceNotFound,
-    InvalidJedecId([u8; 3]),
-    OutOfBounds,
-    WriteError,
-    ReadError,
-    EraseError,
-}
 
 pub struct QspiDriver<'d> {
     qspi: Qspi<'d>,
@@ -174,5 +131,29 @@ impl<'d> QspiDriver<'d> {
             .read(address, buf)
             .await
             .map_err(|_| QspiError::ReadError)
+    }
+}
+
+impl<'d> NorFlashStorage for QspiDriver<'d> {
+    const CAPACITY_BYTES: u32 = QSPI_FLASH_SIZE_BYTES;
+
+    async fn read_jedec_id(&mut self) -> Result<[u8; 3], QspiError> {
+        QspiDriver::read_jedec_id(self).await
+    }
+
+    async fn read_page(&mut self, address: u32, buf: &mut PageBuffer) -> Result<(), QspiError> {
+        QspiDriver::read_page(self, address, buf).await
+    }
+
+    async fn write_page(&mut self, address: u32, buf: &PageBuffer) -> Result<(), QspiError> {
+        QspiDriver::write_page(self, address, buf).await
+    }
+
+    async fn erase_sector(&mut self, address: u32) -> Result<(), QspiError> {
+        QspiDriver::erase_sector(self, address).await
+    }
+
+    async fn read_aligned(&mut self, address: u32, buf: &mut [u8]) -> Result<(), QspiError> {
+        QspiDriver::read_aligned(self, address, buf).await
     }
 }

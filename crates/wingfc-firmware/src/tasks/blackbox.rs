@@ -21,10 +21,9 @@ use heapless::String;
 use wingfc_core::blackbox::BlackboxFrame;
 use wingfc_core::safety::ArmingStatus;
 
-use crate::drivers::qspi::{
-    PageBuffer, QspiDriver, QSPI_FLASH_SIZE_BYTES, QSPI_PAGE_SIZE, QSPI_SECTOR_SIZE,
-};
+use crate::drivers::qspi::{PageBuffer, QspiDriver, QSPI_FLASH_SIZE_BYTES};
 use crate::tasks::telemetry::VisualStatus;
+use wingfc_drivers::{NorFlashStorage, FLASH_PAGE_SIZE, FLASH_SECTOR_SIZE};
 
 /// Magic identifier for flash header: "WFCB" (WingFC Blackbox)
 const HEADER_MAGIC: [u8; 4] = [0x57, 0x46, 0x43, 0x42];
@@ -32,9 +31,9 @@ const HEADER_MAGIC: [u8; 4] = [0x57, 0x46, 0x43, 0x42];
 pub const SWD_MAILBOX_MAGIC: u32 = 0x5746_4342;
 /// Flash memory offset where binary log ring buffer begins (leaving 16 KB for metadata & cal)
 pub const LOG_START_ADDR: u32 = 0x004000;
-/// Flash memory offset where binary log ring buffer ends (2 MB)
+/// Default flash memory offset where binary log ring buffer ends (2 MB on XIAO Sense)
 pub const LOG_END_ADDR: u32 = QSPI_FLASH_SIZE_BYTES;
-/// Total log storage capacity in bytes (2,080,768 bytes = 508 sectors)
+/// Default log storage capacity in bytes (2,080,768 bytes = 508 sectors)
 pub const LOG_CAPACITY_BYTES: u32 = LOG_END_ADDR - LOG_START_ADDR;
 
 /// SWD Mailbox command codes (written by `scripts/blackbox.py` via `probe-rs`)
@@ -57,8 +56,8 @@ pub const SWD_BUF_BYTES: usize = SWD_BUF_WORDS * 4;
 #[repr(C, align(4))]
 pub struct BblSwdMailbox {
     pub magic: AtomicU32,                // +0x00: 0x57464342
-    pub write_ptr: AtomicU32,            // +0x04: Current write_ptr (0x004000..0x200000)
-    pub capacity: AtomicU32,             // +0x08: LOG_CAPACITY_BYTES (2_080_768)
+    pub write_ptr: AtomicU32,            // +0x04: Current write_ptr (0x004000..CAPACITY)
+    pub capacity: AtomicU32,             // +0x08: Active flash log capacity in bytes
     pub session_count: AtomicU32,        // +0x0C: Active session count
     pub status: AtomicU32,               // +0x10: SWD_STATUS_*
     pub cmd: AtomicU32,                  // +0x14: SWD_CMD_*
@@ -142,19 +141,37 @@ pub async fn blackbox_task(
     mut cdc_tx: CdcSender<'static, Driver<'static, HardwareVbusDetect>>,
     mut status_rx: WatchReceiver<'static, ThreadModeRawMutex, VisualStatus, 2>,
 ) {
+    run_blackbox_loop(&mut qspi, &mut cdc_tx, &mut status_rx).await
+}
+
+/// Hardware-agnostic Blackbox flight logger & USB/SWD offload loop built on [`NorFlashStorage`].
+pub async fn run_blackbox_loop<F, D>(
+    flash: &mut F,
+    cdc_tx: &mut CdcSender<'static, D>,
+    status_rx: &mut WatchReceiver<'static, ThreadModeRawMutex, VisualStatus, 2>,
+) -> !
+where
+    F: NorFlashStorage,
+    D: embassy_usb::driver::Driver<'static>,
+{
     defmt::info!("Starting Blackbox & USB/SWD Offload Task...");
+
+    let log_end_addr = F::CAPACITY_BYTES;
+    let log_capacity_bytes = log_end_addr.saturating_sub(LOG_START_ADDR);
 
     // 1. Read or initialize Flash Header from Sector 0 (0x000000)
     let mut header_buf = PageBuffer::new();
     let mut write_ptr = LOG_START_ADDR;
     let mut session_count: u32 = 1;
 
-    if qspi.read_page(0x000000, &mut header_buf).await.is_ok() && header_buf[0..4] == HEADER_MAGIC {
+    if flash.read_page(0x000000, &mut header_buf).await.is_ok()
+        && header_buf[0..4] == HEADER_MAGIC
+    {
         let stored_ptr =
             u32::from_le_bytes([header_buf[4], header_buf[5], header_buf[6], header_buf[7]]);
         let stored_sessions =
             u32::from_le_bytes([header_buf[8], header_buf[9], header_buf[10], header_buf[11]]);
-        if (LOG_START_ADDR..=LOG_END_ADDR).contains(&stored_ptr) {
+        if (LOG_START_ADDR..=log_end_addr).contains(&stored_ptr) {
             write_ptr = stored_ptr;
             session_count = stored_sessions.wrapping_add(1);
             defmt::info!(
@@ -165,7 +182,7 @@ pub async fn blackbox_task(
         }
     }
 
-    sync_swd_mailbox(write_ptr, session_count);
+    sync_swd_mailbox(write_ptr, log_capacity_bytes, session_count);
 
     let mut current_status = ArmingStatus::Disarmed;
     let mut page_buf = PageBuffer::new();
@@ -183,22 +200,22 @@ pub async fn blackbox_task(
             } else if current_status.is_armed() && !new_status.is_armed() {
                 // Transitioned from Armed -> Disarmed: Flush any partial page buffer
                 if frames_in_buf > 0 {
-                    for i in (frames_in_buf * BlackboxFrame::SIZE)..QSPI_PAGE_SIZE {
+                    for i in (frames_in_buf * BlackboxFrame::SIZE)..FLASH_PAGE_SIZE {
                         page_buf.0[i] = 0xFF;
                     }
-                    if write_ptr < LOG_END_ADDR {
-                        ensure_sector_erased(&mut qspi, write_ptr).await;
-                        let _ = qspi.write_page(write_ptr, &page_buf).await;
-                        write_ptr = write_ptr.saturating_add(QSPI_PAGE_SIZE as u32);
-                        if write_ptr >= LOG_END_ADDR {
+                    if write_ptr < log_end_addr {
+                        ensure_sector_erased(flash, write_ptr).await;
+                        let _ = flash.write_page(write_ptr, &page_buf).await;
+                        write_ptr = write_ptr.saturating_add(FLASH_PAGE_SIZE as u32);
+                        if write_ptr >= log_end_addr {
                             write_ptr = LOG_START_ADDR;
                         }
                     }
                     frames_in_buf = 0;
                 }
                 // Update persistent header with final write pointer
-                write_flash_header(&mut qspi, write_ptr, session_count).await;
-                sync_swd_mailbox(write_ptr, session_count);
+                write_flash_header(flash, write_ptr, session_count).await;
+                sync_swd_mailbox(write_ptr, log_capacity_bytes, session_count);
                 defmt::info!(
                     "Blackbox flushed on disarm: write_ptr=0x{:06X} ({} bytes used)",
                     write_ptr,
@@ -216,15 +233,15 @@ pub async fn blackbox_task(
                 frames_in_buf += 1;
 
                 if frames_in_buf == 8 {
-                    // Page is full: commit 256 bytes via EasyDMA to QSPI NOR flash
-                    if write_ptr < LOG_END_ADDR {
-                        ensure_sector_erased(&mut qspi, write_ptr).await;
-                        let _ = qspi.write_page(write_ptr, &page_buf).await;
-                        write_ptr = write_ptr.saturating_add(QSPI_PAGE_SIZE as u32);
-                        if write_ptr >= LOG_END_ADDR {
+                    // Page is full: commit 256 bytes via DMA to NOR flash
+                    if write_ptr < log_end_addr {
+                        ensure_sector_erased(flash, write_ptr).await;
+                        let _ = flash.write_page(write_ptr, &page_buf).await;
+                        write_ptr = write_ptr.saturating_add(FLASH_PAGE_SIZE as u32);
+                        if write_ptr >= log_end_addr {
                             write_ptr = LOG_START_ADDR;
                         }
-                        sync_swd_mailbox(write_ptr, session_count);
+                        sync_swd_mailbox(write_ptr, log_capacity_bytes, session_count);
                     }
                     frames_in_buf = 0;
                 }
@@ -235,14 +252,14 @@ pub async fn blackbox_task(
         while let Ok(usb_cmd) = USB_CMD_CHANNEL.try_receive() {
             handle_usb_command(
                 usb_cmd,
-                &mut qspi,
-                &mut cdc_tx,
+                flash,
+                cdc_tx,
                 current_status,
                 &mut write_ptr,
                 session_count,
             )
             .await;
-            sync_swd_mailbox(write_ptr, session_count);
+            sync_swd_mailbox(write_ptr, log_capacity_bytes, session_count);
         }
 
         // Service SWD Mailbox commands from XIAO DebugMate (`probe-rs`)
@@ -250,58 +267,62 @@ pub async fn blackbox_task(
         if swd_cmd != SWD_CMD_NONE {
             handle_swd_command(
                 swd_cmd,
-                &mut qspi,
+                flash,
                 current_status,
                 &mut write_ptr,
                 session_count,
             )
             .await;
-            sync_swd_mailbox(write_ptr, session_count);
+            sync_swd_mailbox(write_ptr, log_capacity_bytes, session_count);
         }
 
         Timer::after(Duration::from_millis(20)).await;
     }
 }
 
-fn sync_swd_mailbox(write_ptr: u32, session_count: u32) {
+fn sync_swd_mailbox(write_ptr: u32, capacity_bytes: u32, session_count: u32) {
     BBL_SWD_MAILBOX
         .magic
         .store(SWD_MAILBOX_MAGIC, Ordering::SeqCst);
     BBL_SWD_MAILBOX.write_ptr.store(write_ptr, Ordering::SeqCst);
     BBL_SWD_MAILBOX
         .capacity
-        .store(LOG_CAPACITY_BYTES, Ordering::SeqCst);
+        .store(capacity_bytes, Ordering::SeqCst);
     BBL_SWD_MAILBOX
         .session_count
         .store(session_count, Ordering::SeqCst);
 }
 
 /// Ensures the 4 KB sector containing `write_ptr` is erased (`0xFF`) when starting a new sector
-async fn ensure_sector_erased(qspi: &mut QspiDriver<'_>, write_ptr: u32) {
-    if write_ptr.is_multiple_of(QSPI_SECTOR_SIZE as u32) {
+async fn ensure_sector_erased<F: NorFlashStorage>(flash: &mut F, write_ptr: u32) {
+    if write_ptr.is_multiple_of(FLASH_SECTOR_SIZE as u32) {
         let mut check_buf = [0xFFu8; 16];
-        if qspi.read_aligned(write_ptr, &mut check_buf).await.is_ok()
+        if flash.read_aligned(write_ptr, &mut check_buf).await.is_ok()
             && check_buf.iter().any(|&b| b != 0xFF)
         {
-            let _ = qspi.erase_sector(write_ptr).await;
+            let _ = flash.erase_sector(write_ptr).await;
         }
     }
 }
 
 /// Persists the active write pointer and session counter into Sector 0
-async fn write_flash_header(qspi: &mut QspiDriver<'_>, write_ptr: u32, session_count: u32) {
-    let _ = qspi.erase_sector(0x000000).await;
+async fn write_flash_header<F: NorFlashStorage>(
+    flash: &mut F,
+    write_ptr: u32,
+    session_count: u32,
+) {
+    let _ = flash.erase_sector(0x000000).await;
     let mut buf = PageBuffer::new();
     buf.0[0..4].copy_from_slice(&HEADER_MAGIC);
     buf.0[4..8].copy_from_slice(&write_ptr.to_le_bytes());
     buf.0[8..12].copy_from_slice(&session_count.to_le_bytes());
-    let _ = qspi.write_page(0x000000, &buf).await;
+    let _ = flash.write_page(0x000000, &buf).await;
 }
 
 /// Processes SWD Mailbox commands sent over XIAO DebugMate (`probe-rs`)
-async fn handle_swd_command(
+async fn handle_swd_command<F: NorFlashStorage>(
     cmd: u32,
-    qspi: &mut QspiDriver<'_>,
+    flash: &mut F,
     status: ArmingStatus,
     write_ptr: &mut u32,
     session_count: u32,
@@ -318,17 +339,19 @@ async fn handle_swd_command(
         .status
         .store(SWD_STATUS_BUSY, Ordering::SeqCst);
 
+    let log_end_addr = F::CAPACITY_BYTES;
+
     match cmd {
         SWD_CMD_ERASE_USED | SWD_CMD_ERASE_ALL => {
             let end_addr = if cmd == SWD_CMD_ERASE_ALL {
-                LOG_END_ADDR
+                log_end_addr
             } else {
                 // Erase all used sectors + 1 clean sector ahead
-                let used_end = (*write_ptr).saturating_add(QSPI_SECTOR_SIZE as u32)
-                    & !((QSPI_SECTOR_SIZE as u32) - 1);
-                used_end.clamp(LOG_START_ADDR + (QSPI_SECTOR_SIZE as u32), LOG_END_ADDR)
+                let used_end = (*write_ptr).saturating_add(FLASH_SECTOR_SIZE as u32)
+                    & !((FLASH_SECTOR_SIZE as u32) - 1);
+                used_end.clamp(LOG_START_ADDR + (FLASH_SECTOR_SIZE as u32), log_end_addr)
             };
-            let total_sectors = (end_addr - LOG_START_ADDR) / (QSPI_SECTOR_SIZE as u32);
+            let total_sectors = (end_addr - LOG_START_ADDR) / (FLASH_SECTOR_SIZE as u32);
             BBL_SWD_MAILBOX
                 .cmd_len
                 .store(total_sectors, Ordering::SeqCst);
@@ -336,14 +359,14 @@ async fn handle_swd_command(
             let mut sector_addr = LOG_START_ADDR;
             let mut idx = 0u32;
             while sector_addr < end_addr {
-                let _ = qspi.erase_sector(sector_addr).await;
-                sector_addr += QSPI_SECTOR_SIZE as u32;
+                let _ = flash.erase_sector(sector_addr).await;
+                sector_addr += FLASH_SECTOR_SIZE as u32;
                 idx += 1;
                 BBL_SWD_MAILBOX.cmd_addr.store(idx, Ordering::SeqCst);
             }
 
             *write_ptr = LOG_START_ADDR;
-            write_flash_header(qspi, *write_ptr, session_count).await;
+            write_flash_header(flash, *write_ptr, session_count).await;
             defmt::info!(
                 "Blackbox erased via SWD ({} sectors cleared)",
                 total_sectors
@@ -365,8 +388,8 @@ async fn handle_swd_command(
 
             while offset < len {
                 let flash_addr = addr.saturating_add(offset as u32);
-                if qspi.read_page(flash_addr, &mut page_buf).await.is_ok() {
-                    let words_in_page = QSPI_PAGE_SIZE / 4;
+                if flash.read_page(flash_addr, &mut page_buf).await.is_ok() {
+                    let words_in_page = FLASH_PAGE_SIZE / 4;
                     let base_word = offset / 4;
                     for w in 0..words_in_page {
                         if base_word + w < SWD_BUF_WORDS {
@@ -384,7 +407,7 @@ async fn handle_swd_command(
                     ok = false;
                     break;
                 }
-                offset += QSPI_PAGE_SIZE;
+                offset += FLASH_PAGE_SIZE;
             }
 
             BBL_SWD_MAILBOX.status.store(
@@ -407,22 +430,28 @@ async fn handle_swd_command(
 }
 
 /// Processes ASCII commands sent by the companion tool (`scripts/blackbox.py`)
-async fn handle_usb_command(
+async fn handle_usb_command<F, D>(
     cmd: UsbCommand,
-    qspi: &mut QspiDriver<'_>,
-    cdc_tx: &mut CdcSender<'static, Driver<'static, HardwareVbusDetect>>,
+    flash: &mut F,
+    cdc_tx: &mut CdcSender<'static, D>,
     status: ArmingStatus,
     write_ptr: &mut u32,
     session_count: u32,
-) {
+) where
+    F: NorFlashStorage,
+    D: embassy_usb::driver::Driver<'static>,
+{
+    let log_capacity_bytes = F::CAPACITY_BYTES.saturating_sub(LOG_START_ADDR);
+
     match cmd {
         UsbCommand::Info => {
             let used = (*write_ptr).saturating_sub(LOG_START_ADDR);
+            let jedec = flash.read_jedec_id().await.unwrap_or([0x85, 0x60, 0x15]);
             let mut resp: String<128> = String::new();
             let _ = write!(
                 resp,
-                "OK JEDEC=856015 USED_BYTES={} CAPACITY={} WR_PTR=0x{:06X} SESSIONS={}\r\n",
-                used, LOG_CAPACITY_BYTES, *write_ptr, session_count
+                "OK JEDEC={:02X}{:02X}{:02X} USED_BYTES={} CAPACITY={} WR_PTR=0x{:06X} SESSIONS={}\r\n",
+                jedec[0], jedec[1], jedec[2], used, log_capacity_bytes, *write_ptr, session_count
             );
             let _ = write_all(cdc_tx, resp.as_bytes()).await;
         }
@@ -444,7 +473,7 @@ async fn handle_usb_command(
             let mut running_crc = 0u32;
 
             while addr < *write_ptr {
-                if qspi.read_page(addr, &mut page_buf).await.is_ok() {
+                if flash.read_page(addr, &mut page_buf).await.is_ok() {
                     running_crc = crc32(running_crc, &page_buf.0);
                     if write_all(cdc_tx, &page_buf.0).await.is_err() {
                         break;
@@ -452,7 +481,7 @@ async fn handle_usb_command(
                 } else {
                     break;
                 }
-                addr = addr.saturating_add(QSPI_PAGE_SIZE as u32);
+                addr = addr.saturating_add(FLASH_PAGE_SIZE as u32);
             }
 
             let mut footer: String<64> = String::new();
@@ -468,13 +497,13 @@ async fn handle_usb_command(
 
             let _ = write_all(cdc_tx, b"START_ERASE\r\n").await;
 
-            // Erase 508 sectors across the blackbox region (4 KB each)
-            let total_sectors = (LOG_CAPACITY_BYTES / (QSPI_SECTOR_SIZE as u32)) as usize;
+            // Erase all sectors across the blackbox region (4 KB each)
+            let total_sectors = (log_capacity_bytes / (FLASH_SECTOR_SIZE as u32)) as usize;
             let mut sector_addr = LOG_START_ADDR;
 
             for i in 0..total_sectors {
-                let _ = qspi.erase_sector(sector_addr).await;
-                sector_addr += QSPI_SECTOR_SIZE as u32;
+                let _ = flash.erase_sector(sector_addr).await;
+                sector_addr += FLASH_SECTOR_SIZE as u32;
 
                 if i % 32 == 0 || i == total_sectors - 1 {
                     let mut progress: String<64> = String::new();
@@ -485,7 +514,7 @@ async fn handle_usb_command(
 
             // Reset write pointer and refresh header
             *write_ptr = LOG_START_ADDR;
-            write_flash_header(qspi, *write_ptr, session_count).await;
+            write_flash_header(flash, *write_ptr, session_count).await;
             let _ = write_all(cdc_tx, b"OK ERASED\r\n").await;
         }
         UsbCommand::Unknown => {

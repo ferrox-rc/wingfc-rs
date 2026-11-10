@@ -1,5 +1,6 @@
 use embassy_nrf::gpio::OutputDrive;
 use embassy_nrf::pwm::{CounterMode, DutyCycle, Prescaler, SimpleConfig, SimplePwm};
+use wingfc_drivers::{MotorOutput, ServoOutput};
 
 /// Multi-Channel Servo PWM Driver with configurable frame frequency (50Hz - 400Hz) and 1us resolution.
 ///
@@ -49,6 +50,13 @@ impl<'d> ServoPwmDriver<'d> {
     }
 }
 
+impl<'d> ServoOutput for ServoPwmDriver<'d> {
+    #[inline(always)]
+    fn set_channel_us(&mut self, channel: usize, pulse_us: u16) {
+        ServoPwmDriver::set_channel_us(self, channel, pulse_us);
+    }
+}
+
 /// Configurable ESC PWM Driver (50Hz - 400Hz) with 1us resolution for up to 2 motors.
 ///
 /// Converts commanded throttle (1000..2000 us) into active-HIGH PWM pulses.
@@ -95,5 +103,12 @@ impl<'d> EscPwmDriver<'d> {
                 self.pwm.set_duty(channel, DutyCycle::inverted(clamped));
             }
         }
+    }
+}
+
+impl<'d> MotorOutput for EscPwmDriver<'d> {
+    #[inline(always)]
+    fn set_throttle_us(&mut self, channel: usize, pulse_us: u16) {
+        EscPwmDriver::set_throttle_us(self, channel, pulse_us);
     }
 }

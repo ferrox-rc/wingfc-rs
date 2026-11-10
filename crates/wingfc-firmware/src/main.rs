@@ -21,6 +21,7 @@ use static_cell::{ConstStaticCell, StaticCell};
 
 use wingfc_core::protocol::RcChannels;
 
+pub mod boards;
 mod bus;
 pub mod config;
 mod drivers;
@@ -36,7 +37,7 @@ use embassy_nrf::usb;
 
 #[cfg(not(feature = "dshot"))]
 use drivers::EscPwmDriver;
-use drivers::{imu_worker_task, Lsm6ds3Driver, QspiDriver, RgbLedDriver, ServoPwmDriver};
+use drivers::{imu_worker_task, init_board_leds, new_board_imu, QspiDriver, ServoPwmDriver};
 use pins::BoardPins;
 #[cfg(not(feature = "dshot"))]
 use tasks::calibrate_esc_if_requested;
@@ -85,7 +86,7 @@ async fn main(spawner: Spawner) {
     info!("Initializing WingFC-rs bare-metal flight controller...");
 
     // 1. Initialize Visual Telemetry (RGB LED)
-    let led_driver = RgbLedDriver::new(
+    let led_driver = init_board_leds(
         pins.pin_led_red,
         pins.pin_led_green,
         pins.pin_led_blue,
@@ -142,7 +143,7 @@ async fn main(spawner: Spawner) {
         TWIM_TX_BUF.take(),
     );
     let imu_int1 = Input::new(pins.pin_imu_int1, Pull::Down);
-    let mut imu_driver = Lsm6ds3Driver::new(twim, imu_int1);
+    let mut imu_driver = new_board_imu(twim, imu_int1);
 
     // 3b. Optional External I2C Sensor Bus (TWISPI1 for Baro & Compass)
     #[cfg(any(feature = "baro", feature = "compass"))]

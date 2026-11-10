@@ -76,9 +76,21 @@ def validate_config(cfg):
 
     # 1. Target Board Hardware
     board = str(cfg.get("board", "xiao-sense-plus")).strip().lower()
-    valid_boards = ["xiao-sense", "xiao-sense-plus"]
+    valid_boards = ["xiao-sense", "xiao-sense-plus", "xiao-stm32c5"]
     if board not in valid_boards:
         errors.append(f"Invalid board '{board}'. Must be one of: {valid_boards}")
+
+    # Determine CPU target triple based on selected board
+    if board == "xiao-stm32c5":
+        board_target = "thumbv8m.main-none-eabihf"
+        board_arch_name = "Cortex-M33F"
+        board_flash_bytes = 1024 * 1024
+        board_ram_bytes = 256 * 1024
+    else:
+        board_target = "thumbv7em-none-eabihf"
+        board_arch_name = "Cortex-M4F"
+        board_flash_bytes = 1024 * 1024
+        board_ram_bytes = 256 * 1024
 
     valid_orientations = {
         "default": "BoardOrientation::Default",
@@ -290,8 +302,8 @@ def validate_config(cfg):
 
     gps_spec = sensors_cfg.get("gps", nav_cfg.get("gps", False))
     gps_enabled = bool(gps_spec)
-    if gps_enabled and board != "xiao-sense-plus":
-        errors.append(f"GPS navigation requires board: 'xiao-sense-plus'. The standard '{board}' lacks the secondary UART (UARTE1).")
+    if gps_enabled and board not in ["xiao-sense-plus", "xiao-stm32c5"]:
+        errors.append(f"GPS navigation requires a board with secondary UART ('xiao-sense-plus' or 'xiao-stm32c5'). Standard '{board}' lacks UARTE1.")
 
     nav_enabled = bool(nav_cfg.get("enabled", False)) or baro_enabled or compass_enabled or gps_enabled
     profile = str(cfg.get("profile", "gps" if gps_enabled else "ultralight")).strip().lower()
@@ -518,6 +530,10 @@ def validate_config(cfg):
 
     return {
         "board": board,
+        "target": board_target,
+        "arch_name": board_arch_name,
+        "flash_bytes": board_flash_bytes,
+        "ram_bytes": board_ram_bytes,
         "profile": profile,
         "orientation_rust": orientation_rust,
         "airframe_rust": airframe_rust,
@@ -620,6 +636,16 @@ use wingfc_core::tuning::{{InFlightTuning, TuneBank, TuneParameter, TuneSlot}};
 use wingfc_core::pid::PidConfig;
 #[allow(unused_imports)]
 use wingfc_core::mode::{{FlightMode, ModeMatrix, ModeRange}};
+#[allow(unused_imports)]
+use crate::boards::BoardTarget;
+
+/// Target hardware board variant
+pub const BOARD_TARGET: BoardTarget = match "{cfg_vals['board']}" {{
+    "xiao-sense" => BoardTarget::XiaoSense,
+    "xiao-sense-plus" => BoardTarget::XiaoSensePlus,
+    "xiao-stm32c5" => BoardTarget::XiaoStm32c5,
+    _ => BoardTarget::XiaoSense,
+}};
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = {cfg_vals['orientation_rust']};
@@ -873,11 +899,13 @@ def cmd_check(cfg_vals):
     print_advisories(cfg_vals["advisories"])
 
     generate_rust_config(cfg_vals)
-    print("-> Checking compilation for target Cortex-M4F (thumbv7em-none-eabihf)... ", end="", flush=True)
+    target = cfg_vals["target"]
+    arch_name = cfg_vals["arch_name"]
+    print(f"-> Checking compilation for target {arch_name} ({target})... ", end="", flush=True)
 
     cmd = [
         "cargo", "check", "-p", "wingfc-firmware",
-        "--target", TARGET,
+        "--target", target,
         "--no-default-features",
         "--features", cfg_vals["features_str"],
     ]
@@ -925,10 +953,11 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     print_advisories(cfg_vals["advisories"])
 
     generate_rust_config(cfg_vals)
+    target = cfg_vals["target"]
 
     cmd = [
         "cargo", "build", "--release", "-p", "wingfc-firmware",
-        "--target", TARGET,
+        "--target", target,
         "--no-default-features",
         "--features", cfg_vals["features_str"],
     ]
@@ -938,7 +967,7 @@ def cmd_build(cfg_vals, out_dir=DIST_DIR):
     ok, _, stderr = run_cmd(cmd, capture=True)
     elapsed = time.time() - t0
 
-    built_elf = WORKSPACE_ROOT / "target" / TARGET / "release" / "wingfc-firmware"
+    built_elf = WORKSPACE_ROOT / "target" / target / "release" / "wingfc-firmware"
     if not ok or not built_elf.exists():
         print(f"FAILED ({elapsed:.2f}s)")
         print(stderr)

@@ -8,17 +8,18 @@ use embassy_nrf::twim::Twim;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::watch::Sender;
 use embassy_time::{Duration, Timer};
+use embedded_hal_async::i2c::I2c;
 use wingfc_core::math::Vector3;
 
 #[cfg(feature = "baro")]
 use crate::config::{BARO_ENABLED, BARO_I2C_ADDR, BARO_MODEL};
 #[cfg(feature = "baro")]
-use crate::drivers::baro::{pressure_to_altitude, BaroModel, Bmp280Driver, Dps310Driver};
+use wingfc_drivers::baro::{pressure_to_altitude, BaroModel, Bmp280Driver, Dps310Driver};
 
 #[cfg(feature = "compass")]
 use crate::config::{COMPASS_ENABLED, COMPASS_MODEL, MAG_CALIBRATION};
 #[cfg(feature = "compass")]
-use crate::drivers::compass::{CompassModel, Hmc5883lDriver, Qmc5883lDriver};
+use wingfc_drivers::compass::{CompassModel, Hmc5883lDriver, Qmc5883lDriver};
 use wingfc_core::sensor_health::{is_mag_magnitude_plausible, SensorHealth};
 
 /// External (slow) sensor poll period: 50 Hz navigation tier (20 ms).
@@ -41,7 +42,15 @@ pub async fn external_sensors_task(
     mut twim: Twim<'static>,
     sender: Sender<'static, ThreadModeRawMutex, ExternalSensorSnapshot, 2>,
 ) {
-    defmt::info!("Starting External I2C Sensors Task on TWISPI1 (50 Hz)...");
+    run_external_sensors_loop(&mut twim, &sender).await
+}
+
+/// Hardware-agnostic external I2C sensor polling loop (Barometer + Compass) @ 50 Hz.
+pub async fn run_external_sensors_loop<I2C: I2c>(
+    mut twim: &mut I2C,
+    sender: &Sender<'static, ThreadModeRawMutex, ExternalSensorSnapshot, 2>,
+) -> ! {
+    defmt::info!("Starting External I2C Sensors Task (50 Hz)...");
 
     // 1. Initialize Barometer if enabled
     #[cfg(feature = "baro")]

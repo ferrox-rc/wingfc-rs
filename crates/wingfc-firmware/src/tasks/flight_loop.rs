@@ -23,8 +23,8 @@ use crate::config::{
     THROTTLE_ZERO_THRESHOLD, VQF_TAU_ACC, VQF_TAU_MAG,
 };
 #[cfg(not(feature = "dshot"))]
-use crate::drivers::EscPwmDriver;
-use crate::drivers::Lsm6ds3Driver;
+use wingfc_drivers::MotorOutput;
+use wingfc_drivers::Lsm6ds3Driver;
 use crate::tasks::telemetry::VisualStatus;
 #[cfg(any(feature = "baro", feature = "compass"))]
 use crate::tasks::ExternalSensorSnapshot;
@@ -39,10 +39,10 @@ use wingfc_core::vertical_kf::VerticalKalmanFilter;
 
 /// Runs boot-time ESC calibration check if PWM is used (Universal Rule #3).
 #[cfg(not(feature = "dshot"))]
-pub async fn calibrate_esc_if_requested(
+pub async fn calibrate_esc_if_requested<M: MotorOutput>(
     rc_rx: &Receiver<'static, ThreadModeRawMutex, RcChannels, 2>,
     status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
-    esc_pwm: &mut EscPwmDriver<'_>,
+    esc_pwm: &mut M,
 ) -> Option<RcChannels> {
     let start = Instant::now();
     let mut in_esc_calib = false;
@@ -87,8 +87,11 @@ pub async fn calibrate_esc_if_requested(
 }
 
 /// Initializes IMU hardware and runs gyro stationary bias calibration.
-pub async fn calibrate_imu_and_gyro(
-    imu: &mut Lsm6ds3Driver<'_>,
+pub async fn calibrate_imu_and_gyro<
+    I2C: embedded_hal_async::i2c::I2c,
+    INT: embedded_hal_async::digital::Wait,
+>(
+    imu: &mut Lsm6ds3Driver<I2C, INT>,
     status_tx: &Sender<'static, ThreadModeRawMutex, VisualStatus, 2>,
 ) -> Result<(), crate::drivers::ImuError> {
     status_tx.send(VisualStatus::calibrating());

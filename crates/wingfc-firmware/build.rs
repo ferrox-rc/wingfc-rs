@@ -5,19 +5,34 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
-    let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    File::create(out.join("memory.x"))
-        .unwrap()
-        .write_all(include_bytes!("memory.x"))
-        .unwrap();
-    println!("cargo:rustc-link-search={}", out.display());
-    println!("cargo:rerun-if-changed=memory.x");
-
-    // Watch root aircraft configuration and builder script
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let yaml_path = manifest_dir.join("../../wingfc.yaml");
     let script_path = manifest_dir.join("../../scripts/builder.py");
     let target_config = manifest_dir.join("src/config.rs");
+
+    // Detect target board from wingfc.yaml (fallback to nrf52840 if unreadable)
+    let is_stm32c5 = if let Ok(content) = std::fs::read_to_string(&yaml_path) {
+        content.contains("board: xiao-stm32c5")
+            || content.contains("board: \"xiao-stm32c5\"")
+            || content.contains("board: 'xiao-stm32c5'")
+    } else {
+        false
+    };
+
+    let out = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let memory_bytes: &[u8] = if is_stm32c5 {
+        include_bytes!("src/boards/memory_stm32c5.x")
+    } else {
+        include_bytes!("memory.x")
+    };
+
+    File::create(out.join("memory.x"))
+        .unwrap()
+        .write_all(memory_bytes)
+        .unwrap();
+    println!("cargo:rustc-link-search={}", out.display());
+    println!("cargo:rerun-if-changed=memory.x");
+    println!("cargo:rerun-if-changed=src/boards/memory_stm32c5.x");
 
     println!("cargo:rerun-if-changed={}", yaml_path.display());
     println!("cargo:rerun-if-changed={}", script_path.display());

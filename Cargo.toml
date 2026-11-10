@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/wingfc-core",
+    "crates/wingfc-drivers",
     "crates/wingfc-firmware",
 ]
 
@@ -15,6 +16,7 @@ homepage = "https://github.com/BryanSouza91/wingfc-rs"
 
 [workspace.dependencies]
 wingfc-core = { path = "crates/wingfc-core", version = "0.5.0", default-features = false }
+wingfc-drivers = { path = "crates/wingfc-drivers", version = "0.5.0", default-features = false }
 
 [workspace.metadata.release]
 shared-version = true

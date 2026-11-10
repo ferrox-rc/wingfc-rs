@@ -14,6 +14,11 @@ use wingfc_core::mode::{FlightMode, ModeMatrix, ModeRange};
 use wingfc_core::pid::PidConfig;
 #[allow(unused_imports)]
 use wingfc_core::tuning::{InFlightTuning, TuneBank, TuneParameter, TuneSlot};
+#[allow(unused_imports)]
+use crate::boards::BoardTarget;
+
+/// Target hardware board variant
+pub const BOARD_TARGET: BoardTarget = BoardTarget::XiaoSense;
 
 /// Board mounting orientation
 pub const BOARD_ORIENTATION: BoardOrientation = BoardOrientation::Default;

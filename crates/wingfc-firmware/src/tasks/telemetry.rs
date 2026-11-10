@@ -144,6 +144,14 @@ pub async fn telemetry_led_task(
     mut led: RgbLedDriver,
     mut status_rx: Receiver<'static, ThreadModeRawMutex, VisualStatus, 2>,
 ) {
+    run_telemetry_led_loop(&mut led, &mut status_rx).await
+}
+
+/// Hardware-agnostic Status & RGB LED telemetry state machine loop.
+pub async fn run_telemetry_led_loop<L: crate::drivers::StatusLed>(
+    led: &mut L,
+    status_rx: &mut Receiver<'static, ThreadModeRawMutex, VisualStatus, 2>,
+) -> ! {
     defmt::info!("Starting Dual-LED Telemetry task...");
 
     let mut ticker = Ticker::every(Duration::from_millis(50)); // 20 Hz loop (50ms ticks)
@@ -325,10 +333,19 @@ pub async fn crsf_telemetry_task(
     mut tx: embassy_nrf::buffered_uarte::BufferedUarteTx<'static>,
     mut telem_rx: Receiver<'static, ThreadModeRawMutex, FlightTelemetrySnapshot, 2>,
 ) {
+    run_crsf_telemetry_loop(&mut tx, &mut telem_rx).await
+}
+
+/// Hardware-agnostic CRSF telemetry transmitter loop built on [`embedded_io_async::Write`].
+#[cfg(feature = "crsf")]
+pub async fn run_crsf_telemetry_loop<W: embedded_io_async::Write>(
+    tx: &mut W,
+    telem_rx: &mut Receiver<'static, ThreadModeRawMutex, FlightTelemetrySnapshot, 2>,
+) -> ! {
     use embassy_time::{Duration, Ticker};
     use wingfc_core::protocol::crsf::CrsfTelemetryEncoder;
 
-    defmt::info!("Starting CRSF / ELRS Telemetry Task on UARTE0 TX (D6 / P1.11) @ 50 Hz...");
+    defmt::info!("Starting CRSF / ELRS Telemetry Task @ 50 Hz...");
     let mut ticker = Ticker::every(Duration::from_millis(20)); // 50 Hz slot ticker
     let mut slot: u8 = 0;
     let mut snapshot = FlightTelemetrySnapshot::default();
@@ -424,10 +441,8 @@ pub async fn crsf_telemetry_task(
 
         slot = (slot + 1) % 5;
 
-        if len > 0 {
-            if let Err(e) = tx.write(&buf[..len]).await {
-                defmt::warn!("CRSF telemetry TX error: {:?}", e);
-            }
+        if len > 0 && tx.write_all(&buf[..len]).await.is_err() {
+            defmt::warn!("CRSF telemetry TX write error");
         }
     }
 }

@@ -1,0 +1,25 @@
+[package]
+name = "wingfc-drivers"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Hardware-agnostic #![no_std] async drivers and peripheral traits for WingFC flight controllers"
+publish = false
+
+[dependencies]
+wingfc-core = { workspace = true }
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embedded-io-async = "0.7"
+embassy-time = "0.5"
+libm = "0.2"
+defmt = { version = "1.1", optional = true }
+
+[features]
+default = []
+defmt-03 = ["dep:defmt", "wingfc-core/defmt-03", "embassy-time/defmt"]
+baro = ["wingfc-core/baro"]
+compass = ["wingfc-core/compass"]
